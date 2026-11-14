@@ -371,6 +371,128 @@ def test_retry_ladder_can_reach_a_viable_budget():
     assert cc.MAX_REFIT_RETRIES >= 4
 
 
+# --- CONTEXT-OVERFLOW-PLAN.md (2026-11-14) -----------------------------------
+
+import json  # noqa: E402
+
+# Captured at import, before any test stubs it: the standalone runner below
+# has no fixture to restore cc.prompt_tokens between tests.
+_REAL_PROMPT_TOKENS = cc.prompt_tokens
+
+
+def _real_counts():
+    cc.prompt_tokens = _REAL_PROMPT_TOKENS
+
+
+_CODE = "x = 1\n" * 3000  # bulk run_python source, thousands of tokens
+
+
+def _call(cid: str, name: str, args: dict) -> dict:
+    return {"id": cid, "type": "function",
+            "function": {"name": name, "arguments": json.dumps(args)}}
+
+
+def _code_turn(n_iters: int, with_search: bool = True) -> list:
+    """system, user, then n_iters of (assistant run_python [+ search], results)."""
+    msgs = [{"role": "system", "content": "sys"}, {"role": "user", "content": "plot it"}]
+    for k in range(n_iters):
+        calls = [_call(f"r{k}", "run_python", {"code": _CODE})]
+        if with_search:
+            calls.append(_call(f"s{k}", "search", {"query": "4PL fit"}))
+        msgs.append({"role": "assistant", "content": "", "tool_calls": calls})
+        msgs.append({"role": "tool", "tool_call_id": f"r{k}", "content": "ok"})
+        if with_search:
+            msgs.append({"role": "tool", "tool_call_id": f"s{k}", "content": "ok"})
+    return msgs
+
+
+def test_old_bulk_arguments_are_elided_latest_kept():
+    _real_counts()
+    msgs = _code_turn(6)
+    target = cc.prompt_tokens(msgs) // 2
+    out, counts = cc.budget_loop_messages(msgs, target_tokens=target)
+    assert counts["args"] > 0
+    asst = [m for m in out if m.get("role") == "assistant"]
+    latest = asst[-1]["tool_calls"][0]["function"]["arguments"]
+    assert json.loads(latest)["code"] == _CODE, "latest iteration must be untouched"
+    first = asst[0]["tool_calls"]
+    assert json.loads(first[0]["function"]["arguments"])["_elided"] is True
+    assert first[0]["id"] == "r0", "tool_call_id pairing must survive"
+    assert json.loads(first[1]["function"]["arguments"]) == {"query": "4PL fit"}, \
+        "small arguments stay"
+    assert cc.prompt_tokens(out) <= target
+    # the input is not mutated
+    assert json.loads(msgs[2]["tool_calls"][0]["function"]["arguments"])["code"] == _CODE
+
+
+def test_old_results_go_before_arguments():
+    _real_counts()
+    msgs = _code_turn(3, with_search=False)
+    for m in msgs:
+        if m.get("role") == "tool":
+            m["content"] = "y" * 4000
+    # enough to need only part of the old results
+    target = cc.prompt_tokens(msgs) - 500
+    out, counts = cc.budget_loop_messages(msgs, target_tokens=target)
+    assert counts["results"] >= 1 and counts["args"] == 0
+
+
+def test_budget_tool_results_wrapper_counts_all_elisions():
+    _real_counts()
+    msgs = _code_turn(6)
+    out, n = cc.budget_tool_results(msgs, target_tokens=cc.prompt_tokens(msgs) // 2)
+    _, counts = cc.budget_loop_messages(msgs, target_tokens=cc.prompt_tokens(msgs) // 2)
+    assert n == sum(counts.values()) and n > 0
+
+
+def test_turn_start_budget_leaves_room_for_schema_and_turn():
+    _real_counts()
+    b = cc.turn_start_budget(6000)
+    assert b == min(cc.MAX_CONTEXT - cc.GENERATION_RESERVE,
+                    cc.MAX_MODEL_LEN - cc.GENERATION_RESERVE - 6000 - cc.TURN_HEADROOM)
+    # history at its cap + schema + headroom + output reserve fits the window
+    assert b + 6000 + cc.TURN_HEADROOM + cc.GENERATION_RESERVE <= cc.MAX_MODEL_LEN
+    assert cc.turn_start_budget(None) == cc.turn_start_budget(cc.DEFAULT_SCHEMA_TOKENS)
+
+
+def test_drop_history_to_fit_drops_oldest_earlier_turns_only():
+    _real_counts()
+    history = [{"role": "user" if k % 2 == 0 else "assistant", "content": f"turn {k} " + "w " * 2000}
+               for k in range(6)]
+    msgs = [{"role": "system", "content": "sys"}, *history,
+            {"role": "user", "content": "now this"},
+            {"role": "assistant", "content": "", "tool_calls": [_call("r", "run_python", {"code": "1"})]},
+            {"role": "tool", "tool_call_id": "r", "content": "ok"}]
+    history_end = 7
+    target = cc.prompt_tokens(msgs) - cc.prompt_tokens(history[:2]) + 50
+    out, dropped = cc.drop_history_to_fit(msgs, history_end, target)
+    assert dropped >= 2
+    assert out[0]["role"] == "system" and "left out" in out[0]["content"]
+    assert out[-3:] == msgs[-3:], "the new message and this turn's loop stay"
+    assert not any(m.get("content", "").startswith("turn 0 ") for m in out)
+    assert msgs[0]["content"] == "sys", "input not mutated"
+    same, none = cc.drop_history_to_fit(msgs, history_end, 10 ** 9)
+    assert none == 0 and same == msgs
+
+
+def test_minimal_wrap_up_messages_shape():
+    _real_counts()
+    msgs = _code_turn(3)
+    out = cc.minimal_wrap_up_messages(msgs, 1, "Partial answer.")
+    assert [m["role"] for m in out] == ["system", "user", "user"]
+    assert out[1]["content"] == "plot it"
+    assert "Partial answer." in out[2]["content"]
+    assert "tool_calls" not in str(out)
+
+
+def test_prompt_composition_buckets():
+    _real_counts()
+    msgs = _code_turn(2)
+    comp = cc.prompt_composition(msgs, extra_tokens=100, history_end=1)
+    assert comp["schema"] == 100 and comp["tool_args"] > comp["tool_results"]
+    assert comp["total"] >= comp["tool_args"] + comp["system"]
+
+
 if __name__ == "__main__":
     import types
     _orig = cc.prompt_tokens

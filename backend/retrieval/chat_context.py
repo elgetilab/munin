@@ -65,6 +65,44 @@ MIN_OUTPUT_TOKENS = int(os.getenv("VLLM_MIN_OUTPUT_TOKENS", "256"))
 # budget, so the ladder exhausted and the turn died; five reaches 512.
 MAX_REFIT_RETRIES = int(os.getenv("VLLM_MAX_REFIT_RETRIES", "5"))
 
+# --- Turn headroom and the no-send floor (CONTEXT-OVERFLOW-PLAN.md) ----------
+# History is trimmed once at turn start, and used to be allowed the whole
+# MAX_CONTEXT - GENERATION_RESERVE (43.6K) while the tools schema (~6K) and
+# the turn's own tool calls had to fit in what was left: nothing, once a long
+# session's history neared its cap. TURN_HEADROOM is room kept free for the
+# turn's tool calls and results, on top of the schema and the output reserve.
+TURN_HEADROOM = int(os.getenv("VLLM_TURN_HEADROOM", "12000"))
+# Schema size assumed where the routed profile is not known (the background
+# pre-compaction). The largest live schema measured was 7,289 (code).
+DEFAULT_SCHEMA_TOKENS = int(os.getenv("VLLM_DEFAULT_SCHEMA_TOKENS", "7300"))
+# When the prompt leaves less than this for the answer, older history is left
+# out of the copy sent to vLLM before giving up on the call.
+MIN_USEFUL_OUTPUT_TOKENS = int(os.getenv("VLLM_MIN_USEFUL_OUTPUT_TOKENS", "4096"))
+# Tools whose arguments are bulk payload (source code, documents). Their
+# arguments from earlier loop iterations may be elided like old tool results;
+# small arguments (a search query) cost little and stay.
+BULK_ARGUMENT_TOOLS = frozenset({
+    "run_python", "edit_python", "create_artifact", "update_artifact",
+    "compile_latex",
+})
+# What the user sees when a turn cannot continue because the context is full.
+# The raw vLLM error stays in the log only.
+CONTEXT_FULL_MESSAGE = (
+    "This conversation got too long for the model to continue in one step. "
+    "Press Continue to carry on, or start a new chat and attach the files again."
+)
+CONTEXT_FULL_REASON = "context_full"
+
+
+def turn_start_budget(schema_tokens: Optional[int] = None) -> int:
+    """Token budget for system prompt + history + the new user message at
+    turn start: the window minus the output reserve, the tools schema and
+    TURN_HEADROOM, never more than the old MAX_CONTEXT - GENERATION_RESERVE
+    (so a deployment that lowered VLLM_MAX_CONTEXT keeps its cap)."""
+    schema = DEFAULT_SCHEMA_TOKENS if schema_tokens is None else max(0, schema_tokens)
+    window_fit = MAX_MODEL_LEN - GENERATION_RESERVE - schema - TURN_HEADROOM
+    return max(4000, min(MAX_CONTEXT - GENERATION_RESERVE, window_fit))
+
 SUMMARIZE_PROMPT = (
     "You are compacting an ongoing conversation so that a language model can "
     "continue it without losing context. Produce a concise third-person "
@@ -314,29 +352,123 @@ _ELIDED_TOOL_RESULT = (
     'window; re-run the tool if you need its details again"}'
 )
 
+# Replacement for the arguments of an earlier bulk tool call (the source code
+# of an old run_python, say). Valid JSON so the chat template can render it.
+# The kernel keeps its state across runs, so the definitions survive.
+_ELIDED_TOOL_ARGUMENTS = json.dumps({
+    "_elided": True,
+    "note": ("arguments of this earlier call trimmed to fit the context "
+             "window; for run_python the variables and functions it defined "
+             "are still live in the kernel"),
+})
 
-def budget_tool_results(
+
+def _args_elided(call: dict) -> bool:
+    fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+    return fn.get("arguments") == _ELIDED_TOOL_ARGUMENTS
+
+
+def _bulk_calls(message: dict) -> list[int]:
+    """Indices of a message's tool calls whose arguments may be elided."""
+    out = []
+    for j, call in enumerate(message.get("tool_calls") or []):
+        if not isinstance(call, dict):
+            continue
+        fn = call.get("function") if isinstance(call.get("function"), dict) else {}
+        if fn.get("name") in BULK_ARGUMENT_TOOLS and not _args_elided(call):
+            out.append(j)
+    return out
+
+
+def prompt_composition(
+    messages: list, *, extra_tokens: int = 0, history_end: Optional[int] = None,
+) -> dict:
+    """Where a prompt's tokens are, for the overflow log line (plan Step 0).
+
+    Buckets: system, history (messages before ``history_end``, when given),
+    user, assistant_text, tool_args, tool_results, images, schema, total."""
+    comp = {k: 0 for k in ("system", "history", "user", "assistant_text",
+                           "tool_args", "tool_results", "images")}
+    for i, m in enumerate(messages):
+        if not isinstance(m, dict):
+            continue
+        content = m.get("content")
+        text = approx_tokens(_content_to_text(content)) + 4
+        comp["images"] += _count_image_blocks(content) * _PER_IMAGE_TOKENS
+        role = m.get("role")
+        if role == "system":
+            comp["system"] += text
+        elif history_end is not None and 0 < i < history_end:
+            comp["history"] += text + _tool_calls_tokens(m)
+        elif role == "tool":
+            comp["tool_results"] += text
+        elif role == "assistant":
+            comp["assistant_text"] += text
+            comp["tool_args"] += _tool_calls_tokens(m)
+        else:
+            comp["user"] += text
+    comp["schema"] = extra_tokens
+    comp["total"] = sum(comp.values()) + 8
+    return comp
+
+
+def drop_history_to_fit(
+    messages: list, history_end: int, target_tokens: int, *, extra_tokens: int = 0,
+):
+    """Leave the oldest earlier-turn messages (``messages[1:history_end]``)
+    out of the copy sent to vLLM until the prompt fits ``target_tokens``.
+    Plan Step 3a, the move left when the turn's own messages cannot shrink
+    further. Never touches the system prompt, the user's new message or this
+    turn's tool loop, and never the persisted conversation. Returns
+    (new_messages, n_dropped); a note in the system prompt says how many
+    were left out."""
+    if not messages or history_end <= 1:
+        return list(messages), 0
+    total = prompt_tokens(messages) + extra_tokens
+    if total <= target_tokens:
+        return list(messages), 0
+    keep_from = 1
+    while keep_from < history_end and total > target_tokens:
+        m = messages[keep_from]
+        total -= _message_tokens(m) if isinstance(m, dict) else 0
+        keep_from += 1
+    dropped = keep_from - 1
+    system = dict(messages[0])
+    note = (f"[{dropped} earlier message(s) of this conversation were left out "
+            "to fit the context window.]")
+    if isinstance(system.get("content"), str):
+        system["content"] = f"{system['content']}\n\n{note}"
+    return [system, *messages[keep_from:]], dropped
+
+
+def budget_loop_messages(
     messages: list,
     *,
     target_tokens: Optional[int] = None,
     extra_tokens: int = 0,
 ):
-    """Tier 2: keep a heavy fan-out turn's prompt within budget so the output
-    budget (fit_max_tokens) isn't starved to the floor. Returns
-    (new_messages, n_elided).
+    """Keep a tool-loop prompt within budget so the output budget
+    (fit_max_tokens) is not starved to the floor. Returns
+    (new_messages, counts) with counts ``{"results", "args", "pending"}``.
 
-    Does NOT mutate the input - the full results stay in the persisted
-    conversation; only the copy sent to vLLM is trimmed. Tool results from PRIOR
-    loop iterations (before the most recent assistant message) are elided first,
-    oldest first - the model has already reasoned past them. The pending batch
-    (tool results after the last assistant message) is preserved EXCEPT as a last
-    resort: if even after eliding all prior results the prompt still exceeds the
-    window (a single fan-out iteration whose own results overflow), the largest
-    pending results are elided too - degrading the turn instead of letting vLLM
-    reject it with a fatal context-length error.
-    (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)"""
+    Does NOT mutate the input: the full messages stay in the persisted
+    conversation; only the copy sent to vLLM is trimmed. In order, until the
+    prompt fits:
+
+    1. tool results from PRIOR loop iterations (before the most recent
+       assistant message), oldest first (Tier 2);
+    2. the arguments of earlier bulk tool calls (``BULK_ARGUMENT_TOOLS``, the
+       code of old run_python calls and the like), oldest first, never the
+       most recent assistant message's calls. Before 2026-11 nothing could
+       remove these, and a long code turn carried up to 37.7K tokens of them
+       (CONTEXT-OVERFLOW-PLAN.md, Step 1);
+    3. last resort, the pending batch (results after the last assistant
+       message), largest first, degrading the turn instead of letting vLLM
+       reject it (chat 5938cd64, 2026-07-08).
+    """
     if target_tokens is None:
         target_tokens = MAX_MODEL_LEN - GENERATION_RESERVE - CTX_MARGIN
+    counts = {"results": 0, "args": 0, "pending": 0}
 
     def _tok(m: dict) -> int:
         try:
@@ -351,7 +483,7 @@ def budget_tool_results(
     # reached and this function elided nothing in production for two months.
     total = sum(per) + 8 + extra_tokens
     if total <= target_tokens:
-        return list(messages), 0
+        return list(messages), counts
 
     last_asst = max(
         (i for i, m in enumerate(messages)
@@ -360,7 +492,8 @@ def budget_tool_results(
     )
     stub_tokens = _tok({"role": "tool", "content": _ELIDED_TOOL_RESULT})
     out = list(messages)
-    elided = 0
+
+    # 1. old tool results
     for i, m in enumerate(messages):
         if total <= target_tokens or i >= last_asst:
             break  # fits, or we've reached the pending (protected) batch
@@ -370,16 +503,38 @@ def budget_tool_results(
             continue  # already elided (idempotent)
         total -= (per[i] - stub_tokens)
         out[i] = {**m, "content": _ELIDED_TOOL_RESULT}
-        elided += 1
+        counts["results"] += 1
 
-    # Last resort: the pass above stops at the pending batch (i >= last_asst)
-    # to preserve the current step's results. But a SINGLE fan-out iteration
-    # whose own tool results exceed the window (deep_research + many searches,
-    # chat 5938cd64, 2026-07-08) would still overflow - and the alternative is
-    # a fatal vLLM "maximum context length" rejection that kills the turn.
-    # Degrade instead of dying: elide the largest pending tool results,
-    # largest first, until the prompt fits. The model loses some tool detail
-    # (and can re-run the tool) but the turn completes.
+    # 2. arguments of earlier bulk tool calls
+    for i, m in enumerate(messages):
+        if total <= target_tokens or i >= last_asst:
+            break
+        if not (isinstance(m, dict) and m.get("role") == "assistant"):
+            continue
+        bulk = _bulk_calls(m)
+        if not bulk:
+            continue
+        calls = list(m.get("tool_calls") or [])
+        for j in bulk:
+            call = calls[j]
+            fn = dict(call.get("function") or {})
+            before = _tool_calls_tokens({"tool_calls": [call]})
+            fn["arguments"] = _ELIDED_TOOL_ARGUMENTS
+            calls[j] = {**call, "function": fn}
+            after = _tool_calls_tokens({"tool_calls": [calls[j]]})
+            total -= max(0, before - after)
+            counts["args"] += 1
+            if total <= target_tokens:
+                break
+        out[i] = {**out[i], "tool_calls": calls}
+
+    # 3. Last resort: the passes above stop at the pending batch (i >=
+    # last_asst) to preserve the current step's results. But a SINGLE fan-out
+    # iteration whose own tool results exceed the window (deep_research + many
+    # searches, chat 5938cd64, 2026-07-08) would still overflow. Degrade
+    # instead of dying: elide the largest pending tool results, largest first,
+    # until the prompt fits. The model loses some tool detail (and can re-run
+    # the tool) but the turn completes.
     if total > target_tokens and last_asst >= 0:
         pending = [
             i for i, m in enumerate(messages)
@@ -395,9 +550,57 @@ def budget_tool_results(
                 break
             total -= (per[i] - stub_tokens)
             out[i] = {**messages[i], "content": _ELIDED_TOOL_RESULT}
-            elided += 1
+            counts["pending"] += 1
 
-    return out, elided
+    return out, counts
+
+
+def budget_tool_results(
+    messages: list,
+    *,
+    target_tokens: Optional[int] = None,
+    extra_tokens: int = 0,
+):
+    """Back-compat wrapper over ``budget_loop_messages``: returns
+    (new_messages, total number of elisions)."""
+    out, counts = budget_loop_messages(
+        messages, target_tokens=target_tokens, extra_tokens=extra_tokens)
+    return out, sum(counts.values())
+
+
+def minimal_wrap_up_messages(
+    messages: list, history_end: Optional[int], content_so_far: str,
+) -> list[dict]:
+    """The smallest prompt that still lets the model answer after the context
+    filled up mid-turn (plan Step 3b): the system prompt, the user's message,
+    and one note carrying what was written this turn and the latest tool
+    results, clipped. No earlier turns, no tool-call trail."""
+    system = next((m for m in messages if isinstance(m, dict)
+                   and m.get("role") == "system"), None)
+    user = None
+    if history_end is not None and 0 <= history_end < len(messages):
+        user = messages[history_end]
+    if not (isinstance(user, dict) and user.get("role") == "user"):
+        user = next((m for m in reversed(messages) if isinstance(m, dict)
+                     and m.get("role") == "user"), None)
+    last_asst = max((i for i, m in enumerate(messages) if isinstance(m, dict)
+                     and m.get("role") == "assistant"), default=-1)
+    latest = [m for m in messages[last_asst + 1:] if isinstance(m, dict)
+              and m.get("role") == "tool"] if last_asst >= 0 else []
+    results = "\n\n".join(_content_to_text(m.get("content"))[:6000] for m in latest)
+    written = (content_so_far or "").strip()[-8000:]
+    note = (
+        "The working context of this turn grew past the model's window, so the "
+        "earlier tool steps are not shown.\n\n"
+        f"What you wrote to the user so far this turn:\n{written or '(nothing yet)'}\n\n"
+        f"Latest tool results:\n{results[:24000] or '(none)'}\n\n"
+        "Write your final answer to the user now from what was done. Do not "
+        "call tools. Say plainly which steps did not finish, and that the user "
+        "can press Continue to carry on."
+    )
+    out = [m for m in (system, user) if m is not None]
+    out.append({"role": "user", "content": note})
+    return out
 
 
 def is_ctx_overflow(text: str) -> bool:
@@ -614,6 +817,7 @@ async def assemble_context(
     rag_context: Optional[dict] = None,
     ephemeral: bool = False,
     active_persona_id: Optional[str] = None,
+    schema_tokens: Optional[int] = None,
 ) -> tuple[list[dict], Optional[dict]]:
     """
     Build a list of vLLM chat messages for the next completion.
@@ -690,7 +894,9 @@ async def assemble_context(
     new_content = new_message.get("content", "")
     new_msg = {"role": new_message.get("role", "user"), "content": new_content}
 
-    budget = MAX_CONTEXT - GENERATION_RESERVE
+    # Leave the turn room for the tools schema and its own tool calls
+    # (turn_start_budget); ``schema_tokens`` is the routed profile's schema.
+    budget = turn_start_budget(schema_tokens)
     system_tokens = approx_tokens(combined_system) + 4
     new_tokens = _message_tokens(new_msg)
     history_budget = budget - system_tokens - new_tokens
@@ -851,11 +1057,10 @@ async def _maybe_precompact(conversation_id: str, user_email: str) -> None:
         stored_messages: list[dict] = conversation.get("messages") or []
         if not stored_messages:
             return
-        # Approximate budget using the same MAX_CONTEXT / GENERATION_RESERVE
-        # math as assemble_context. We don't have the next user message
-        # in hand here, so use a placeholder reserve of ~500 tokens for
-        # the next turn's user input on top of GENERATION_RESERVE.
-        budget = MAX_CONTEXT - GENERATION_RESERVE - 500
+        # Approximate budget using the same turn_start_budget as
+        # assemble_context, with the default schema size. We don't have the
+        # next user message in hand here, so keep ~500 tokens back for it.
+        budget = turn_start_budget(None) - 500
         history_tokens = sum(_message_tokens(m) for m in stored_messages)
         if history_tokens < int(budget * PRECOMPACT_THRESHOLD):
             return

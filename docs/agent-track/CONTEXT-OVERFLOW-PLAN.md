@@ -1,6 +1,13 @@
 # Context overflow in long tool sessions: plan
 
-Status: PLAN 2026-11-14, waiting for "proceed". Found by the lab-analysis
+Status: Steps 0-4 IMPLEMENTED 2026-11-14 ("proceed"), not yet deployed;
+Step 5 live check pending a retrieval deploy. Defaults Q1-Q4 taken. What
+landed: `budget_loop_messages` (old results, then old bulk arguments, then
+pending), `turn_start_budget` in `assemble_context` and the pre-compaction,
+the no-send floor with `drop_history_to_fit` and the minimal wrap-up in
+`_stream_vllm_once` and the tool loop, a readable context-full marker, a
+composition log line ("prompt near the context window"), and the three new
+knobs in docker-compose. Hermetic suite 110/110. Found by the lab-analysis
 Phase 1 smoke run (`LAB-PHASE1-PLAN.md`). Predecessor:
 `docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md` (Tiers 1-3 and the
 2026-08-12 reopening, which fixed the blind token count).

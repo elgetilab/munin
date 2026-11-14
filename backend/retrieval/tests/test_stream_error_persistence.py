@@ -1513,6 +1513,69 @@ def test_new_conversation_backfills_registry_stream() -> bool:
         sr.registry._streams.pop(s.stream_id, None)
 
 
+# ---------------------------------------------------------------------------
+# Context full mid-turn (CONTEXT-OVERFLOW-PLAN.md, Steps 3b and 4)
+# ---------------------------------------------------------------------------
+
+
+def test_ctx_overflow_marker_is_readable() -> bool:
+    raw = ('vLLM returned 400: {"error":{"message":"This model\'s maximum '
+           'context length is 65536 tokens. However, your prompt contains at '
+           'least 65537 input tokens"}}')
+    out = apply_stream_error_marker("", raw)
+    ok = (out == f"_({chat_service.chat_context.CONTEXT_FULL_MESSAGE})_"
+          and "65536" not in out and "{" not in out)
+    return _check("context overflow marker is a sentence, not raw JSON", ok,
+                  f"got {out!r}")
+
+
+async def _fake_stream_context_full(*args: Any, **kwargs: Any) -> AsyncIterator[tuple]:
+    """Call 0 (tool loop): the prompt cannot fit, so _stream_vllm_once reports
+    context_full without calling vLLM. Call 1 (wrap-up, no tools): answers."""
+    calls = _fake_stream_context_full.calls  # type: ignore[attr-defined]
+    calls.append({"messages": kwargs.get("messages"),
+                  "enable_tools": kwargs.get("enable_tools"),
+                  "history_end": kwargs.get("history_end")})
+    acc = _StreamAccumulator()
+    if len(calls) == 1:
+        yield ("error", {"message": chat_service.chat_context.CONTEXT_FULL_MESSAGE,
+                         "reason": chat_service.chat_context.CONTEXT_FULL_REASON}, acc)
+        return
+    acc.content_parts.append("Here is what was done.")
+    acc.finish_reason = "stop"
+    yield ("token", {"content": "Here is what was done."}, acc)
+
+
+def test_context_full_wraps_up_instead_of_storing_an_error() -> bool:
+    _fake_stream_context_full.calls = []  # type: ignore[attr-defined]
+    capture: dict = {}
+    events = _drive_stream_chat(_fake_stream_context_full,
+                                _fake_run_tool_calls_unused, capture)
+    calls = _fake_stream_context_full.calls  # type: ignore[attr-defined]
+    saved = [c for c in capture["calls"] if c.get("role") == "assistant"]
+    content = (saved[0].get("content") or "") if saved else ""
+    done = [e for e in events if e.get("event") == "done"]
+    problems = []
+    if any(e.get("event") == "error" for e in events):
+        problems.append("an error SSE reached the client")
+    if len(calls) != 2:
+        problems.append(f"{len(calls)} stream calls, want 2")
+    else:
+        if calls[0]["history_end"] != 1:
+            problems.append(f"history_end={calls[0]['history_end']}, want 1")
+        if calls[1]["enable_tools"] is not False:
+            problems.append("wrap-up called with tools")
+        wrap = calls[1]["messages"] or []
+        if not (len(wrap) == 3 and "grew past" in str(wrap[-1].get("content"))):
+            problems.append(f"wrap-up prompt not minimal: {wrap!r}")
+    if "Here is what was done." not in content or "stream interrupted" in content:
+        problems.append(f"saved content {content!r}")
+    if not done or "max_turns" not in str(done[-1]):
+        problems.append(f"done event {done[-1] if done else None!r}")
+    return _check("context full mid-turn -> minimal wrap-up, Continue, no raw error",
+                  not problems, "; ".join(problems))
+
+
 TESTS = [
     test_explicit_stop_marker_says_stopped_by_user,
     test_new_conversation_backfills_registry_stream,
@@ -1536,6 +1599,9 @@ TESTS = [
     test_unhandled_exception_in_tool_call_persists_marker,
     test_unhandled_exception_in_assemble_context_persists_marker,
     test_audit_exception_after_loop_still_persists,
+    # Context full mid-turn (CONTEXT-OVERFLOW-PLAN.md)
+    test_ctx_overflow_marker_is_readable,
+    test_context_full_wraps_up_instead_of_storing_an_error,
 ]
 
 

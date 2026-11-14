@@ -957,6 +957,7 @@ async def _stream_vllm_once(
     persona: Optional[dict] = None,
     *,
     purpose: str = "chat_turn",
+    history_end: Optional[int] = None,
 ) -> AsyncIterator[tuple[str, dict, _StreamAccumulator]]:
     """
     Make one streaming call to vLLM and yield (event_name, payload, acc)
@@ -979,14 +980,57 @@ async def _stream_vllm_once(
     # sent to vLLM so the output budget fit below isn't starved. No-op until
     # results accumulate; never touches the pending batch or the persisted
     # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
-    messages, _n_elided = chat_context.budget_tool_results(
+    messages, _elided = chat_context.budget_loop_messages(
         messages, extra_tokens=schema_tokens
     )
-    if _n_elided:
+    if _elided["results"] or _elided["pending"]:
         logger.info(
             "budgeted %d earlier tool result(s) out of the prompt to fit the "
-            "context window", _n_elided,
+            "context window", _elided["results"] + _elided["pending"],
         )
+    if _elided["args"]:
+        logger.info(
+            "budgeted the arguments of %d earlier tool call(s) out of the "
+            "prompt to fit the context window", _elided["args"],
+        )
+
+    # Step 3 of CONTEXT-OVERFLOW-PLAN.md: never send a request we already
+    # know vLLM will reject. When the turn's own messages cannot shrink
+    # further, leave the oldest earlier-turn messages out of this copy; if
+    # even that cannot make room, report context_full so the caller wraps up
+    # from a minimal prompt instead of storing a raw 400.
+    _room = (chat_context.MAX_MODEL_LEN - chat_context.prompt_tokens(messages)
+             - schema_tokens - chat_context.CTX_MARGIN)
+    if _room < chat_context.MIN_USEFUL_OUTPUT_TOKENS:
+        logger.warning(
+            "prompt near the context window (room=%d); composition %s",
+            _room,
+            chat_context.prompt_composition(
+                messages, extra_tokens=schema_tokens, history_end=history_end),
+        )
+        if history_end is not None:
+            messages, _n_dropped = chat_context.drop_history_to_fit(
+                messages, history_end,
+                chat_context.MAX_MODEL_LEN - chat_context.CTX_MARGIN
+                - chat_context.MIN_USEFUL_OUTPUT_TOKENS,
+                extra_tokens=schema_tokens,
+            )
+            if _n_dropped:
+                logger.warning(
+                    "left %d earlier-turn message(s) out of the prompt to fit "
+                    "the context window", _n_dropped,
+                )
+            _room = (chat_context.MAX_MODEL_LEN
+                     - chat_context.prompt_tokens(messages)
+                     - schema_tokens - chat_context.CTX_MARGIN)
+        if _room < chat_context.MIN_OUTPUT_TOKENS:
+            logger.warning(
+                "context full (room=%d); not calling vLLM (purpose=%s)",
+                _room, purpose,
+            )
+            yield ("error", {"message": chat_context.CONTEXT_FULL_MESSAGE,
+                             "reason": chat_context.CONTEXT_FULL_REASON}, acc)
+            return
 
     body: dict[str, Any] = {
         "model": VLLM_MODEL_NAME,
@@ -1163,7 +1207,13 @@ async def _stream_vllm_once(
                             refit_attempts, chat_context.MAX_REFIT_RETRIES,
                         )
                         continue
-            yield ("error", {"message": str(e)}, acc)
+            if chat_context.is_ctx_overflow(str(e)):
+                # The raw vLLM body goes to the log, not to the user.
+                logger.warning("vLLM context overflow, giving up the call: %s", e)
+                yield ("error", {"message": chat_context.CONTEXT_FULL_MESSAGE,
+                                 "reason": chat_context.CONTEXT_FULL_REASON}, acc)
+            else:
+                yield ("error", {"message": str(e)}, acc)
         except Exception as e:
             yield ("error", {"message": f"vLLM streaming failed: {e}"}, acc)
         break
@@ -1495,7 +1545,12 @@ def apply_stream_error_marker(final_content: str, error_message: str) -> str:
     marker is still informative if the upstream payload has no message field.
     """
     msg = (error_message or "").strip() or "vLLM stream error"
-    marker = f"_(stream interrupted: {msg})_"
+    if msg == chat_context.CONTEXT_FULL_MESSAGE or chat_context.is_ctx_overflow(msg):
+        # A context overflow is not an outage; tell the user what to do and
+        # keep the raw vLLM body out of the transcript.
+        marker = f"_({chat_context.CONTEXT_FULL_MESSAGE})_"
+    else:
+        marker = f"_(stream interrupted: {msg})_"
     if final_content and final_content.strip():
         return f"{final_content.rstrip()}\n\n{marker}"
     return marker
@@ -2431,7 +2486,14 @@ async def stream_chat_completion(
             rag_context=rag_context,
             ephemeral=ephemeral,
             active_persona_id=persona_id,
+            schema_tokens=chat_context.tools_schema_tokens(
+                _openai_tools_schema(persona)),
         )
+        # Index of the user's new message: everything before it (after the
+        # system prompt) is earlier turns, everything after is this turn's
+        # tool loop. _stream_vllm_once may leave earlier turns out of a call
+        # when the context fills (CONTEXT-OVERFLOW-PLAN.md, Step 3).
+        history_end = len(messages) - 1
         # P2 #22: emit a compact_boundary SSE so the UI can render a
         # visible "earlier N messages summarised" divider in the chat
         # log. Fires whether the summary was generated this turn
@@ -2474,6 +2536,9 @@ async def stream_chat_completion(
         # but a vLLM "Error in input stream" on the follow-up summarisation turn
         # made the entire assistant message disappear from the saved transcript.
         had_stream_error: Optional[str] = None
+        # Set when the context filled mid-turn: the wrap-up then runs from a
+        # minimal prompt (CONTEXT-OVERFLOW-PLAN.md, Step 3b).
+        context_full = False
         # `acc` / `acc_transferred` are hoisted above the try: block.
         # If GeneratorExit fires inside the inner async-for (client
         # disconnect during streaming), the per-turn transfer is skipped,
@@ -2536,8 +2601,14 @@ async def stream_chat_completion(
                     sampling=sampling,
                     enable_tools=True,
                     persona=persona,
+                    history_end=history_end,
                 ):
                     acc = accumulator
+                    if (event_name == "error" and payload.get("reason")
+                            == chat_context.CONTEXT_FULL_REASON):
+                        # Not an error to show: the turn wraps up below.
+                        context_full = True
+                        continue
                     if event_name == "error":
                         stream_error = payload.get("message")
                         yield _sse("error", payload)
@@ -2546,8 +2617,22 @@ async def stream_chat_completion(
                 # Got output, or a hard error that owns its own handling
                 # below; either way stop retrying. Only a clean-but-empty
                 # pass falls through to attempt 1.
-                if stream_error or acc is not None:
+                if context_full or stream_error or acc is not None:
                     break
+
+            if context_full:
+                # Wrap up from what was done; the client gets the Continue
+                # affordance (terminal_reason max_turns), not a raw 400.
+                logger.warning(
+                    "context full on turn %d; wrapping up from a minimal prompt",
+                    turn,
+                )
+                if acc is not None:
+                    final_thinking += acc.thinking
+                    final_content += acc.content
+                acc_transferred = True
+                hit_turn_cap = True
+                break
 
             if stream_error:
                 had_stream_error = stream_error
@@ -3077,6 +3162,25 @@ async def stream_chat_completion(
             logger.info(
                 "turn cancelled before wrap-up; skipping synthesis",
             )
+        elif context_full and not had_stream_error:
+            wrap_up_messages = chat_context.minimal_wrap_up_messages(
+                messages, history_end, final_content)
+            wrap_acc = None
+            async for event_name, payload, accumulator in _stream_vllm_once(
+                messages=wrap_up_messages,
+                sampling=sampling,
+                enable_tools=False,
+                purpose="chat_wrap_up",
+            ):
+                wrap_acc = accumulator
+                yield _sse(event_name, payload)
+            if wrap_acc is not None:
+                final_thinking += wrap_acc.thinking
+                final_content += wrap_acc.content
+                record_usage("wrap_up", wrap_acc.usage)
+                finish_reason = wrap_acc.finish_reason or finish_reason
+            if not final_content.strip():
+                final_content = f"_({chat_context.CONTEXT_FULL_MESSAGE})_"
         elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
             wrap_up_messages = list(messages) + [
                 {
