@@ -387,7 +387,7 @@ As of 2026-09-17:
 |---|---|
 | Canonical results log | `backend/benchmarks/RESULTS.md` |
 | Claim-to-scorecard index | `PAPER.md` |
-| Scorecards (97 JSON, 57 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline, the `2026-09-16_*gpt-oss*` and `2026-09-17_*qwen3.6*` files the other two backbones on the same protocol) | `backend/benchmarks/scorecards/` |
+| Scorecards (110 JSON, 62 Markdown; the `2026-08-26_*`, `2026-09-14_*` and `2026-09-15_*` files are the current headline, the `2026-09-16_*gpt-oss*` and `2026-09-17_*qwen3.6*` files the other two backbones on the same protocol) | `backend/benchmarks/scorecards/` |
 | Benchmark harness | `backend/benchmarks/munin_bench/` |
 | Certification thresholds | `backend/benchmarks/certification_thresholds.json` |
 | Paper track: plans, specs, open items | `docs/paper-track/` |

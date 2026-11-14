@@ -1,7 +1,34 @@
 # Lab analysis Phase 1: fixtures and eval harness
 
-Status: APPROVED 2026-11-14 ("execute the plan afterwards"), defaults below
-taken as decided. Parent plan: `LAB-ANALYSIS-PLAN.md`.
+Status: DONE 2026-11-14. Approved the same day ("execute the plan afterwards"),
+defaults below taken as decided. Parent plan: `LAB-ANALYSIS-PLAN.md`.
+
+## Outcome
+
+- 95 cases (S1 76, S2 10, S3 2, S5 2, S6 5), regenerable byte for byte;
+  115 offline tests; live sandbox suite 51/51 with the S0 additions (the
+  pre-existing "kernel usable after timeout" check failed once in three runs
+  and now prints its detail).
+- Smoke run, 11 cases, 1 rep, Sage-A1.5, persona `munin`
+  (`scorecards/2026-11-14_smoke.json`, NOT a result): 9/11 pass, mean check
+  score 0.874. Every grader ran at least once.
+- The smoke run exposed one grader bug, fixed in 670dbe4: `manifest_diff`
+  compared plot series by draw order, which matplotlib does not keep stable.
+- Real misses the smoke run showed (inputs for Phase 2 and `labkit`):
+  - `s2_bruker_1d`: the model read the int32 FID (`DTYPA= 0`) as int16, never
+    tried nmrglue, then reported nulls with honest warnings. No made-up numbers.
+  - `s3_bars`: unrequested edits on most turns (dpi, size, title, xlabel,
+    genotype order); the PDF export came out 94.7 mm wide, not 85
+    (tight bbox); turn 7 ("remove KO2") answered in 2 s with a repeated
+    `<answer>` fragment and no tool call.
+  - `s3_bars` turn 4 hit vLLM's 65,536-token context limit after 57
+    sandbox calls over four turns, and the stored reply is the raw 400 error.
+    A production issue, not an eval artifact: long plot sessions need
+    history trimming. Logged in `TODO.md` section 6.
+- Phase 1b (deferred): the 31P lineshape case (needs a lineshape simulator,
+  `labkit` work) and MicroCal `.itc` (needs a real sample or licence-checked
+  demo files). Also: the figure manifest does not recognise seaborn's error
+  bars (drawn as lines); a `fighook` fix.
 
 Phase 1 builds the measuring instrument, not the measurement. It ends with a
 smoke run (one case per suite on the production backbone) proving every path

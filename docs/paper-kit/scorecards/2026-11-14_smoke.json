@@ -1,0 +1,183 @@
+{
+  "meta": {
+    "tag": "smoke",
+    "generated_at": "2026-11-14T11:02:34.107715+00:00",
+    "git_sha": "670dbe4",
+    "encoder": "n/a",
+    "seed": 42,
+    "packages": {
+      "numpy": "1.26.4",
+      "scipy": "1.13.1",
+      "sentence_transformers": "n/a",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "suite": "lab-analysis",
+    "arm": "adhoc",
+    "persona": "munin",
+    "reps": 1,
+    "heldout": false,
+    "cases": [
+      "s1_4pl_s1",
+      "s1_nist_misra1a",
+      "s1_standard_s1",
+      "s1_trap_unidentifiable",
+      "s2_binary_sda",
+      "s2_bruker_1d",
+      "s2_nanodrop_dede",
+      "s3_bars",
+      "s5_fit",
+      "s6_hsqc_titration_s1",
+      "s6_order_2h"
+    ],
+    "vision_judge": null
+  },
+  "tasks": {
+    "lab-S1": {
+      "sage-a1.5/adhoc": {
+        "metrics": {
+          "case_score": {
+            "mean": 1.0,
+            "ci_low": 1.0,
+            "ci_high": 1.0,
+            "n": 4
+          },
+          "case_pass": {
+            "mean": 1.0,
+            "ci_low": 1.0,
+            "ci_high": 1.0,
+            "n": 4
+          }
+        },
+        "per_query": {
+          "s1_4pl_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1a#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_unidentifiable#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    },
+    "lab-S2": {
+      "sage-a1.5/adhoc": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.6666666666666666,
+            "ci_low": 0.0,
+            "ci_high": 1.0,
+            "n": 3
+          },
+          "case_pass": {
+            "mean": 0.6666666666666666,
+            "ci_low": 0.0,
+            "ci_high": 1.0,
+            "n": 3
+          }
+        },
+        "per_query": {
+          "s2_binary_sda#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_bruker_1d#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s2_nanodrop_dede#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    },
+    "lab-S3": {
+      "sage-a1.5/adhoc": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.6111111111111112,
+            "ci_low": 0.6111111111111112,
+            "ci_high": 0.6111111111111112,
+            "n": 1
+          },
+          "case_pass": {
+            "mean": 0.0,
+            "ci_low": 0.0,
+            "ci_high": 0.0,
+            "n": 1
+          }
+        },
+        "per_query": {
+          "s3_bars#1": {
+            "case_score": 0.6111111111111112,
+            "case_pass": 0.0
+          }
+        }
+      }
+    },
+    "lab-S5": {
+      "sage-a1.5/adhoc": {
+        "metrics": {
+          "case_score": {
+            "mean": 1.0,
+            "ci_low": 1.0,
+            "ci_high": 1.0,
+            "n": 1
+          },
+          "case_pass": {
+            "mean": 1.0,
+            "ci_low": 1.0,
+            "ci_high": 1.0,
+            "n": 1
+          }
+        },
+        "per_query": {
+          "s5_fit#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    },
+    "lab-S6": {
+      "sage-a1.5/adhoc": {
+        "metrics": {
+          "case_score": {
+            "mean": 1.0,
+            "ci_low": 1.0,
+            "ci_high": 1.0,
+            "n": 2
+          },
+          "case_pass": {
+            "mean": 1.0,
+            "ci_low": 1.0,
+            "ci_high": 1.0,
+            "n": 2
+          }
+        },
+        "per_query": {
+          "s6_hsqc_titration_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_order_2h#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    }
+  }
+}

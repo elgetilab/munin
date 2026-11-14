@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-65 committed scorecard JSONs, copied verbatim from
+66 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 109 JSON plus 61 Markdown twins; the remainder are mostly the
+The full set is 110 JSON plus 62 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -131,6 +131,7 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-13_toolreliability-sage-a1.5_toolreliability.json`, `..._sage-a1.5-egressoff_toolreliability.json` | T11 on Sage-A1.5: `full` 9.29 calls/q, error 0.052, recovery 1.000; `off` 11.18 calls/q, error 0.009, recovery 1.000 | R6, R7 |
 | `2026-11-14_routing-sage-a1.5-2026-11-13.json` | Routing anchor tier on Sage-A1.5: pass rate 0.787 [0.64, 0.93]. The deploy gate; not a paper number | R7 |
 | `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
+| `2026-11-14_smoke.json` | Lab-analysis Phase 1 smoke run: 11 cases, 1 rep, Sage-A1.5, ad hoc arm. Proves the harness end to end; **not a result**, no section cites it | none |
 
 ## Cautions when regenerating figures
 

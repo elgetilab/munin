@@ -5,7 +5,9 @@ from main the same day: sandbox, retrieval, llm-claude/failover and the webui
 (VPS bundle index-5Cl-2sWA.js). Live check 15/15 through the real API against
 main. The VPS gateway (streamed downloads) followed when the stack was
 unified on main (1e30217): gateway, auth, upload and webui bundle
-index-D1dYM7oQ.js all match main. Next: Phase 1 (`LAB-PHASE1-PLAN.md`).
+index-D1dYM7oQ.js all match main. Phase 1 (fixtures and eval harness,
+`LAB-PHASE1-PLAN.md`) DONE 2026-11-14 on branch `varghele/coding-improvements`,
+smoke scorecard `2026-11-14_smoke.json`. Next: Phase 2 (baseline).
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
