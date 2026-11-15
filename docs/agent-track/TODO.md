@@ -411,13 +411,13 @@ bundle downloads, figure manifest), the `labkit` helper library, and eval suites
 S0-S7 for fitting, instrument parsing, iterative plot editing, long jobs,
 reproducibility, NMR workflows and structures. Plan: `LAB-ANALYSIS-PLAN.md`;
 Phase 0 live 2026-11-13, Phase 1 plan: `LAB-PHASE1-PLAN.md`.
-Phase 1 DONE 2026-11-14 (harness, 95 cases, smoke scorecard). Context overflow fix: `CONTEXT-OVERFLOW-PLAN.md` (PLAN).
+Phase 1 DONE 2026-11-14 (harness, 95 cases, smoke scorecard). Context overflow fix: `CONTEXT-OVERFLOW-PLAN.md` (deployed 2026-11-14, live check clean).
 
 **Open from the Phase 1 smoke run (2026-11-14):**
-- Long sandbox sessions overflow the context. In an 8-turn plot session, turn
-  4 failed with vLLM 400 "maximum context length is 65536 tokens" after
-  57 sandbox calls over four turns; the stored assistant reply is the raw error
-  text. Needs trimming or summarising old tool output across turns.
+- FIXED 2026-11-14 (`CONTEXT-OVERFLOW-PLAN.md`): long sandbox sessions
+  overflowed the context (turn 4 of `s3_bars`, raw vLLM 400 stored as the
+  reply). Live check `s3_bars` + `s3_dose` x3: no overflow, no guard fired.
+  Keep grepping retrieval logs for "near the context" and "context full".
 - A turn can end in 2 s with a repeated `<answer>` fragment ("I'll remove KO2
   ... regenerate it.") and no tool call. The tag leaks to the user.
 - `fighook` does not recognise seaborn error bars (drawn as lines).

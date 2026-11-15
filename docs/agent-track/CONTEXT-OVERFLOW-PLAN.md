@@ -1,7 +1,14 @@
 # Context overflow in long tool sessions: plan
 
-Status: Steps 0-4 IMPLEMENTED 2026-11-14 ("proceed"), not yet deployed;
-Step 5 live check pending a retrieval deploy. Defaults Q1-Q4 taken. What
+Status: Steps 0-4 IMPLEMENTED 2026-11-14 ("proceed") and deployed (retrieval
+restarted 17:42Z). Step 5 live check done the same evening, plotting sections
+only (scope cut by the user; routing anchor and T11 not re-run): `s3_bars` and
+`s3_dose`, 3 reps each, all 39 turns completed, zero stored overflow replies,
+and none of the budget log lines fired (no "budgeted", "near the context",
+"context full" or vLLM "maximum context"). Turn 4 of `s3_bars`, which
+overflowed before, ran 20 tool calls cleanly. The scores (0/6, mean 0.676) are
+model misses (unrequested title/size/colour edits, bar order), not context
+failures. So the new guards were not exercised; keep watching the logs. What
 landed: `budget_loop_messages` (old results, then old bulk arguments, then
 pending), `turn_start_budget` in `assemble_context` and the pre-compaction,
 the no-send floor with `drop_history_to_fit` and the minimal wrap-up in
