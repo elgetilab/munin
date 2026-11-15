@@ -902,6 +902,28 @@ async def assemble_context(
     new_tokens = _message_tokens(new_msg)
     history_budget = budget - system_tokens - new_tokens
 
+    # Current scripts: history is replayed as role/content only, so without
+    # this the model rewrote a figure from memory on every turn (lost title,
+    # size, order, file name; LAB-BUGFIX-PLAN.md F1). The block takes at most
+    # a third of what history may use, so it is what gives way near the
+    # window, never the user's recent turns.
+    scripts = ""
+    if not ephemeral:
+        try:
+            from script_index import MAX_BLOCK_TOKENS, current_scripts_block
+            scripts = current_scripts_block(
+                stored_messages, approx_tokens,
+                max_tokens=min(MAX_BLOCK_TOKENS, max(0, history_budget // 3)),
+            )
+        except Exception as e:  # never let this break a turn
+            logger.warning("current scripts block failed: %s", e)
+            scripts = ""
+        if scripts:
+            combined_system = f"{combined_system}\n\n{scripts}"
+            scripts_tokens = approx_tokens(scripts) + 2
+            system_tokens += scripts_tokens
+            history_budget -= scripts_tokens
+
     def build(history: list[dict]) -> list[dict]:
         return [
             {"role": "system", "content": combined_system},
@@ -976,11 +998,19 @@ async def assemble_context(
         rebuilt_system_parts.append(
             "Summary of earlier conversation:\n" + new_summary
         )
+        if handoff_note:
+            rebuilt_system_parts.append(handoff_note)
+        if scripts:
+            rebuilt_system_parts.append(scripts)
         combined_system = "\n\n".join(rebuilt_system_parts)
         messages = [
             {"role": "system", "content": combined_system},
             *[
-                {"role": m["role"], "content": _augment_with_attachments(m)}
+                {"role": m["role"], "content": (
+                    strip_answer_tags(_augment_with_attachments(m))
+                    if m["role"] == "assistant"
+                    else _augment_with_attachments(m)
+                )}
                 for m in kept
             ],
             new_msg,

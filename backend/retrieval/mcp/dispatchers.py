@@ -414,6 +414,7 @@ async def _edit_python(arguments: dict) -> dict:
     return await edit_python(
         edits=arguments.get("edits") or [],
         timeout_s=arguments.get("timeout_s", 30),
+        file=arguments.get("file"),
     )
 
 

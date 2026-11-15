@@ -45,6 +45,7 @@ test_docx_extraction.py                  hermetic
 test_dr_decompose.py                     hermetic        pytest
 test_dr_report.py                        hermetic        pytest
 test_edit_python.py                      hermetic
+test_script_index.py                     hermetic
 test_executor_outcome_classification.py  hermetic
 test_fts_query_escape.py                 hermetic
 test_gateway_token_guard.py              hermetic
