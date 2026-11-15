@@ -53,7 +53,7 @@ from usage_tracker import (
 )
 from metrics import observe_citation_claims, observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
-from answer_tags import AnswerTagStreamFilter, clean_reply, has_repeats, strip_answer_tags
+from answer_tags import AnswerTagStreamFilter, clean_reply, cut_loop, has_repeats, strip_answer_tags, tail_is_looping
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 import hooks as hooks_module
@@ -731,6 +731,7 @@ async def _force_clarification_retry(
     sampling: dict,
     persona: Optional[dict] = None,
     max_attempts: int = 3,
+    history_end: Optional[int] = None,
 ) -> Optional[dict]:
     """
     Non-streaming vLLM call with ``tool_choice`` forced to
@@ -749,12 +750,20 @@ async def _force_clarification_retry(
     validation the chat_service intercept uses so we never bubble a bad
     payload up to the SSE event.
     """
+    tools_payload = _openai_tools_schema(persona)
+    fitted = _fit_prompt_for_call(
+        messages, chat_context.tools_schema_tokens(tools_payload),
+        history_end=history_end, purpose="forced_clarification",
+    )
+    if fitted is None:
+        return None
+    messages = fitted
     for attempt in range(max_attempts):
         body: dict[str, Any] = {
             "model": VLLM_MODEL_NAME,
             "messages": messages,
             "stream": False,
-            "tools": _openai_tools_schema(persona),
+            "tools": tools_payload,
             "tool_choice": {
                 "type": "function",
                 "function": {"name": "ask_clarification"},
@@ -838,6 +847,10 @@ async def _wrap_up_repeat_retry(
     empty, or repeats itself again (the caller then keeps the collapsed
     first try).
     """
+    fitted = _fit_prompt_for_call(wrap_up_messages, 0, purpose="chat_wrap_up_retry")
+    if fitted is None:
+        return None
+    wrap_up_messages = fitted
     body: dict[str, Any] = {
         "model": VLLM_MODEL_NAME,
         "messages": wrap_up_messages,
@@ -880,6 +893,7 @@ async def _force_required_tool_retry(
     nudge_text: str,
     persona: Optional[dict] = None,
     max_attempts: int = 2,
+    history_end: Optional[int] = None,
 ) -> Optional[list[dict]]:
     """
     Non-streaming vLLM call with ``tool_choice="required"`` so the model
@@ -905,12 +919,21 @@ async def _force_required_tool_retry(
       compile_latex).
     """
     nudged_messages = list(messages) + [{"role": "user", "content": nudge_text}]
+    tools_payload = _openai_tools_schema(persona)
+    schema_tokens = chat_context.tools_schema_tokens(tools_payload)
+    fitted = _fit_prompt_for_call(
+        nudged_messages, schema_tokens,
+        history_end=history_end, purpose="forced_required",
+    )
+    if fitted is None:
+        return None
+    nudged_messages = fitted
     for attempt in range(max_attempts):
         body: dict[str, Any] = {
             "model": VLLM_MODEL_NAME,
             "messages": nudged_messages,
             "stream": False,
-            "tools": _openai_tools_schema(persona),
+            "tools": tools_payload,
             "tool_choice": "required",
             # Cap generation. A forced tool call should resolve in well
             # under this; without a cap, an off-the-rails generation on
@@ -921,6 +944,9 @@ async def _force_required_tool_retry(
             "max_tokens": 8000,
         }
         body.update(sampling)
+        body["max_tokens"] = chat_context.fit_max_tokens(
+            nudged_messages, 8000, extra_tokens=schema_tokens
+        )
         try:
             d = await vllm_post_json(
                 body, timeout=60.0, purpose="forced_required"
@@ -1017,6 +1043,79 @@ def repair_tool_name(name: str) -> str:
     return fixed
 
 
+def _fit_prompt_for_call(
+    messages: list[dict],
+    schema_tokens: int,
+    *,
+    history_end: Optional[int] = None,
+    purpose: str = "chat_turn",
+) -> Optional[list[dict]]:
+    """The copy of ``messages`` to send to vLLM, shrunk to fit the window, or
+    None when it cannot fit (the caller must not send it).
+
+    Shared by the streaming call and every non-streaming retry (forced tool
+    call, clarification, wrap-up retry): those used to send the turn's full,
+    unbudgeted list and were rejected with a raw 400 exactly when the turn
+    was already near the window (LAB-BUGFIX-PLAN.md F10).
+    """
+    # Tier 2: under heavy fan-out, elide OLD tool results (from prior loop
+    # iterations the model has already reasoned past) out of the prompt copy
+    # sent to vLLM so the output budget fit below isn't starved. No-op until
+    # results accumulate; never touches the pending batch or the persisted
+    # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
+    messages, _elided = chat_context.budget_loop_messages(
+        messages, extra_tokens=schema_tokens
+    )
+    if _elided["results"] or _elided["pending"]:
+        logger.info(
+            "budgeted %d earlier tool result(s) out of the prompt to fit the "
+            "context window", _elided["results"] + _elided["pending"],
+        )
+    if _elided["args"]:
+        logger.info(
+            "budgeted the arguments of %d earlier tool call(s) out of the "
+            "prompt to fit the context window", _elided["args"],
+        )
+
+    # Step 3 of CONTEXT-OVERFLOW-PLAN.md: never send a request we already
+    # know vLLM will reject. When the turn's own messages cannot shrink
+    # further, leave the oldest earlier-turn messages out of this copy; if
+    # even that cannot make room, return None so the caller reports
+    # context_full (and wraps up from a minimal prompt) instead of storing a
+    # raw 400.
+    _room = (chat_context.MAX_MODEL_LEN - chat_context.prompt_tokens(messages)
+             - schema_tokens - chat_context.CTX_MARGIN)
+    if _room < chat_context.MIN_USEFUL_OUTPUT_TOKENS:
+        logger.warning(
+            "prompt near the context window (room=%d, purpose=%s); composition %s",
+            _room, purpose,
+            chat_context.prompt_composition(
+                messages, extra_tokens=schema_tokens, history_end=history_end),
+        )
+        if history_end is not None:
+            messages, _n_dropped = chat_context.drop_history_to_fit(
+                messages, history_end,
+                chat_context.MAX_MODEL_LEN - chat_context.CTX_MARGIN
+                - chat_context.MIN_USEFUL_OUTPUT_TOKENS,
+                extra_tokens=schema_tokens,
+            )
+            if _n_dropped:
+                logger.warning(
+                    "left %d earlier-turn message(s) out of the prompt to fit "
+                    "the context window", _n_dropped,
+                )
+            _room = (chat_context.MAX_MODEL_LEN
+                     - chat_context.prompt_tokens(messages)
+                     - schema_tokens - chat_context.CTX_MARGIN)
+        if _room < chat_context.MIN_OUTPUT_TOKENS:
+            logger.warning(
+                "context full (room=%d); not calling vLLM (purpose=%s)",
+                _room, purpose,
+            )
+            return None
+    return messages
+
+
 async def _stream_vllm_once(
     messages: list[dict],
     sampling: dict,
@@ -1042,62 +1141,13 @@ async def _stream_vllm_once(
     tools_payload = _openai_tools_schema(persona) if enable_tools else None
     schema_tokens = chat_context.tools_schema_tokens(tools_payload)
 
-    # Tier 2: under heavy fan-out, elide OLD tool results (from prior loop
-    # iterations the model has already reasoned past) out of the prompt copy
-    # sent to vLLM so the output budget fit below isn't starved. No-op until
-    # results accumulate; never touches the pending batch or the persisted
-    # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
-    messages, _elided = chat_context.budget_loop_messages(
-        messages, extra_tokens=schema_tokens
+    messages = _fit_prompt_for_call(
+        messages, schema_tokens, history_end=history_end, purpose=purpose
     )
-    if _elided["results"] or _elided["pending"]:
-        logger.info(
-            "budgeted %d earlier tool result(s) out of the prompt to fit the "
-            "context window", _elided["results"] + _elided["pending"],
-        )
-    if _elided["args"]:
-        logger.info(
-            "budgeted the arguments of %d earlier tool call(s) out of the "
-            "prompt to fit the context window", _elided["args"],
-        )
-
-    # Step 3 of CONTEXT-OVERFLOW-PLAN.md: never send a request we already
-    # know vLLM will reject. When the turn's own messages cannot shrink
-    # further, leave the oldest earlier-turn messages out of this copy; if
-    # even that cannot make room, report context_full so the caller wraps up
-    # from a minimal prompt instead of storing a raw 400.
-    _room = (chat_context.MAX_MODEL_LEN - chat_context.prompt_tokens(messages)
-             - schema_tokens - chat_context.CTX_MARGIN)
-    if _room < chat_context.MIN_USEFUL_OUTPUT_TOKENS:
-        logger.warning(
-            "prompt near the context window (room=%d); composition %s",
-            _room,
-            chat_context.prompt_composition(
-                messages, extra_tokens=schema_tokens, history_end=history_end),
-        )
-        if history_end is not None:
-            messages, _n_dropped = chat_context.drop_history_to_fit(
-                messages, history_end,
-                chat_context.MAX_MODEL_LEN - chat_context.CTX_MARGIN
-                - chat_context.MIN_USEFUL_OUTPUT_TOKENS,
-                extra_tokens=schema_tokens,
-            )
-            if _n_dropped:
-                logger.warning(
-                    "left %d earlier-turn message(s) out of the prompt to fit "
-                    "the context window", _n_dropped,
-                )
-            _room = (chat_context.MAX_MODEL_LEN
-                     - chat_context.prompt_tokens(messages)
-                     - schema_tokens - chat_context.CTX_MARGIN)
-        if _room < chat_context.MIN_OUTPUT_TOKENS:
-            logger.warning(
-                "context full (room=%d); not calling vLLM (purpose=%s)",
-                _room, purpose,
-            )
-            yield ("error", {"message": chat_context.CONTEXT_FULL_MESSAGE,
-                             "reason": chat_context.CONTEXT_FULL_REASON}, acc)
-            return
+    if messages is None:
+        yield ("error", {"message": chat_context.CONTEXT_FULL_MESSAGE,
+                         "reason": chat_context.CONTEXT_FULL_REASON}, acc)
+        return
 
     body: dict[str, Any] = {
         "model": VLLM_MODEL_NAME,
@@ -1157,6 +1207,8 @@ async def _stream_vllm_once(
             async with vllm_post_stream(body, purpose=purpose) as line_iter:
                 emitted_tool_ids: set[int] = set()
                 tag_filter = AnswerTagStreamFilter()
+                content_chars = 0
+                next_loop_check = 2000
 
                 async for line in line_iter:
                     if not line or not line.startswith("data:"):
@@ -1194,6 +1246,23 @@ async def _stream_vllm_once(
                         shown = tag_filter.feed(content)
                         if shown:
                             yield ("token", {"content": shown}, acc)
+                        content_chars += len(content)
+                        if content_chars >= next_loop_check:
+                            next_loop_check = content_chars + 1000
+                            if tail_is_looping(acc.content):
+                                # Stop the generation (leaving the stream
+                                # closes the request in vLLM) and keep one
+                                # copy, so the loop neither runs to max_tokens
+                                # nor goes back into the turn (F9).
+                                cut = cut_loop(acc.content)
+                                logger.warning(
+                                    "stream looping; stopped it after %d "
+                                    "characters, kept %d (purpose=%s)",
+                                    content_chars, len(cut), purpose,
+                                )
+                                acc.content_parts[:] = [cut]
+                                acc.finish_reason = "repetition"
+                                break
 
                     for delta_tc in (delta.get("tool_calls") or []):
                         idx = delta_tc.get("index", 0)
@@ -2772,7 +2841,7 @@ async def stream_chat_completion(
                 and _looks_like_prose_clarification(acc.content)
             ):
                 forced = await _force_clarification_retry(
-                    messages, sampling, persona=persona
+                    messages, sampling, persona=persona, history_end=history_end
                 )
                 if forced is not None:
                     tool_calls = [forced]
@@ -2812,7 +2881,8 @@ async def stream_chat_completion(
                 # more in a row) with no tool call is a failed step, not an
                 # answer (s3_bars turn 7). One forced retry, then keep the
                 # collapsed text (LAB-BUGFIX-PLAN.md Q4).
-                repeat_trigger = has_repeats(acc.content)
+                repeat_trigger = (has_repeats(acc.content)
+                                  or acc.finish_reason == "repetition")
                 if phantom_trigger or prose_trigger or repeat_trigger:
                     trigger_label = (
                         "phantom_url" if phantom_trigger
@@ -2845,7 +2915,8 @@ async def stream_chat_completion(
                             "until a tool actually creates them."
                         )
                     recovered = await _force_required_tool_retry(
-                        messages, sampling, nudge, persona=persona
+                        messages, sampling, nudge, persona=persona,
+                        history_end=history_end,
                     )
                     recovery_used_this_turn = True
                     if recovered:
@@ -2906,7 +2977,8 @@ async def stream_chat_completion(
                         err,
                     )
                     forced = await _force_clarification_retry(
-                        messages, sampling, persona=persona
+                        messages, sampling, persona=persona,
+                        history_end=history_end,
                     )
                     if forced is None:
                         # Forced retry also failed. Don't break the turn — just
@@ -3331,7 +3403,7 @@ async def stream_chat_completion(
 
             if wrap_acc is not None:
                 wrap_content = wrap_acc.content
-                if has_repeats(wrap_content):
+                if has_repeats(wrap_content) or wrap_acc.finish_reason == "repetition":
                     # The wrap-up looped (s3_bars turn 5: five copies of one
                     # block). Retry once with a frequency penalty; keep the
                     # collapsed text if the retry fails or loops too. The

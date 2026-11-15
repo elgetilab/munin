@@ -217,3 +217,42 @@ class AnswerTagStreamFilter:
         out, self._pending = self._pending, ""
         self._track(out)
         return out
+
+
+# Live loop guard (LAB-BUGFIX-PLAN.md F9). One step of s3_bars#3 streamed
+# 80,496 characters of the same few paragraphs with no tool call; the saved
+# copy was collapsed (2128 repeats) but the user watched it stream and the
+# loop text filled two thirds of the context. The stream is cut once its tail
+# has repeated LOOP_MIN_COPIES times: the last LOOP_TAIL_CHARS characters
+# occurring that often within the last LOOP_WINDOW_CHARS. Legitimate text
+# practically never repeats a 300-character stretch three times in a row.
+LOOP_TAIL_CHARS = 300
+LOOP_WINDOW_CHARS = 6000
+LOOP_MIN_COPIES = 3
+
+
+def tail_is_looping(text: str) -> bool:
+    """True when the end of ``text`` is a loop (see the constants above)."""
+    if not text or len(text) < LOOP_TAIL_CHARS * LOOP_MIN_COPIES:
+        return False
+    tail = text[-LOOP_TAIL_CHARS:]
+    if not tail.strip():
+        return False
+    return text[-LOOP_WINDOW_CHARS:].count(tail) >= LOOP_MIN_COPIES
+
+
+def cut_loop(text: str) -> str:
+    """Text of a stream cut for looping: repeated blocks collapsed, and when
+    the loop had no paragraph breaks, the text up to the first repeat of the
+    looping tail."""
+    cleaned, _, _ = clean_reply(text)
+    if not tail_is_looping(cleaned):
+        return cleaned
+    tail = cleaned[-LOOP_TAIL_CHARS:]
+    first = cleaned.find(tail)
+    if first < 0:
+        return cleaned
+    # Keep one copy of the repeating unit: everything before the second
+    # occurrence of the tail.
+    second = cleaned.find(tail, first + 1)
+    return cleaned[:second] if second > 0 else cleaned

@@ -231,6 +231,84 @@ def test_short_repeats_are_formatting() -> bool:
     return _check("short repeated paragraphs ('---', 'Output:') are not a loop", ok)
 
 
+def test_tail_loop_detector() -> bool:
+    from answer_tags import cut_loop, tail_is_looping
+    para = ("The figure is saved as activity.png at 85 x 60 mm, 300 dpi, with "
+            "the title shortened so it fits. Let me now check the layout once more.")
+    loop = "Intro text here.\n\n" + "\n\n".join([para] * 50)
+    nobreak = "Intro. " + "abcdefghij klmnopqrst uvwxyz 0123456789 " * 200
+    table = "\n".join(f"| row {i} | value {i * 3.7:.2f} | note about sample {i} |"
+                      for i in range(300))
+    ok = (tail_is_looping(loop) and cut_loop(loop).count(para) == 1
+          and tail_is_looping(nobreak) and len(cut_loop(nobreak)) < 100
+          and not tail_is_looping(table) and not tail_is_looping(para))
+    return _check("tail loop detector: paragraph and unbroken loops, not a long table", ok)
+
+
+def test_stream_cut_when_looping() -> bool:
+    """A looping generation is stopped early (F9): s3_bars#3 streamed 80,496
+    characters of the same paragraphs before."""
+    import chat_service
+    para = ("I will regenerate the figure at 85 mm by 60 mm and check the layout "
+            "again so the title fits inside the canvas.\n\n")
+    sent = {"n": 0}
+
+    @contextlib.asynccontextmanager
+    async def fake_stream(body, purpose=None):
+        async def it():
+            for _ in range(5000):  # would be 600K characters
+                sent["n"] += 1
+                yield "data: " + json.dumps({"choices": [{"delta": {"content": para}}]})
+            yield "data: [DONE]"
+        yield it()
+
+    real = chat_service.vllm_post_stream
+    chat_service.vllm_post_stream = fake_stream
+    try:
+        async def go():
+            acc = None
+            async for ev, payload, a in chat_service._stream_vllm_once(
+                messages=[{"role": "user", "content": "hi"}],
+                sampling={}, enable_tools=False,
+            ):
+                acc = a
+            return acc
+        acc = asyncio.run(go())
+    finally:
+        chat_service.vllm_post_stream = real
+    ok = (acc is not None and acc.finish_reason == "repetition"
+          and sent["n"] < 100 and acc.content.count("regenerate the figure") == 1)
+    return _check("_stream_vllm_once stops a looping stream and keeps one copy", ok,
+                  f"chunks={sent['n']} finish={getattr(acc, 'finish_reason', None)}")
+
+
+def test_forced_retry_not_sent_when_it_cannot_fit() -> bool:
+    """F10: the forced tool retry sent the turn's full, unbudgeted list and got
+    a raw 400 twice; now it is fitted like the main call, and not sent at all
+    when it cannot fit."""
+    import chat_service
+    import chat_context
+    calls = []
+
+    async def fake_post_json(body, timeout=None, purpose=None):
+        calls.append(body)
+        return {"choices": [{"message": {"tool_calls": []}}]}
+
+    real = chat_service.vllm_post_json
+    chat_service.vllm_post_json = fake_post_json
+    real_pt = chat_context.prompt_tokens
+    chat_context.prompt_tokens = lambda msgs: chat_context.MAX_MODEL_LEN + 1000
+    try:
+        res = asyncio.run(chat_service._force_required_tool_retry(
+            [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}],
+            {}, "call a tool", persona=None))
+    finally:
+        chat_service.vllm_post_json = real
+        chat_context.prompt_tokens = real_pt
+    return _check("forced retry is not sent when the prompt cannot fit",
+                  res is None and calls == [], f"calls={len(calls)}")
+
+
 TESTS = [
     test_turn7_string,
     test_turn5_tail,
@@ -250,6 +328,9 @@ TESTS = [
     test_detector_opener_after_markup,
     test_detector_no_substring_opener,
     test_short_repeats_are_formatting,
+    test_tail_loop_detector,
+    test_stream_cut_when_looping,
+    test_forced_retry_not_sent_when_it_cannot_fit,
 ]
 
 
