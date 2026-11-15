@@ -293,7 +293,7 @@ def _drive(
         patch.object(
             chat_service,
             "audit_artifact_urls_in_content",
-            lambda content, tcs: (content, []),
+            lambda content, tcs, known=None: (content, []),
         ),
         patch("document_store.get_document_text", _fake_get_document_text),
         patch("document_store.upload_document", _fake_upload_document),

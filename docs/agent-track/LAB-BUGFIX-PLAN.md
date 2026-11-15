@@ -157,6 +157,23 @@ with the overflow-check numbers (mean 0.676). Expect: no `<answer>` in any
 reply, no false layout warnings, sizes within 1 mm, far fewer unrequested
 edits. Then the Phase 2 baseline.
 
+## Found in the Step 7 live check: phantom-URL recovery loop (F8)
+
+The first post-deploy run (`s3_bars#1`, score 1.00) logged 84 forced tool
+retries in about 10 turns, all `trigger=phantom_url`. The inline recovery
+check (`chat_service.py`, prose-action recovery) called
+`audit_artifact_urls_in_content(acc.content, [])`: it never saw this turn's
+tool results, so a final answer that linked the figure the model had just
+made counted as a fabricated link, forced another tool call (typically an
+`os.path.exists('activity.png')` probe), and looped until the turn cap. This
+dates from the May merge and is a large part of the "20 tool calls per turn"
+seen in every S3 run. The save-time audit had the milder form: it only knew
+this turn's results, so a link to an earlier turn's figure got a "[backend
+warning]" prepended (2 of 39 overflow-check turns). Fix: both checks get this
+turn's tool calls plus `_conversation_artifact_urls` (artifact URLs in earlier
+turns' stored tool results). The run was stopped and restarts after the fix
+is deployed.
+
 ## Open questions (defaults taken unless you say otherwise)
 
 | # | Question | Default |

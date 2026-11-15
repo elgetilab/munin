@@ -438,7 +438,7 @@ def _drive_stream_chat(
         patch.object(
             chat_service,
             "audit_artifact_urls_in_content",
-            lambda content, tcs: (content, []),
+            lambda content, tcs, known=None: (content, []),
         ),
     ):
         gen = stream_chat_completion(
@@ -835,7 +835,7 @@ def _drive_stream_chat_disconnect_after(
         patch.object(
             chat_service,
             "audit_artifact_urls_in_content",
-            lambda content, tcs: (content, []),
+            lambda content, tcs, known=None: (content, []),
         ),
     ):
         gen = stream_chat_completion(
@@ -1225,7 +1225,7 @@ def test_unhandled_exception_in_assemble_context_persists_marker() -> bool:
         patch.object(
             chat_service,
             "audit_artifact_urls_in_content",
-            lambda content, tcs: (content, []),
+            lambda content, tcs, known=None: (content, []),
         ),
     ):
         gen = stream_chat_completion(
@@ -1287,7 +1287,7 @@ def test_audit_exception_after_loop_still_persists() -> bool:
     """
     capture: dict = {}
 
-    def _raises_on_audit(content, tcs):
+    def _raises_on_audit(content, tcs, known=None):
         raise RuntimeError("simulated audit failure")
 
     async def _fake_one_token_then_done(

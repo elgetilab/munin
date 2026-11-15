@@ -1639,13 +1639,14 @@ def apply_stream_error_marker(final_content: str, error_message: str) -> str:
 
 
 def audit_artifact_urls_in_content(
-    content: str, tool_calls: Optional[list]
+    content: str, tool_calls: Optional[list], known_urls: Optional[set] = None
 ) -> tuple:
     """Return (content, phantom_urls).
 
     `phantom_urls` lists every `/api/artifacts/...` URL that appears
     in `content` but does NOT appear in any of `tool_calls`' result
-    payloads from this turn. When non-empty, the returned content
+    payloads from this turn, nor in ``known_urls`` (artifact URLs from
+    tool results of earlier turns, see ``_conversation_artifact_urls``). When non-empty, the returned content
     is prepended with a [backend warning] marker so the saved
     message carries the audit trail through to chat_store and
     future replays.
@@ -1657,7 +1658,7 @@ def audit_artifact_urls_in_content(
     found = set(_ARTIFACT_URL_RE.findall(content))
     if not found:
         return content, []
-    legit: set = set()
+    legit: set = set(known_urls or ())
     for tc in tool_calls or []:
         if isinstance(tc, dict):
             legit.update(_collect_artifact_urls(tc.get("result")))
@@ -1674,6 +1675,19 @@ def audit_artifact_urls_in_content(
         notice_lines.append(f"- `{u}`")
     notice_lines.extend(["", "---", ""])
     return "\n".join(notice_lines) + "\n" + content, phantoms
+
+
+def _conversation_artifact_urls(messages: Optional[list]) -> set:
+    """Artifact URLs that tool results of earlier turns produced. Linking a
+    figure made in an earlier turn is legitimate, not a phantom."""
+    found: set = set()
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        for tc in m.get("tool_calls") or []:
+            if isinstance(tc, dict):
+                found.update(_collect_artifact_urls(tc.get("result")))
+    return found
 
 
 # --- Phantom-paper-URL audit (regression guard for chat a42384f0) ---
@@ -2526,6 +2540,8 @@ async def stream_chat_completion(
         persisted_text,
         current_search_urls.get(),
     )
+    # Artifact URLs earlier turns' tools produced, for the phantom-URL audits.
+    prior_artifact_urls = _conversation_artifact_urls(conversation.get("messages"))
 
     # --- Save-always wrapper (chat 3951063c, 2026-05-08) ---
     # Persist the assistant turn no matter how this function exits:
@@ -2781,8 +2797,14 @@ async def stream_chat_completion(
             # the failure can appear on follow-up modify-and-recompile
             # turns, not just turn 0. Single recovery attempt per turn.
             if not tool_calls and not recovery_used_this_turn:
+                # Links to files made earlier in this turn (final_tool_calls)
+                # or in earlier turns are real. Checking against [] made every
+                # final answer that linked its own figure a "phantom", forced
+                # another tool call and looped until the turn cap (lab
+                # bug-fix live check, 2026-11-15: 84 forced retries in about
+                # 10 turns of s3_bars).
                 _, _phantoms_inline = audit_artifact_urls_in_content(
-                    acc.content, []
+                    acc.content, final_tool_calls, prior_artifact_urls
                 )
                 phantom_trigger = bool(_phantoms_inline)
                 prose_trigger = _looks_like_prose_action_promise(acc.content)
@@ -3341,7 +3363,7 @@ async def stream_chat_completion(
         # CORE RULES forbid this; the audit is a backstop so the saved
         # transcript carries an audit trail when the rule slips.
         final_content, _phantom_urls = audit_artifact_urls_in_content(
-            final_content, final_tool_calls
+            final_content, final_tool_calls, prior_artifact_urls
         )
         if _phantom_urls:
             logger.warning(

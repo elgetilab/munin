@@ -260,6 +260,37 @@ def test_malformed_tool_call_entries_dont_crash() -> bool:
     )
 
 
+def test_url_from_an_earlier_turn_is_known() -> bool:
+    """A figure made in an earlier turn may be linked again; its URL comes
+    from the stored tool results of the conversation."""
+    from chat_service import _conversation_artifact_urls
+    url = "/api/artifacts/conv-1/art_abc"
+    history = [
+        {"role": "user", "content": "plot it"},
+        {"role": "assistant", "content": "done", "tool_calls": [
+            {"name": "run_python", "result": {"artifacts": [{"external_url": url}]}}]},
+    ]
+    known = _conversation_artifact_urls(history)
+    content = f"Here is the figure again: [activity.png]({url})"
+    out, phantoms = audit_artifact_urls_in_content(content, [], known)
+    out2, phantoms2 = audit_artifact_urls_in_content(content, [])
+    return _check("URL from an earlier turn is not a phantom",
+                  url in known and phantoms == [] and out == content and phantoms2 == [url])
+
+
+def test_inline_check_uses_this_turns_tool_calls() -> bool:
+    """Regression (lab live check 2026-11-15): the inline recovery check passed
+    [] as tool calls, so a final answer linking a figure made earlier in the
+    same turn counted as a phantom and forced another tool call, looping until
+    the turn cap."""
+    import inspect
+    import chat_service
+    src = inspect.getsource(chat_service.stream_chat_completion)
+    ok = ("audit_artifact_urls_in_content(\n                    acc.content, final_tool_calls, prior_artifact_urls" in src
+          and "acc.content, []" not in src)
+    return _check("inline phantom check sees this turn's and earlier tool results", ok)
+
+
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
@@ -276,6 +307,8 @@ TESTS = [
     test_none_content_does_not_crash,
     test_none_tool_calls_treated_as_empty_list,
     test_malformed_tool_call_entries_dont_crash,
+    test_url_from_an_earlier_turn_is_known,
+    test_inline_check_uses_this_turns_tool_calls,
 ]
 
 
