@@ -68,7 +68,8 @@ def s3_bars(root: Path):
         {"prompt": "Put the y axis on a log scale.",
          "checks": [{"type": "manifest", "file": "activity.png", "assert": [{"path": "axes.0.yscale", "eq": "log"}]},
                     {"type": "manifest_diff", "file": "activity.png", "allowed": ["axes.0.yscale"],
-                     "must_change": ["axes.0.yscale"]}]},
+                     "must_change": ["axes.0.yscale"],
+                     "requested": {"axes.0.yscale": "log"}}]},
         {"prompt": "Go back to a linear y axis. Label the y axis 'Activity (U/mg)' and colour the bars "
                    "#1b9e77 for control and #d95f02 for treated.",
          "checks": [{"type": "manifest", "file": "activity.png", "assert": [
@@ -133,7 +134,8 @@ def s3_dose(root: Path):
         {"prompt": "Use a logarithmic x axis.",
          "checks": [{"type": "manifest", "file": "dose.png", "assert": [{"path": "axes.0.xscale", "eq": "log"}]},
                     {"type": "manifest_diff", "file": "dose.png", "allowed": ["axes.0.xscale"],
-                     "must_change": ["axes.0.xscale"]}]},
+                     "must_change": ["axes.0.xscale"],
+                     "requested": {"axes.0.xscale": "log"}}]},
         {"prompt": "Add cmpd-B to the same plot in a different colour, with a legend.",
          "checks": [{"type": "manifest", "file": "dose.png", "assert": [
                         {"path": S, "count": {"field": "kind", "value": "errorbar", "eq": 2}}]}]},

@@ -276,8 +276,10 @@ def _assert(fig: dict, a: dict) -> tuple[bool, str]:
         items = [str(x).strip() for x in v] if isinstance(v, list) else []
         return str(a["item_eq"]).strip() in items, f"{path}={items[:8]!r}"
     if "any" in a:
-        # some list item (a series) satisfies every condition in a["any"]
+        # some list item (a series) satisfies every condition in a["any"];
+        # bars drawn one call per bar also count as one series per colour
         items = v if isinstance(v, list) else []
+        items = items + _merged_bars(items)
         hit = any(isinstance(it, dict) and all(_match(it.get(k), cond) for k, cond in a["any"].items())
                   for it in items)
         return hit, f"no item of {path} matches {a['any']}" if not hit else f"{path} has a match"
@@ -290,6 +292,28 @@ def _assert(fig: dict, a: dict) -> tuple[bool, str]:
             return n == want, f"{n} {a['count']['value']} in {path}"
         return n >= a["count"].get("gte", 1), f"{n} {a['count']['value']} in {path}"
     return False, f"assertion on {path} has no operator"
+
+
+def _merged_bars(series: list) -> list[dict]:
+    """Bars of one colour drawn as separate series (one ax.bar call per bar,
+    common after removing a group) merged back into one logical series, so
+    value checks see the same thing as for a single grouped call. Only groups
+    of more than one series are added; the originals stay."""
+    groups: dict[tuple, list[dict]] = {}
+    for s in series:
+        if isinstance(s, dict) and s.get("kind") == "bar" and isinstance(s.get("values"), list):
+            key = (str(s.get("orientation") or "vertical"), tuple(s.get("colors") or ()))
+            groups.setdefault(key, []).append(s)
+    out = []
+    for (orient, colors), members in groups.items():
+        if len(members) < 2:
+            continue
+        label = next((m.get("label") for m in members if m.get("label")), None)
+        out.append({"kind": "bar", "orientation": orient, "label": label,
+                    "colors": list(colors), "merged": len(members),
+                    "positions": [x for m in members for x in (m.get("positions") or [])],
+                    "values": [x for m in members for x in m["values"]]})
+    return out
 
 
 def _numbers_of(v: Any) -> Optional[list[float]]:
@@ -334,31 +358,47 @@ def g_manifest(c, record, turn):
     the axes index."""
     art = _figure(c, record, turn)
     if art is None:
-        return False, "no figure with a manifest"
+        return False, _renamed(c, record, turn) or "no figure with a manifest"
     bad = []
     for a in c["assert"]:
         ok, detail = _assert(art.figure, a)
         if not ok:
             bad.append(detail)
+    if bad and art.turn < turn:
+        # graded against an older figure; say why when the edit went elsewhere
+        note = _renamed(c, record, turn)
+        if note:
+            bad.insert(0, note)
     return not bad, f"{art.filename} v{art.version}: " + ("; ".join(bad) if bad else "all assertions hold")
 
 
 _IGNORED_LEAVES = ("path", "xticklabels", "yticklabels", "xlim", "ylim", "layout", "texts")
 
 
+_ERR = ("yerr", "yerr_low", "yerr_high", "xerr", "xerr_low", "xerr_high")
+
+
 def _series_key(s: dict) -> tuple:
+    # errorbar series carry no values/positions; their errors (and x/y) keep
+    # the sort content-based instead of falling back to artist order
     return (str(s.get("kind") or ""), str(s.get("label") or ""),
-            json.dumps(s.get("values"), sort_keys=True, default=str),
-            json.dumps(s.get("positions"), sort_keys=True, default=str))
+            *(json.dumps(s.get(k), sort_keys=True, default=str)
+              for k in ("values", "positions", "x", "y") + _ERR))
+
+
+def _err_sig(s: dict) -> tuple:
+    return tuple(json.dumps(s.get(k), sort_keys=True, default=str) for k in _ERR)
 
 
 def _canon_series(series: list[dict]) -> list[dict]:
     """bar(yerr=...) records the error on the bar and as an errorbar series,
     ax.errorbar() only as the latter; the drawn figure is the same, so the
-    copy on a bar is dropped when an errorbar series carries it."""
-    errs = [s.get("yerr") for s in series if s.get("kind") == "errorbar"]
-    return [{k: v for k, v in s.items() if k != "yerr"}
-            if s.get("kind") != "errorbar" and s.get("yerr") in errs else s
+    copy on a non-errorbar series is dropped when an errorbar series carries
+    the same errors (symmetric or low/high, y or x)."""
+    errs = {_err_sig(s) for s in series if s.get("kind") == "errorbar"}
+    return [{k: v for k, v in s.items() if k not in _ERR}
+            if s.get("kind") != "errorbar" and any(k in s for k in _ERR) and _err_sig(s) in errs
+            else s
             for s in series]
 
 
@@ -385,28 +425,80 @@ def _ignored(path: str, prefixes) -> bool:
         path == p or path.startswith(p + ".") for p in prefixes)
 
 
+def _same(x: Any, y: Any, rtol: float = 1e-6, atol: float = 1e-9) -> bool:
+    """Equality that ignores float noise (a recomputed mean differing in the
+    last bit is not a change); recursive over lists and dicts."""
+    if isinstance(x, bool) or isinstance(y, bool):
+        return x is y if isinstance(x, bool) and isinstance(y, bool) else False
+    if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+        if math.isnan(x) and math.isnan(y):
+            return True
+        return abs(x - y) <= atol + rtol * max(abs(x), abs(y))
+    if isinstance(x, (list, tuple)) and isinstance(y, (list, tuple)):
+        return len(x) == len(y) and all(_same(p, q, rtol, atol) for p, q in zip(x, y))
+    if isinstance(x, dict) and isinstance(y, dict):
+        return x.keys() == y.keys() and all(_same(x[k], y[k], rtol, atol) for k in x)
+    return x == y
+
+
+_INLINE_PLOT = re.compile(r"^plot_\d+_\d+\.\w+$")   # auto-captured inline figures
+
+
+def _renamed(c, record, turn) -> Optional[str]:
+    """The case expects `file`, none was saved under that name this turn, but
+    another named figure of the same type was: the model saved the edit
+    under a new name."""
+    want = c.get("file")
+    if not want or want.startswith("."):
+        return None
+    if any(a.filename == want for a in record.artifacts_of(turn)):
+        return None
+    ext = want.rsplit(".", 1)[-1].lower() if "." in want else ""
+    others = [a.filename for a in record.artifacts_of(turn)
+              if a.figure and a.filename != want and not _INLINE_PLOT.match(a.filename)
+              and a.filename.lower().endswith("." + ext)]
+    return f"output file renamed: {want} -> {others[-1]}" if others else None
+
+
 @grader("manifest_diff")
 def g_manifest_diff(c, record, turn):
     """Compared with the previous turn's figure, only paths under `allowed`
     may change (plus axis limits, tick labels and layout, which follow from
-    most edits). `must_change` paths have to differ."""
+    most edits). Numbers are compared with a small relative tolerance.
+    `must_change` paths have to differ, unless `requested` names the value the
+    turn asks for and the figure already had it (the request then holds, and
+    the detail says so)."""
     now = _figure(c, record, turn)
     prev = _figure(c, record, turn - 1) if turn > 1 else None
     if now is None or prev is None:
         return False, "need a figure in this and an earlier turn"
-    if now.id == prev.id:
-        return False, "no new figure this turn"
     a, b = _leaves(prev.figure), _leaves(now.figure)
+    requested = c.get("requested", {})
+    if now.id == prev.id:
+        musts = c.get("must_change", [])
+        if (not _renamed(c, record, turn) and musts
+                and all(p in requested and p in b and _same(b[p], requested[p]) for p in musts)):
+            # nothing to redraw: the figure already showed what was asked
+            return True, "no new figure, but " + "; ".join(
+                f"{p} already {requested[p]!r} before this turn" for p in musts)
+        return False, _renamed(c, record, turn) or "no new figure this turn"
     allowed = c.get("allowed", [])
-    changed = sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k))
+    changed = sorted(k for k in set(a) | set(b) if not _same(a.get(k), b.get(k)))
     unexpected = [k for k in changed if not _ignored(k, allowed)]
-    must = [p for p in c.get("must_change", [])
-            if not any(k == p or k.startswith(p + ".") for k in changed)]
+    must, already = [], []
+    for p in c.get("must_change", []):
+        if any(k == p or k.startswith(p + ".") for k in changed):
+            continue
+        if p in requested and p in b and _same(b[p], requested[p]):
+            already.append(f"{p} already {requested[p]!r} before this turn")
+        else:
+            must.append(p)
     detail = []
     if unexpected:
         detail.append(f"unexpected changes {unexpected[:6]}")
     if must:
         detail.append(f"unchanged {must}")
+    detail += already
     return not unexpected and not must, "; ".join(detail) or f"{len(changed)} expected changes"
 
 
