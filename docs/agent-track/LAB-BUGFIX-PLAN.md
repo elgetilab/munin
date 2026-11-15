@@ -174,6 +174,44 @@ turn's tool calls plus `_conversation_artifact_urls` (artifact URLs in earlier
 turns' stored tool results). The run was stopped and restarts after the fix
 is deployed.
 
+## Second live check (after F8): results and three more fixes (F9-F11)
+
+Run 2026-11-15 12:00-12:42 UTC, production with Steps 1-6 and F8 deployed.
+S3 (`s3_bars`, `s3_dose`, 3 reps each): mean 0.972, 4/6 pass (was 0.676, 0/6,
+on the same cases before the fixes), and 0.981, 5/6 after an NFKC fix to
+the graders (`b754797`: "µM" typed with a Greek mu). The remaining miss is a
+y=0 reference line the model moved to y=1 for the log axis, a reasonable
+follow-on of the request that the strict diff counts; left as is. Smoke set
+(10 other cases): 9/10; the 6 S3 runs took 32 min instead of about 2 h.
+The 4 artifact links still flagged as phantoms were real fabrications (the
+id exists nowhere in the sandbox), so F8 kept the audit's value.
+
+- **F9. A generation can loop for tens of thousands of characters.**
+  `s3_bars#3` turn 8: one step streamed 80,496 characters of the same
+  paragraphs with no tool call; the saved copy was collapsed (2128 repeats)
+  but the user would have watched it and the loop text took 41.6K tokens of
+  the turn's context. Fix (`d3e1811`): `_stream_vllm_once` stops the stream
+  once the last 300 characters occur three times in the last 6,000
+  (`answer_tags.tail_is_looping`), keeps one copy, sets finish_reason
+  "repetition", and the step counts as failed (one forced retry; a looping
+  wrap-up gets the frequency-penalty retry).
+- **F10. Retries were sent unbudgeted.** The forced tool retry after that loop
+  sent the turn's full message list and got vLLM's raw 400 twice. Fix
+  (`d3e1811`): the main path's fitting is now `_fit_prompt_for_call`, used by
+  the stream and by the forced tool, clarification and wrap-up retries; a
+  call that cannot fit is not sent.
+- **F11. Data-file turns routed to research.** "Process bruker_1h.zip ...
+  report their chemical shifts" went to research (KNN vote: its nearest
+  examples were "what is the reported X of this protein"), hit the 30-call cap
+  and never wrote results.json. 39 of 106 lab-case turns routed away from
+  code. Fix (`9b59d37`): a turn that attaches or names a data file
+  (tabular, archive, instrument, array formats; not pdf/docx/md) routes to
+  code, `/research` still overrides; plain-text files turn a research vote
+  into code; attached file names now reach the router; 20 lab examples
+  added. Lab turns on code 106/106, offline routing eval unchanged 143/163.
+  Trade-off: "find papers on the compounds in hits.csv" now goes to code
+  unless the user types `/research`.
+
 ## Open questions (defaults taken unless you say otherwise)
 
 | # | Question | Default |
