@@ -1,6 +1,13 @@
 # Lab analysis bug fixes: plan
 
-Status: PLAN 2026-11-15, waiting for "proceed". Bugs first, then the Phase 2
+Status: Steps 1-6 IMPLEMENTED 2026-11-15 ("proceed", defaults Q1-Q6 taken),
+not yet deployed; Step 7 live check pending a sandbox, personas and retrieval
+deploy. Commits: `84ed114` graders, `4505dd9` answer tags, `660daf6` current
+scripts and prompt rules, `b6d5d25` kernel race, `f15c96b` figure hook. Tests:
+retrieval hermetic 112/112, sandbox live 54/54 and figure hook 20/20, lab
+124/124; timeout check under `--cpus 0.25` 10/10 failed before, 0/10 after.
+Re-grading the overflow-check records with the new graders: mean 0.676 to
+0.694 (only the KO2 false failure flips). Was: PLAN, waiting for "proceed". Bugs first, then the Phase 2
 baseline (deferred work: [`LAB-DEFERRED.md`](LAB-DEFERRED.md)). Found by the
 Phase 1 smoke run and the overflow check (`CONTEXT-OVERFLOW-PLAN.md`), then
 investigated by four read-only agents on 2026-11-15. Key code claims below were
