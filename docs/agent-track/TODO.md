@@ -422,10 +422,8 @@ Phase 1 DONE 2026-11-14 (harness, 95 cases, smoke scorecard). Context overflow f
   ... regenerate it.") and no tool call. The tag leaks to the user.
 - `fighook` does not recognise seaborn error bars (drawn as lines).
 
-**HEAVY TODO, required before any model-capability claim:** the lab-analysis
-suites are first measured on the production backbone only. Re-run S1-S7, both
-arms (ad hoc and `labkit`), on **every backbone we can serve**, starting with
-gpt-oss, paired against the backbone results. Haiku is excluded (fallback only).
+**Deferred** (Phase 1b, held-out set, the HEAVY multi-backbone re-run):
+[`LAB-DEFERRED.md`](LAB-DEFERRED.md).
 
 ---
 
