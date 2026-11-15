@@ -21,6 +21,7 @@
 #   run with `python -m pytest` when pytest is importable. Without pytest
 #   (the production image) it runs under plain python and SKIPs what it can't.
 #
+test_answer_tags.py                      hermetic
 test_api_contract.py                     hermetic
 test_artifact_dedup.py                   hermetic
 test_background_streams.py               hermetic

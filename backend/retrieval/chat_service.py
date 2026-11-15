@@ -53,6 +53,7 @@ from usage_tracker import (
 )
 from metrics import observe_citation_claims, observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
+from answer_tags import AnswerTagStreamFilter, clean_reply, has_repeats, strip_answer_tags
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 import hooks as hooks_module
@@ -634,6 +635,13 @@ _PROSE_ACTION_OPENERS = (
     "let me now ",
 )
 
+# Word-boundary match so an opener after a newline, a tag or punctuation
+# counts, not only at the very start or after a space.
+_PROSE_ACTION_OPENER_RE = _re.compile(
+    r"(?<![\w'])(?:" + "|".join(_re.escape(o.strip()) for o in _PROSE_ACTION_OPENERS) + r")\b"
+)
+_LEADING_MARKUP_RE = _re.compile(r"^(?:[\s>#*_`~-]+|\d+[.)]\s+)+")
+
 # Action verbs that imply a tool call should follow. Deliberately narrow:
 # verbs like "explain", "describe", "show you", "walk through" are pure
 # prose and must NOT trigger recovery.
@@ -693,14 +701,17 @@ def _looks_like_prose_action_promise(content: str) -> bool:
     """
     if not content:
         return False
-    stripped = content.strip()
+    # Drop stray <answer> tags and collapse looped copies first (s3_bars
+    # turn 7: "<answer>\nI'll remove KO2 ..." three times), then leading
+    # markup (headings, quotes, bullets, emphasis) so the opener is seen.
+    stripped = _LEADING_MARKUP_RE.sub("", strip_answer_tags(content).strip())
     # Length window. Lower bound rejects empty/near-empty content; upper
     # bound rejects long answers that legitimately discuss future work
     # alongside their main response.
     if len(stripped) > 600 or len(stripped) < 20:
         return False
-    low = stripped.lower()
-    has_opener = any(low.startswith(o) or f" {o}" in low[:200] for o in _PROSE_ACTION_OPENERS)
+    low = stripped.lower().replace("\u2019", "'")
+    has_opener = bool(_PROSE_ACTION_OPENER_RE.search(low[:200]))
     if not has_opener:
         return False
     has_verb = any(v in low for v in _PROSE_ACTION_VERBS)
@@ -805,6 +816,62 @@ async def _force_clarification_retry(
             "arguments": args,
         }
     return None
+
+
+def _clean_final_content(text: str) -> str:
+    """``answer_tags.clean_reply`` with a log line when it changed anything."""
+    cleaned, n_tags, n_rep = clean_reply(text)
+    if n_tags or n_rep:
+        logger.info(
+            "answer tags: stripped %d tag(s), collapsed %d repeated "
+            "paragraph block(s) in the saved reply", n_tags, n_rep,
+        )
+    return cleaned
+
+
+async def _wrap_up_repeat_retry(
+    wrap_up_messages: list[dict], sampling: dict
+) -> Optional[str]:
+    """One non-streaming wrap-up retry with a frequency penalty.
+
+    Returns the new reply text, or None when the call fails, comes back
+    empty, or repeats itself again (the caller then keeps the collapsed
+    first try).
+    """
+    body: dict[str, Any] = {
+        "model": VLLM_MODEL_NAME,
+        "messages": wrap_up_messages,
+        "stream": False,
+        "max_tokens": chat_context.DEFAULT_MAX_OUTPUT_TOKENS,
+    }
+    body.update(sampling)
+    body["frequency_penalty"] = 0.5
+    for _key, _value in reasoning_effort_fields().items():
+        _existing = body.get(_key)
+        if isinstance(_existing, dict) and isinstance(_value, dict):
+            _existing.update(_value)
+        else:
+            body[_key] = _value
+    body["max_tokens"] = chat_context.fit_max_tokens(
+        wrap_up_messages, body.get("max_tokens")
+    )
+    body.update(thinking_budget_fields(max_tokens=body.get("max_tokens")))
+    try:
+        d = await vllm_post_json(body, timeout=120.0, purpose="chat_wrap_up_retry")
+    except VLLMRequestError as e:
+        logger.warning("wrap-up repeat retry failed: %s", e)
+        return None
+    except Exception as e:  # never let the retry break the turn
+        logger.warning("wrap-up repeat retry failed: %s", e)
+        return None
+    record_usage("wrap_up_retry", d.get("usage"))
+    msg = (d.get("choices") or [{}])[0].get("message") or {}
+    content = msg.get("content") or ""
+    if not content.strip() or has_repeats(content):
+        logger.info("wrap-up repeat retry did not help; keeping the collapsed reply")
+        return None
+    logger.info("wrap-up repeated itself; replaced with a frequency-penalty retry")
+    return content
 
 
 async def _force_required_tool_retry(
@@ -1089,6 +1156,7 @@ async def _stream_vllm_once(
         try:
             async with vllm_post_stream(body, purpose=purpose) as line_iter:
                 emitted_tool_ids: set[int] = set()
+                tag_filter = AnswerTagStreamFilter()
 
                 async for line in line_iter:
                     if not line or not line.startswith("data:"):
@@ -1121,7 +1189,11 @@ async def _stream_vllm_once(
                     content = delta.get("content")
                     if content:
                         acc.content_parts.append(content)
-                        yield ("token", {"content": content}, acc)
+                        # The raw text stays in acc (cleaned at persistence);
+                        # the client gets it without <answer> tags.
+                        shown = tag_filter.feed(content)
+                        if shown:
+                            yield ("token", {"content": shown}, acc)
 
                     for delta_tc in (delta.get("tool_calls") or []):
                         idx = delta_tc.get("index", 0)
@@ -1139,6 +1211,16 @@ async def _stream_vllm_once(
                     finish = choice.get("finish_reason")
                     if finish:
                         acc.finish_reason = finish
+
+                # A trailing "<ans" that never became a tag is plain text.
+                _tail = tag_filter.flush()
+                if _tail:
+                    yield ("token", {"content": _tail}, acc)
+                if tag_filter.stripped:
+                    logger.info(
+                        "answer tags: dropped %d from the live stream (purpose=%s)",
+                        tag_filter.stripped, purpose,
+                    )
 
                 # Emit a tool_call SSE for each finalized tool call — we
                 # delay this until the stream ends so arguments are complete.
@@ -2704,9 +2786,16 @@ async def stream_chat_completion(
                 )
                 phantom_trigger = bool(_phantoms_inline)
                 prose_trigger = _looks_like_prose_action_promise(acc.content)
-                if phantom_trigger or prose_trigger:
+                # A reply that loops (the same paragraph or block twice or
+                # more in a row) with no tool call is a failed step, not an
+                # answer (s3_bars turn 7). One forced retry, then keep the
+                # collapsed text (LAB-BUGFIX-PLAN.md Q4).
+                repeat_trigger = has_repeats(acc.content)
+                if phantom_trigger or prose_trigger or repeat_trigger:
                     trigger_label = (
-                        "phantom_url" if phantom_trigger else "prose_action_promise"
+                        "phantom_url" if phantom_trigger
+                        else "prose_action_promise" if prose_trigger
+                        else "repeated_reply"
                     )
                     logger.info(
                         "prose-action recovery firing "
@@ -2720,6 +2809,12 @@ async def stream_chat_completion(
                         "Do not write prose explaining your plan — emit the "
                         "tool call directly."
                     )
+                    if repeat_trigger and not prose_trigger:
+                        nudge = (
+                            "Your previous response repeated the same text "
+                            "and called no tool. Call the appropriate tool "
+                            "now to fulfil the user's request."
+                        )
                     if phantom_trigger:
                         nudge += (
                             " Note: any /api/artifacts/... URLs in your "
@@ -2850,6 +2945,7 @@ async def stream_chat_completion(
                 })
 
                 if not ephemeral:
+                    final_content = _clean_final_content(final_content)
                     _saved_clar = await chat_store.add_message(
                         conversation_id=conversation["id"],
                         role="assistant",
@@ -3190,7 +3286,8 @@ async def stream_chat_completion(
                         "tool results you have gathered so far, write your "
                         "final answer to the user now. Do not call any more "
                         "tools. Be specific and cite sources (DOIs, URLs) from "
-                        "the tool results where possible."
+                        "the tool results where possible. Reply in plain "
+                        "Markdown, no XML tags."
                     ),
                 }
             ]
@@ -3211,10 +3308,24 @@ async def stream_chat_completion(
                 yield _sse(event_name, payload)
 
             if wrap_acc is not None:
+                wrap_content = wrap_acc.content
+                if has_repeats(wrap_content):
+                    # The wrap-up looped (s3_bars turn 5: five copies of one
+                    # block). Retry once with a frequency penalty; keep the
+                    # collapsed text if the retry fails or loops too. The
+                    # client already streamed the first try, so the fix shows
+                    # on reload (the persisted copy is authoritative).
+                    retried = await _wrap_up_repeat_retry(wrap_up_messages, sampling)
+                    if retried:
+                        wrap_content = retried
                 final_thinking += wrap_acc.thinking
-                final_content += wrap_acc.content
+                final_content += wrap_content
                 record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
+
+        # Drop stray <answer> tags and collapse looped paragraphs before the
+        # audits and the save (LAB-BUGFIX-PLAN.md F5).
+        final_content = _clean_final_content(final_content)
 
         # --- 6. Persist assistant message ---
         # Stream-error marker. When the loop bailed because vLLM yielded an
@@ -3444,7 +3555,7 @@ async def stream_chat_completion(
                 else:
                     _marker_reason = "server error during stream"
                 marker_content = apply_stream_error_marker(
-                    final_content,
+                    _clean_final_content(final_content),
                     _marker_reason,
                 )
                 # `conversation` is guaranteed defined here: the early

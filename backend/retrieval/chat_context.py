@@ -29,6 +29,7 @@ import asyncio
 from chat_store import get_conversation, get_messages_after_index, update_summary
 from vllm_client import vllm_post_json, VLLMRequestError
 from usage_tracker import record_usage
+from answer_tags import strip_answer_tags
 
 logger = logging.getLogger(__name__)
 
@@ -905,7 +906,13 @@ async def assemble_context(
         return [
             {"role": "system", "content": combined_system},
             *[
-                {"role": m["role"], "content": _augment_with_attachments(m)}
+                {"role": m["role"], "content": (
+                    # Older rows can carry stray <answer> tags or looped
+                    # copies; the model would copy them (LAB-BUGFIX-PLAN F5).
+                    strip_answer_tags(_augment_with_attachments(m))
+                    if m["role"] == "assistant"
+                    else _augment_with_attachments(m)
+                )}
                 for m in history
             ],
             new_msg,
