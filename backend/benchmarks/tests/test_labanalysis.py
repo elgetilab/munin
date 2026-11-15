@@ -449,3 +449,15 @@ def test_fixtures_regenerate_identically():
                 assert _close_json(json.loads(a), json.loads(b)), name
             elif a != b:
                 assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest(), name
+
+
+def test_manifest_diff_ignores_saved_size_keys():
+    # The new hook reports the saved file's size; a relabelled axis under a
+    # tight bbox changes it without being an edit of its own.
+    def fig(saved, ylabel="y"):
+        return {"size_mm": [85, 60], "size_mm_saved": saved, "size_differs_on_save": saved != [85, 60],
+                "axes": [{"ylabel": ylabel, "series": []}]}
+    c = {"type": "manifest_diff", "file": "f.png", "allowed": ["axes.0.ylabel"]}
+    rec = _fig_record([(1, "f.png", fig([85, 60])), (2, "f.png", fig([88.1, 61.0], "Activity"))])
+    ok, detail = graders.grade(c, rec, 2)
+    assert ok, detail

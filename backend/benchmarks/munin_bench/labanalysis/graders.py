@@ -372,7 +372,12 @@ def g_manifest(c, record, turn):
     return not bad, f"{art.filename} v{art.version}: " + ("; ".join(bad) if bad else "all assertions hold")
 
 
-_IGNORED_LEAVES = ("path", "xticklabels", "yticklabels", "xlim", "ylim", "layout", "texts")
+# The saved-file size keys (fighook, LAB-BUGFIX-PLAN.md F3) follow from other
+# changes (figsize, dpi, a tight bbox around a relabelled axis), so they are
+# not a change of their own; requested sizes are checked by file_meta.
+_IGNORED_LEAVES = ("path", "xticklabels", "yticklabels", "xlim", "ylim", "layout", "texts",
+                   "size_in_saved", "size_mm_saved", "dpi_saved", "size_px_saved",
+                   "size_differs_on_save")
 
 
 _ERR = ("yerr", "yerr_low", "yerr_high", "xerr", "xerr_low", "xerr_high")

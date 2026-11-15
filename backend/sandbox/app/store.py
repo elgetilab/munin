@@ -619,9 +619,20 @@ def summarize_figure(fig: dict) -> str:
     """A few lines the model reads after each run to check its own plot."""
     lines = []
     size = fig.get("size_mm") or [None, None]
-    head = f"{_fmt_num(size[0])}x{_fmt_num(size[1])} mm"
+    saved = fig.get("size_mm_saved")
+    if saved and fig.get("size_differs_on_save"):
+        # The model was once told 85 mm about a 94.7 mm file: bbox_inches
+        # changed the page, so lead with the file's real size.
+        head = (f"saved file {_fmt_num(saved[0])}x{_fmt_num(saved[1])} mm "
+                f"(figsize {_fmt_num(size[0])}x{_fmt_num(size[1])} mm; "
+                "bbox_inches changed the size)")
+    else:
+        head = f"{_fmt_num(size[0])}x{_fmt_num(size[1])} mm"
     if fig.get("dpi"):
         head += f", {_fmt_num(fig['dpi'])} dpi"
+    if fig.get("size_px_saved"):
+        px = fig["size_px_saved"]
+        head += f", {px[0]}x{px[1]} px"
     if fig.get("format"):
         head += f", {fig['format']}"
     axes = fig.get("axes") or []
@@ -680,9 +691,10 @@ def _series_line(s: dict) -> str:
         out = f"{kind}{label}: {_n(s.get('x'))} points"
         if s.get("color"):
             out += f", {s['color']}"
-        for k in ("yerr", "yerr_low", "xerr"):
+        for k in ("yerr", "yerr_low", "xerr", "xerr_low"):
             if k in s:
-                out += f", {k.split('_')[0]} bars"
+                kind_err = "band" if s.get("error_style") == "band" else "bars"
+                out += f", {k.split('_')[0]} {kind_err}"
                 break
         return out
     if kind == "bar":
