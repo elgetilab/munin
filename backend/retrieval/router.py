@@ -8,6 +8,16 @@ sampling, and (pre-A4) tool subset.
 Cheapest-first cascade (handoff §A3, decisions in docs/paper-track/done/A3-PLAN.md):
   1. RULES (tier 1): slash commands /research /code /chat -> force that
      profile (absolute; overrides pin + KNN). Q1.
+     Then the DATA-FILE rule: a turn that attaches, or names, a data file
+     (tabular, spreadsheet, archive, instrument or array format; see
+     DATA_FILE_EXTENSIONS) goes to code. The only way to do anything with
+     such a file is to run code on it in the sandbox, and a data-file turn
+     that lands on research burns its tool budget on literature tools. A
+     plain-text file (.txt, .json, ...) is weaker evidence, because it can
+     just as well be notes to summarise, so the KNN still decides between
+     chat and code, but research becomes code (research's resident tools
+     search the literature; they cannot compute on an attached file) and
+     the fallback is code.
   2. KNN (tier 2): BGE-embed the query, distance-weighted vote over a small
      labelled example set, with the pinned profile as a prior. Accept iff the
      winner clears a margin AND the nearest neighbour is in-distribution
@@ -39,6 +49,24 @@ MARGIN_THRESHOLD = 0.10     # winner must lead runner-up by this fraction of tot
 OOD_SIM_THRESHOLD = 0.45    # nearest-neighbour cosine sim must exceed this (else OOD -> fallback)
 PIN_PRIOR = 0.5             # vote weight the pinned profile gets as a prior
 
+# File types whose only use in a chat is to be read and processed by code.
+# Documents meant to be read (pdf, docx, md, tex, bib, pptx) are deliberately
+# absent: "summarise paper.pdf" is not a code turn.
+DATA_FILE_EXTENSIONS = frozenset({
+    # tabular / spreadsheet
+    "csv", "tsv", "xlsx", "xls", "xlsm", "ods",
+    # archives (instrument experiment folders arrive zipped)
+    "zip", "tar", "tgz", "gz", "bz2", "xz", "7z",
+    # array / scientific containers
+    "npy", "npz", "h5", "hdf5", "hdf", "nc", "mat", "parquet", "feather",
+    "pkl", "pickle", "dat",
+    # instrument formats (NMR, spectroscopy, qPCR, flow, ephys, MS)
+    "fid", "ser", "jdx", "dx", "spc", "sda", "pcrd", "eds", "fcs", "abf",
+    "mzml", "mzxml", "wiff", "raw",
+})
+# Plain text that is often data (instrument exports) but can be prose.
+TEXT_FILE_EXTENSIONS = frozenset({"txt", "json", "xml", "log", "out"})
+
 _EXAMPLES_PATH = os.path.join(os.path.dirname(__file__), "router_examples.json")
 
 EmbedFn = Callable[[list], "np.ndarray"]
@@ -47,7 +75,7 @@ EmbedFn = Callable[[list], "np.ndarray"]
 @dataclass
 class RoutingDecision:
     profile: str          # chat | research | code (the turn's routed profile)
-    method: str           # "rule" | "knn" | "fallback"
+    method: str           # "rule" (slash or data file) | "knn" | "fallback"
     confidence: float     # margin for knn; 1.0 for a rule; the (rejected) margin for fallback
     pin: Optional[str] = None
     # When a slash command fired, the query with the leading `/<profile>`
@@ -71,6 +99,37 @@ def parse_slash(query: str) -> Optional[tuple]:
     if profile is None:
         return None
     return profile, m.group(2).strip()
+
+
+# --- tier 1b: data files -----------------------------------------------------
+# A file name or path: a word-ish stem, a dot, one of the known extensions, not
+# followed by more name characters ("data.csv" and "inputs/a.tsv" yes,
+# "data.csvx" and "e.g." no).
+_ALL_EXT = sorted(DATA_FILE_EXTENSIONS | TEXT_FILE_EXTENSIONS, key=len, reverse=True)
+_FILENAME_RE = re.compile(
+    r"(?<![\w.-])[\w/][\w/.+-]*\.(" + "|".join(_ALL_EXT) + r")(?![\w-])",
+    re.IGNORECASE,
+)
+
+
+def _extension(name: str) -> str:
+    base = name.rsplit("/", 1)[-1]
+    return base.rsplit(".", 1)[-1].lower() if "." in base else ""
+
+
+def data_file_kind(query: str, attachments: Optional[list] = None) -> Optional[str]:
+    """Classify the files this turn carries or names.
+
+    Returns "data" if any attached or named file has a DATA_FILE_EXTENSIONS
+    type, "text" if the strongest is a TEXT_FILE_EXTENSIONS type, else None.
+    `attachments` are the file names attached to this turn (any may be None)."""
+    exts = {_extension(a) for a in (attachments or []) if isinstance(a, str)}
+    exts |= {m.group(1).lower() for m in _FILENAME_RE.finditer(query or "")}
+    if exts & DATA_FILE_EXTENSIONS:
+        return "data"
+    if exts & TEXT_FILE_EXTENSIONS:
+        return "text"
+    return None
 
 
 # --- tier 2: KNN index ------------------------------------------------------
@@ -110,13 +169,21 @@ def route(
     pin: Optional[str],
     index: RouterIndex,
     embed_fn: EmbedFn,
+    attachments: Optional[list] = None,
 ) -> RoutingDecision:
     """Route one turn. `pin` is the pinned persona id (the user's selector),
-    used as a prior and as the fallback target."""
+    used as a prior and as the fallback target. `attachments` are the file
+    names attached to this turn, if the caller knows them; file names typed
+    in the query count too."""
     # Tier 1: slash command is absolute.
     slash = parse_slash(query)
     if slash is not None:
         return RoutingDecision(slash[0], "rule", 1.0, pin=pin, stripped_query=slash[1])
+
+    # Tier 1b: a data file means the turn is about processing it.
+    files = data_file_kind(query, attachments)
+    if files == "data":
+        return RoutingDecision("code", "rule", 1.0, pin=pin)
 
     # Tier 2: distance-weighted KNN with pin prior + OOD guard.
     q = _l2_normalise(np.asarray(embed_fn([query]), dtype=np.float32))[0]
@@ -140,8 +207,16 @@ def route(
     in_distribution = nearest_sim >= OOD_SIM_THRESHOLD
     decisive = margin >= MARGIN_THRESHOLD
     if in_distribution and decisive:
+        if files == "text" and top_profile == "research":
+            # Instrument exports describe their sample, so they sit close to
+            # research's "what is the reported X of this protein" examples.
+            return RoutingDecision("code", "rule", margin, pin=pin)
         return RoutingDecision(top_profile, "knn", margin, pin=pin)
 
-    # Fallback: pin if explicitly pinned, else chat (Q4).
-    fallback = pin if pin in PROFILES else DEFAULT_PROFILE
+    # Fallback: pin if explicitly pinned, else code for a turn carrying a
+    # text file, else chat (Q4).
+    if pin in PROFILES:
+        fallback = pin
+    else:
+        fallback = "code" if files == "text" else DEFAULT_PROFILE
     return RoutingDecision(fallback, "fallback", margin, pin=pin)

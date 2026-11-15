@@ -101,6 +101,88 @@ def test_ood_query_unpinned_falls_back_to_chat():
     assert d.method == "fallback" and d.profile == router.DEFAULT_PROFILE == "chat"
 
 
+# --- tier 1b: data files ----------------------------------------------------
+
+# The first turn that routed to research in the 2026-11-15 lab eval and hit the
+# research tool cap without processing the file.
+_BRUKER_TURN = (
+    "bruker_1h.zip is a Bruker 1H experiment folder (raw FID, not processed). "
+    "Process it: remove the digital filter, Fourier transform, phase it, and "
+    "reference the DSS signal to 0.00 ppm. Besides DSS there are three signals. "
+    "Report their chemical shifts in ppm and their integrals relative to the "
+    "highest-ppm signal set to 1."
+)
+
+
+def test_data_file_kind_classifies_named_and_attached_files():
+    k = router.data_file_kind
+    assert k("fit inhibition_1.csv with a competitive model") == "data"
+    assert k("Here is my file qpcr_run.pcrd.") == "data"
+    assert k("open inputs/plate_450nm.XLSX") == "data"          # path, any case
+    assert k("process it", attachments=["bruker_1h.zip"]) == "data"
+    assert k("convert cd_lysozyme.txt to molar ellipticity") == "text"
+    assert k("hi", attachments=["notes.txt", "data.tsv"]) == "data"   # strongest wins
+    # Documents to read, version numbers, abbreviations: not data files.
+    assert k("summarise paper.pdf for me") is None
+    assert k("what changed in Python 3.12, e.g. in typing?") is None
+    assert k("the file is data.csvx") is None
+    assert k("no files here", attachments=[None, "draft.docx"]) is None
+
+
+def test_data_file_routes_to_code_over_research_knn():
+    # The fake embedder puts "review the literature" on research; the named
+    # CSV wins anyway.
+    d = router.route("values.csv: review the literature values in it", pin=None,
+                     index=_index(), embed_fn=_fake_embed)
+    assert d.profile == "code" and d.method == "rule"
+
+
+def test_bruker_lab_turn_routes_to_code():
+    d = router.route(_BRUKER_TURN, pin=None, index=_index(), embed_fn=_fake_embed)
+    assert d.profile == "code" and d.method == "rule"
+
+
+def test_attachment_without_name_in_text_routes_to_code():
+    d = router.route("the uploaded file: review the literature values", pin=None,
+                     index=_index(), embed_fn=_fake_embed, attachments=["run1.csv"])
+    assert d.profile == "code" and d.method == "rule"
+    # Same text without the attachment stays on research.
+    d = router.route("the uploaded file: review the literature values", pin=None,
+                     index=_index(), embed_fn=_fake_embed)
+    assert d.profile == "research"
+
+
+def test_data_file_rule_does_not_fire_for_a_pdf():
+    d = router.route("review the literature cited in paper.pdf", pin=None,
+                     index=_index(), embed_fn=_fake_embed, attachments=["paper.pdf"])
+    assert d.profile == "research" and d.method == "knn"
+
+
+def test_slash_command_beats_data_file():
+    d = router.route("/research find papers on the compounds in hits.csv", pin=None,
+                     index=_index(), embed_fn=_fake_embed)
+    assert d.profile == "research" and d.method == "rule"
+    assert d.stripped_query == "find papers on the compounds in hits.csv"
+
+
+def test_text_file_turns_research_into_code_but_keeps_chat():
+    d = router.route("cd.txt: review the literature values", pin=None,
+                     index=_index(), embed_fn=_fake_embed)
+    assert d.profile == "code" and d.method == "rule"
+    d = router.route("edit the wording in notes.txt", pin=None,
+                     index=_index(), embed_fn=_fake_embed)
+    assert d.profile == "chat" and d.method == "knn"
+
+
+def test_text_file_fallback_is_code_unless_pinned():
+    d = router.route("zxcv qwer", pin=None, index=_index(), embed_fn=_fake_embed,
+                     attachments=["export.txt"])
+    assert d.method == "fallback" and d.profile == "code"
+    d = router.route("zxcv qwer", pin="chat", index=_index(), embed_fn=_fake_embed,
+                     attachments=["export.txt"])
+    assert d.method == "fallback" and d.profile == "chat"
+
+
 def test_real_example_file_loads_and_routes():
     # The committed router_examples.json loads and produces a decision with
     # the fake embedder (smoke; real routing quality is measured in the eval).

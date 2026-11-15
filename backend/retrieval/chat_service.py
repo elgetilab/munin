@@ -2315,8 +2315,18 @@ async def stream_chat_completion(
     # to route on, so skip the embed call entirely and stay on the pin.
     if ROUTER_ENABLED and typed_text:
         try:
+            # Attached file names let a data upload route to code even when
+            # the wording reads like a literature question (bruker_1h.zip went
+            # to research, LAB-BUGFIX-PLAN.md F11).
+            _raw = user_message.get("content", "")
+            _attached = [
+                b.get("filename") for b in _raw
+                if isinstance(b, dict) and b.get("type") == "document"
+                and isinstance(b.get("filename"), str)
+            ] if isinstance(_raw, list) else []
             _d = router_module.route(
-                typed_text, pin_id, _get_router_index(), _bge_embed
+                typed_text, pin_id, _get_router_index(), _bge_embed,
+                attachments=_attached,
             )
             _routed = persona_module.get_persona(_d.profile)
             if _routed is not None:
