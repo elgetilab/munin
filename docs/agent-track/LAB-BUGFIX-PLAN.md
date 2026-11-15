@@ -212,6 +212,32 @@ id exists nowhere in the sandbox), so F8 kept the audit's value.
   Trade-off: "find papers on the compounds in hits.csv" now goes to code
   unless the user types `/research`.
 
+## Third live check (after F9-F11): results and F12
+
+2026-11-15 16:39-17:19 UTC, tags `bugfix3-s3` and `bugfix3-smoke`.
+
+- S3: mean 0.981, 4/6 pass, 17 min for 6 runs (32 before, about 2 h before
+  the fixes). Both misses are unrequested model edits, not bugs: `s3_bars#3`
+  turn 3 moved the y=0 line on the log axis again, `s3_bars#1` turn 5
+  shortened the title when the figure was resized to 85 mm. Graders kept
+  strict.
+- Smoke: 9/10. `s2_bruker_1d` now routes to code (F11 holds) but still
+  fails, see F12.
+- Logs: no 400s, no context-full, one stream loop cut (that run scored
+  1.00), 5 phantom flags (about one per S3 run), 17 prose-action recoveries
+  (12 in `s3_dose#1`, which passed).
+- **F12. Verbatim reruns.** In `s2_bruker_1d` the model ran one script three
+  times in a row (runs 7-9) and another six times in a row (runs 13-18), each
+  with the same wrong output (it read SW in ppm as MHz and the FID as int16;
+  DTYPA=0 is int32), and the turn ended after 20 calls and 14 min with no
+  results.json. The model error is not ours to fix by prompt; the wasted
+  budget is. Fix: a sandbox call (`run_python`, `edit_python`, `compute`,
+  `compile_latex`) identical to the call made just before it, nothing run in
+  between, gets a synthetic "not run, change the code or answer" result
+  (`_repeated_call_skips` in `chat_service.py`); a rerun after a timeout or
+  an infrastructure error is allowed. The second blocked rerun in a message
+  ends the tool loop into the wrap-up. Tests: `tests/test_repeat_calls.py`.
+
 ## Open questions (defaults taken unless you say otherwise)
 
 | # | Question | Default |

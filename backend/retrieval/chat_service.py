@@ -1399,11 +1399,87 @@ def _duplicate_create_artifact_ids(tool_calls: list[dict]) -> set[str]:
     return skip
 
 
+# Sandbox calls the model may not rerun verbatim. The lab Bruker case
+# (2026-11-15) ran one script six times in a row, got the same wrong output
+# each time, and spent the turn's whole budget without an answer.
+REPEAT_GUARDED_TOOLS = SANDBOX_ARTIFACT_TOOLS
+# The second blocked repeat in one message ends the tool loop (wrap-up).
+MAX_BLOCKED_REPEATS = 2
+
+
+def _call_key(tc: dict) -> Optional[str]:
+    """Identity of a guarded call: tool name plus canonical arguments."""
+    if tc.get("name") not in REPEAT_GUARDED_TOOLS:
+        return None
+    try:
+        args = json.dumps(tc.get("arguments") or {}, sort_keys=True, default=str)
+    except Exception:
+        return None
+    return f"{tc.get('name')}:{args}"
+
+
+def _rerun_is_legit(result) -> bool:
+    """A timeout or an infrastructure failure may well pass on a rerun.
+
+    ``None`` is a call earlier in the same response whose result is not in
+    yet: a verbatim copy of it in one response is never worth running.
+    """
+    if result is None:
+        return False
+    if not isinstance(result, dict):
+        return True
+    if result.get("timed_out"):
+        return True
+    err = str(result.get("error") or "")
+    return err.startswith("tool execution failed") or "restart" in err.lower()
+
+
+def _repeated_call_skips(
+    tool_calls: list[dict],
+    last_call: Optional[tuple],
+    call_number: int,
+) -> tuple[dict[str, dict], Optional[tuple]]:
+    """Find calls that repeat the call made just before them, unchanged.
+
+    ``last_call`` is ``(key, result, number)`` for the most recent executed
+    call of this message (``None`` at the start). A guarded call whose key
+    equals the previous call's key, with nothing else run in between, gets
+    a synthetic result instead of running again; rerunning after another
+    call is allowed because files may have changed. Returns the skips by
+    tool-call id and the new ``last_call`` (its result is filled in by the
+    caller once the step has run; a skipped call keeps the earlier one).
+    """
+    skips: dict[str, dict] = {}
+    prev = last_call
+    for i, tc in enumerate(tool_calls):
+        key = _call_key(tc)
+        number = call_number + i + 1
+        if (key is not None and prev is not None and prev[0] == key
+                and not _rerun_is_legit(prev[1])):
+            skips[tc["id"]] = {
+                "skipped": True,
+                "repeated_call": True,
+                "reason": (
+                    f"Not run: this is exactly the {tc.get('name')} call you "
+                    f"made in call {prev[2]}, with nothing run since, so it "
+                    f"would give the same result shown there. Change the "
+                    f"code, or answer with what you have."
+                ),
+            }
+            continue
+        prev = (key, None, number)
+    return skips, prev
+
+
 async def _run_tool_calls(
     tool_calls: list[dict],
     persona_id: Optional[str] = None,
+    skip_results: Optional[dict[str, dict]] = None,
 ) -> list[dict]:
     """Execute all tool calls for a turn, preserving declared order.
+
+    ``skip_results`` maps tool-call ids to a synthetic result returned
+    instead of running the call (verbatim reruns, see _repeated_call_skips).
 
     Concurrency-safe tools (paper_search, web_search, calculate, ...)
     fan out via asyncio.gather. Unsafe tools (``is_concurrency_safe:
@@ -1428,6 +1504,9 @@ async def _run_tool_calls(
 
     async def one(tc: dict) -> dict:
         name = tc.get("name") or ""
+        if skip_results and tc.get("id") in skip_results:
+            return {"id": tc["id"], "name": name,
+                    "result": skip_results[tc["id"]], "duration_ms": 0}
         # Duplicate create_artifact (same title, same response): skip the
         # actual creation but still return a result so the model gets
         # feedback and the tool_call_id is satisfied.
@@ -2704,6 +2783,10 @@ async def stream_chat_completion(
         # Cumulative tool calls across this message's agentic loop; the
         # MAX_TOOL_CALLS_PER_MESSAGE backstop trips the wrap-up when exceeded.
         total_tool_calls = 0
+        # Verbatim-rerun guard (_repeated_call_skips): the last executed call
+        # as (key, result, number) and the count of blocked reruns.
+        last_call: Optional[tuple] = None
+        blocked_repeats = 0
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -3120,11 +3203,21 @@ async def stream_chat_completion(
 
             current_sse_emitter.set(_push)
 
+            repeat_skips, next_last_call = _repeated_call_skips(
+                tool_calls, last_call, total_tool_calls)
+            if repeat_skips:
+                blocked_repeats += len(repeat_skips)
+                logger.info(
+                    "blocked %d verbatim rerun(s) of the previous sandbox call "
+                    "(%d this message)", len(repeat_skips), blocked_repeats,
+                )
+
             async def _runner() -> list[dict]:
                 try:
                     return await _run_tool_calls(
                         tool_calls,
                         persona_id=persona_id,
+                        skip_results=repeat_skips,
                     )
                 finally:
                     # put_nowait is sync — safe to call after CancelledError
@@ -3334,7 +3427,25 @@ async def stream_chat_completion(
             # tool calls, so the no-tool-calls path that clears it did not run),
             # so breaking routes into the wrap-up synthesis below: the model is
             # told to answer with what it has. The user can Continue for more.
+            if next_last_call is not None:
+                # Attach the result of the call that last_call now names, so a
+                # rerun after a timeout or infrastructure error is allowed.
+                if next_last_call[1] is None:
+                    idx = next_last_call[2] - total_tool_calls - 1
+                    res_by_id = {r["id"]: r["result"] for r in results}
+                    if 0 <= idx < len(tool_calls):
+                        next_last_call = (
+                            next_last_call[0],
+                            res_by_id.get(tool_calls[idx]["id"]),
+                            next_last_call[2],
+                        )
+                last_call = next_last_call
             total_tool_calls += len(tool_calls)
+            if blocked_repeats >= MAX_BLOCKED_REPEATS:
+                logger.info(
+                    "%d verbatim reruns blocked - forcing wrap-up", blocked_repeats,
+                )
+                break
             if total_tool_calls >= MAX_TOOL_CALLS_PER_MESSAGE:
                 logger.info(
                     "tool-call budget reached (%d >= %d, persona=%s) - forcing wrap-up",

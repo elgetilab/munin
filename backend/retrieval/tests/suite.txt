@@ -93,6 +93,7 @@ test_raw_mode.py                         hermetic
 test_replace_from.py                     hermetic
 test_research_resume.py                  hermetic
 test_resume_endpoint.py                  hermetic
+test_repeat_calls.py                     hermetic
 test_router.py                           hermetic
 test_sampling_profile.py                 hermetic        pytest
 test_sandbox_peer_guard.py               hermetic
