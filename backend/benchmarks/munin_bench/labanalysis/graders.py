@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import unicodedata
 from typing import Any, Callable, Optional
 
 from .cases import lookup
@@ -78,7 +79,13 @@ def close(value: float, truth: float, rtol: float = 0.0, atol: float = 0.0) -> b
 
 
 def _norm_text(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").lower())
+    # NFKC so look-alikes typed differently compare equal (micro sign U+00B5
+    # vs Greek mu U+03BC in "Concentration (µM)", bugfix live check).
+    return re.sub(r"\s+", " ", unicodedata.normalize("NFKC", s or "").lower())
+
+
+def _nfkc(v: Any) -> Any:
+    return unicodedata.normalize("NFKC", v).strip() if isinstance(v, str) else v
 
 
 def _warnings_text(record: RunRecord, turn: int) -> str:
@@ -254,7 +261,7 @@ def _assert(fig: dict, a: dict) -> tuple[bool, str]:
     if a.get("absent"):
         return False, f"{path} present"
     if "eq" in a:
-        return v == a["eq"], f"{path}={v!r}"
+        return _nfkc(v) == _nfkc(a["eq"]), f"{path}={v!r}"
     if "ne" in a:
         return v != a["ne"], f"{path}={v!r}"
     if "approx" in a:

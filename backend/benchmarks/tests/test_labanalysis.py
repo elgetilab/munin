@@ -461,3 +461,16 @@ def test_manifest_diff_ignores_saved_size_keys():
     rec = _fig_record([(1, "f.png", fig([85, 60])), (2, "f.png", fig([88.1, 61.0], "Activity"))])
     ok, detail = graders.grade(c, rec, 2)
     assert ok, detail
+
+
+def test_text_checks_ignore_lookalike_codepoints():
+    # bugfix live check: the case asks for "Concentration (µM)" (micro sign
+    # U+00B5); the model wrote Greek mu U+03BC, which renders the same.
+    fig = {"axes": [{"xlabel": "Concentration (μM)", "series": []}]}
+    rec = _fig_record([(1, "dose.png", fig)])
+    ok, detail = graders.grade({"type": "manifest", "file": "dose.png", "assert": [
+        {"path": "axes.0.xlabel", "eq": "Concentration (µM)"}]}, rec, 1)
+    assert ok, detail
+    ok, _ = graders.grade({"type": "manifest", "file": "dose.png", "assert": [
+        {"path": "axes.0.xlabel", "eq": "Concentration (nM)"}]}, rec, 1)
+    assert not ok
