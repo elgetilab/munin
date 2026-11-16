@@ -38,7 +38,7 @@ import re
 import uuid
 from typing import Any, Optional
 
-from chat_store import _iso_now, _row_to_dict, get_db
+from chat_store import _iso_now, _row_to_dict, get_db, write_txn
 from text_edits import ARTIFACT_EDITS_EXAMPLE, apply_edits, as_sentence
 
 
@@ -432,47 +432,46 @@ async def create_artifact(
     if language is not None and not isinstance(language, str):
         raise ArtifactError("language must be a string or null")
 
-    db = await get_db()
-    aid = f"art_{uuid.uuid4().hex[:12]}"
-    now = _iso_now()
+    async with write_txn() as db:
+        aid = f"art_{uuid.uuid4().hex[:12]}"
+        now = _iso_now()
 
-    await db.execute(
-        """
-        INSERT INTO artifacts
-            (id, conversation_id, user_email, title, content_type,
-             language, latest_version, created_at, updated_at, source)
-        VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
-        """,
-        (
-            aid, conversation_id, user_email, title, content_type,
-            language, now, now, SOURCE_MODEL_WRITTEN,
-        ),
-    )
-    await db.execute(
-        """
-        INSERT INTO artifact_versions
-            (artifact_id, version, content, change_summary,
-             created_at, created_by)
-        VALUES (?, 1, ?, ?, ?, 'assistant')
-        """,
-        (aid, content, summary, now),
-    )
-    await db.commit()
-    return {
-        "id": aid,
-        # Echo the same value under the key update_artifact/read_artifact
-        # actually require, so the model isn't tempted to call them back
-        # with `id=` (the slip that stranded chat 5e27dfa4, 2026-06-16).
-        "artifact_id": aid,
-        "conversation_id": conversation_id,
-        "title": title,
-        "content_type": content_type,
-        "language": language,
-        "source": SOURCE_MODEL_WRITTEN,
-        "version": 1,
-        "created_at": now,
-        "updated_at": now,
-    }
+        await db.execute(
+            """
+            INSERT INTO artifacts
+                (id, conversation_id, user_email, title, content_type,
+                 language, latest_version, created_at, updated_at, source)
+            VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            """,
+            (
+                aid, conversation_id, user_email, title, content_type,
+                language, now, now, SOURCE_MODEL_WRITTEN,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO artifact_versions
+                (artifact_id, version, content, change_summary,
+                 created_at, created_by)
+            VALUES (?, 1, ?, ?, ?, 'assistant')
+            """,
+            (aid, content, summary, now),
+        )
+        return {
+            "id": aid,
+            # Echo the same value under the key update_artifact/read_artifact
+            # actually require, so the model isn't tempted to call them back
+            # with `id=` (the slip that stranded chat 5e27dfa4, 2026-06-16).
+            "artifact_id": aid,
+            "conversation_id": conversation_id,
+            "title": title,
+            "content_type": content_type,
+            "language": language,
+            "source": SOURCE_MODEL_WRITTEN,
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        }
 
 
 async def register_sandbox_artifact(
@@ -552,46 +551,45 @@ async def register_sandbox_artifact(
             f"container; fetch them via GET {external_url}.]"
         )
 
-    db = await get_db()
-    aid = f"art_{uuid.uuid4().hex[:12]}"
-    now = _iso_now()
+    async with write_txn() as db:
+        aid = f"art_{uuid.uuid4().hex[:12]}"
+        now = _iso_now()
 
-    await db.execute(
-        """
-        INSERT INTO artifacts
-            (id, conversation_id, user_email, title, content_type,
-             language, latest_version, created_at, updated_at,
-             source, filename, external_url)
-        VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, ?, ?)
-        """,
-        (
-            aid, conversation_id, user_email, title, content_type,
-            now, now, SOURCE_SANDBOX_GENERATED, filename, external_url,
-        ),
-    )
-    await db.execute(
-        """
-        INSERT INTO artifact_versions
-            (artifact_id, version, content, change_summary,
-             created_at, created_by)
-        VALUES (?, 1, ?, ?, ?, 'assistant')
-        """,
-        (aid, version_content, f"sandbox produced {filename}", now),
-    )
-    await db.commit()
-    return {
-        "id": aid,
-        "conversation_id": conversation_id,
-        "title": title,
-        "content_type": content_type,
-        "source": SOURCE_SANDBOX_GENERATED,
-        "filename": filename,
-        "size_bytes": size_bytes,
-        "external_url": external_url,
-        "version": 1,
-        "created_at": now,
-        "updated_at": now,
-    }
+        await db.execute(
+            """
+            INSERT INTO artifacts
+                (id, conversation_id, user_email, title, content_type,
+                 language, latest_version, created_at, updated_at,
+                 source, filename, external_url)
+            VALUES (?, ?, ?, ?, ?, NULL, 1, ?, ?, ?, ?, ?)
+            """,
+            (
+                aid, conversation_id, user_email, title, content_type,
+                now, now, SOURCE_SANDBOX_GENERATED, filename, external_url,
+            ),
+        )
+        await db.execute(
+            """
+            INSERT INTO artifact_versions
+                (artifact_id, version, content, change_summary,
+                 created_at, created_by)
+            VALUES (?, 1, ?, ?, ?, 'assistant')
+            """,
+            (aid, version_content, f"sandbox produced {filename}", now),
+        )
+        return {
+            "id": aid,
+            "conversation_id": conversation_id,
+            "title": title,
+            "content_type": content_type,
+            "source": SOURCE_SANDBOX_GENERATED,
+            "filename": filename,
+            "size_bytes": size_bytes,
+            "external_url": external_url,
+            "version": 1,
+            "created_at": now,
+            "updated_at": now,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -864,43 +862,42 @@ async def update_artifact(
             prev_content, new_content
         )
 
-    db = await get_db()
-    now = _iso_now()
-    next_version = latest_version + 1
+    async with write_txn() as db:
+        now = _iso_now()
+        next_version = latest_version + 1
 
-    await db.execute(
-        """
-        INSERT INTO artifact_versions
-            (artifact_id, version, content, change_summary,
-             created_at, created_by)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (artifact_id, next_version, new_content, summary, now, created_by),
-    )
-    await db.execute(
-        "UPDATE artifacts SET latest_version = ?, updated_at = ? "
-        "WHERE id = ?",
-        (next_version, now, artifact_id),
-    )
-    await db.commit()
-    return {
-        "id": artifact_id,
-        "artifact_id": artifact_id,
-        "conversation_id": conversation_id,
-        "title": meta["title"],
-        "content_type": meta["content_type"],
-        "language": meta["language"],
-        "source": source,
-        "version": next_version,
-        "change_summary": summary,
-        "created_by": created_by,
-        "updated_at": now,
-        "base_version": applied_base,
-        "applied_hunks": applied_hunks,
-        "edits_applied": edits_applied,
-        "lines_added": lines_added,
-        "lines_removed": lines_removed,
-    }
+        await db.execute(
+            """
+            INSERT INTO artifact_versions
+                (artifact_id, version, content, change_summary,
+                 created_at, created_by)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (artifact_id, next_version, new_content, summary, now, created_by),
+        )
+        await db.execute(
+            "UPDATE artifacts SET latest_version = ?, updated_at = ? "
+            "WHERE id = ?",
+            (next_version, now, artifact_id),
+        )
+        return {
+            "id": artifact_id,
+            "artifact_id": artifact_id,
+            "conversation_id": conversation_id,
+            "title": meta["title"],
+            "content_type": meta["content_type"],
+            "language": meta["language"],
+            "source": source,
+            "version": next_version,
+            "change_summary": summary,
+            "created_by": created_by,
+            "updated_at": now,
+            "base_version": applied_base,
+            "applied_hunks": applied_hunks,
+            "edits_applied": edits_applied,
+            "lines_added": lines_added,
+            "lines_removed": lines_removed,
+        }
 
 
 # ---------------------------------------------------------------------------

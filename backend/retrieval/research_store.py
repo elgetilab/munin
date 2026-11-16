@@ -20,7 +20,7 @@ import json
 import time
 from typing import Any, Optional
 
-from chat_store import get_db
+from chat_store import get_db, write_txn
 
 _tables_ready = False
 
@@ -29,74 +29,80 @@ async def _ensure_tables() -> None:
     global _tables_ready
     if _tables_ready:
         return
-    db = await get_db()
-    await db.executescript(
-        """
-        CREATE TABLE IF NOT EXISTS research_jobs (
-            job_id          TEXT PRIMARY KEY,
-            conversation_id TEXT,
-            user_email      TEXT,
-            question        TEXT,
-            status          TEXT,
-            artifact_id     TEXT,
-            error           TEXT,
-            created_at      REAL,
-            updated_at      REAL
-        );
-        CREATE INDEX IF NOT EXISTS idx_research_jobs_conv
-            ON research_jobs(conversation_id, created_at DESC);
-        CREATE TABLE IF NOT EXISTS research_events (
-            job_id  TEXT,
-            seq     INTEGER,
-            t       REAL,
-            event   TEXT,
-            PRIMARY KEY (job_id, seq)
-        );
-        """
-    )
-    await db.commit()
+    # Plain statements inside write_txn, not executescript: executescript
+    # COMMITs first, which would commit another coroutine's half-done unit.
+    async with write_txn() as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_jobs (
+                job_id          TEXT PRIMARY KEY,
+                conversation_id TEXT,
+                user_email      TEXT,
+                question        TEXT,
+                status          TEXT,
+                artifact_id     TEXT,
+                error           TEXT,
+                created_at      REAL,
+                updated_at      REAL
+            )
+            """
+        )
+        await db.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_research_jobs_conv
+                ON research_jobs(conversation_id, created_at DESC)
+            """
+        )
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS research_events (
+                job_id  TEXT,
+                seq     INTEGER,
+                t       REAL,
+                event   TEXT,
+                PRIMARY KEY (job_id, seq)
+            )
+            """
+        )
     _tables_ready = True
 
 
 async def create_job(job_id: str, conversation_id: Optional[str],
                      user_email: Optional[str], question: str) -> None:
     await _ensure_tables()
-    db = await get_db()
-    now = time.time()
-    await db.execute(
-        "INSERT OR REPLACE INTO research_jobs "
-        "(job_id, conversation_id, user_email, question, status, created_at, updated_at) "
-        "VALUES (?, ?, ?, ?, 'queued', ?, ?)",
-        (job_id, conversation_id, user_email, question, now, now))
-    await db.commit()
+    async with write_txn() as db:
+        now = time.time()
+        await db.execute(
+            "INSERT OR REPLACE INTO research_jobs "
+            "(job_id, conversation_id, user_email, question, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'queued', ?, ?)",
+            (job_id, conversation_id, user_email, question, now, now))
 
 
 async def append_event(job_id: str, event: dict) -> None:
     """Append one render-ready event to the job's ordered log."""
     await _ensure_tables()
-    db = await get_db()
-    cur = await db.execute(
-        "SELECT COALESCE(MAX(seq), -1) + 1 AS n FROM research_events WHERE job_id = ?",
-        (job_id,))
-    seq = int((await cur.fetchone())["n"])
-    await db.execute(
-        "INSERT INTO research_events (job_id, seq, t, event) VALUES (?, ?, ?, ?)",
-        (job_id, seq, float(event.get("t") or 0.0), json.dumps(event)))
-    await db.execute("UPDATE research_jobs SET updated_at = ? WHERE job_id = ?",
-                     (time.time(), job_id))
-    await db.commit()
+    async with write_txn() as db:
+        cur = await db.execute(
+            "SELECT COALESCE(MAX(seq), -1) + 1 AS n FROM research_events WHERE job_id = ?",
+            (job_id,))
+        seq = int((await cur.fetchone())["n"])
+        await db.execute(
+            "INSERT INTO research_events (job_id, seq, t, event) VALUES (?, ?, ?, ?)",
+            (job_id, seq, float(event.get("t") or 0.0), json.dumps(event)))
+        await db.execute("UPDATE research_jobs SET updated_at = ? WHERE job_id = ?",
+                         (time.time(), job_id))
 
 
 async def set_status(job_id: str, status: str, *, artifact_id: Optional[str] = None,
                      error: Optional[str] = None) -> None:
     await _ensure_tables()
-    db = await get_db()
-    await db.execute(
-        "UPDATE research_jobs SET status = ?, "
-        "artifact_id = COALESCE(?, artifact_id), error = COALESCE(?, error), "
-        "updated_at = ? WHERE job_id = ?",
-        (status, artifact_id, error, time.time(), job_id))
-    await db.commit()
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE research_jobs SET status = ?, "
+            "artifact_id = COALESCE(?, artifact_id), error = COALESCE(?, error), "
+            "updated_at = ? WHERE job_id = ?",
+            (status, artifact_id, error, time.time(), job_id))
 
 
 def _job_row_to_dict(row: Any) -> dict:

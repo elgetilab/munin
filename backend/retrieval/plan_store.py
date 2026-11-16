@@ -35,7 +35,7 @@ from __future__ import annotations
 import json
 from typing import Any, Optional
 
-from chat_store import _iso_now, get_db
+from chat_store import _iso_now, get_db, write_txn
 
 
 # ---------------------------------------------------------------------------
@@ -196,38 +196,37 @@ async def set_plan(
     now = _iso_now()
     items_json = json.dumps(normalised)
 
-    db = await get_db()
-    # Idempotent upsert; SQLite ON CONFLICT clause refreshes everything
-    # but the created_at column on a repeat call so the audit trail of
-    # plan revisions is preserved in the messages.tool_calls history.
-    await db.execute(
-        """
-        INSERT INTO conversation_plans (
-            conversation_id, user_email, items,
-            created_at, updated_at,
-            requires_approval, approved_at, approval_mode
-        ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'each')
-        ON CONFLICT(conversation_id) DO UPDATE SET
-            items = excluded.items,
-            updated_at = excluded.updated_at,
-            requires_approval = excluded.requires_approval,
-            approved_at = NULL,
-            approval_mode = 'each',
-            user_email = excluded.user_email
-        """,
-        (
-            conversation_id, user_email, items_json,
-            now, now,
-            1 if requires_approval else 0,
-        ),
-    )
-    await db.commit()
-    plan = await get_plan(conversation_id)
-    if plan is None:
-        # Impossible in practice — the row was just inserted in the same
-        # transaction. Defensive only.
-        raise PlanError("set_plan: row vanished after insert")
-    return plan
+    async with write_txn() as db:
+        # Idempotent upsert; SQLite ON CONFLICT clause refreshes everything
+        # but the created_at column on a repeat call so the audit trail of
+        # plan revisions is preserved in the messages.tool_calls history.
+        await db.execute(
+            """
+            INSERT INTO conversation_plans (
+                conversation_id, user_email, items,
+                created_at, updated_at,
+                requires_approval, approved_at, approval_mode
+            ) VALUES (?, ?, ?, ?, ?, ?, NULL, 'each')
+            ON CONFLICT(conversation_id) DO UPDATE SET
+                items = excluded.items,
+                updated_at = excluded.updated_at,
+                requires_approval = excluded.requires_approval,
+                approved_at = NULL,
+                approval_mode = 'each',
+                user_email = excluded.user_email
+            """,
+            (
+                conversation_id, user_email, items_json,
+                now, now,
+                1 if requires_approval else 0,
+            ),
+        )
+        plan = await get_plan(conversation_id)
+        if plan is None:
+            # Impossible in practice — the row was just inserted in the same
+            # transaction. Defensive only.
+            raise PlanError("set_plan: row vanished after insert")
+        return plan
 
 
 async def update_item(
@@ -265,26 +264,24 @@ async def update_item(
     target["updated_at"] = now
     items[target_idx] = target
 
-    db = await get_db()
-    await db.execute(
-        "UPDATE conversation_plans SET items = ?, updated_at = ?, "
-        "user_email = ? WHERE conversation_id = ?",
-        (json.dumps(items), now, user_email, conversation_id),
-    )
-    await db.commit()
-    return (await get_plan(conversation_id)) or plan  # second fetch picks
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE conversation_plans SET items = ?, updated_at = ?, "
+            "user_email = ? WHERE conversation_id = ?",
+            (json.dumps(items), now, user_email, conversation_id),
+        )
+        return (await get_plan(conversation_id)) or plan  # second fetch picks
                                                      # up timestamps
 
 
 async def clear_plan(*, conversation_id: str) -> bool:
     """Delete the plan. Returns True iff a row was removed."""
-    db = await get_db()
-    cur = await db.execute(
-        "DELETE FROM conversation_plans WHERE conversation_id = ?",
-        (conversation_id,),
-    )
-    await db.commit()
-    return (cur.rowcount or 0) > 0
+    async with write_txn() as db:
+        cur = await db.execute(
+            "DELETE FROM conversation_plans WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+        return (cur.rowcount or 0) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -314,14 +311,13 @@ async def mark_approved(
     if plan is None:
         raise PlanError("no plan exists for this conversation to approve")
     now = _iso_now()
-    db = await get_db()
-    await db.execute(
-        "UPDATE conversation_plans SET approved_at = ?, approval_mode = ?, "
-        "updated_at = ? WHERE conversation_id = ?",
-        (now, approval_mode, now, conversation_id),
-    )
-    await db.commit()
-    return (await get_plan(conversation_id)) or plan
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE conversation_plans SET approved_at = ?, approval_mode = ?, "
+            "updated_at = ? WHERE conversation_id = ?",
+            (now, approval_mode, now, conversation_id),
+        )
+        return (await get_plan(conversation_id)) or plan
 
 
 async def clear_approval(conversation_id: str) -> None:
@@ -329,13 +325,12 @@ async def clear_approval(conversation_id: str) -> None:
     itself. Called by the postToolUse hook after one gated tool
     runs on ``approval_mode='each'`` so the next gated call
     re-triggers the gate."""
-    db = await get_db()
-    await db.execute(
-        "UPDATE conversation_plans SET approved_at = NULL "
-        "WHERE conversation_id = ?",
-        (conversation_id,),
-    )
-    await db.commit()
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE conversation_plans SET approved_at = NULL "
+            "WHERE conversation_id = ?",
+            (conversation_id,),
+        )
 
 
 async def replace_items(
@@ -367,15 +362,14 @@ async def replace_items(
     normalised = _normalise_items(items)
     now = _iso_now()
     items_json = json.dumps(normalised)
-    db = await get_db()
-    await db.execute(
-        "UPDATE conversation_plans SET items = ?, updated_at = ?, "
-        "approved_at = ?, approval_mode = ?, user_email = ? "
-        "WHERE conversation_id = ?",
-        (items_json, now, now, approval_mode, user_email, conversation_id),
-    )
-    await db.commit()
-    return (await get_plan(conversation_id)) or existing
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE conversation_plans SET items = ?, updated_at = ?, "
+            "approved_at = ?, approval_mode = ?, user_email = ? "
+            "WHERE conversation_id = ?",
+            (items_json, now, now, approval_mode, user_email, conversation_id),
+        )
+        return (await get_plan(conversation_id)) or existing
 
 
 # ---------------------------------------------------------------------------

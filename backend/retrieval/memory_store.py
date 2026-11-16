@@ -38,7 +38,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from chat_store import _iso_now, get_db
+from chat_store import _iso_now, get_db, write_txn
 
 
 MAX_MEMORIES = 20
@@ -141,75 +141,73 @@ async def remember(user_email: str, key: str, value: str) -> dict:
     key = _validate_key(key)
     value = _validate_value(value)
 
-    db = await get_db()
-    now = _iso_now()
-    evicted: list[str] = []
+    async with write_txn() as db:
+        now = _iso_now()
+        evicted: list[str] = []
 
-    # Upsert-then-check: if the key already exists this is just an
-    # update, no cap logic needed. If it's new we check the cap and
-    # LRU-evict exactly one entry if over the limit.
-    cur = await db.execute(
-        "SELECT key FROM user_memory WHERE user_email = ? AND key = ?",
-        (user_email, key),
-    )
-    exists = (await cur.fetchone()) is not None
-
-    if exists:
-        await db.execute(
-            "UPDATE user_memory SET value = ?, updated_at = ? "
-            "WHERE user_email = ? AND key = ?",
-            (value, now, user_email, key),
+        # Upsert-then-check: if the key already exists this is just an
+        # update, no cap logic needed. If it's new we check the cap and
+        # LRU-evict exactly one entry if over the limit.
+        cur = await db.execute(
+            "SELECT key FROM user_memory WHERE user_email = ? AND key = ?",
+            (user_email, key),
         )
-    else:
-        # Cap check before insert; evict the LRU entry if full.
-        total = await count_memories(user_email)
-        if total >= MAX_MEMORIES:
-            # Find the single oldest-touched entry and remove it.
-            evict_cur = await db.execute(
-                "SELECT key FROM user_memory WHERE user_email = ? "
-                "ORDER BY updated_at ASC LIMIT 1",
-                (user_email,),
+        exists = (await cur.fetchone()) is not None
+
+        if exists:
+            await db.execute(
+                "UPDATE user_memory SET value = ?, updated_at = ? "
+                "WHERE user_email = ? AND key = ?",
+                (value, now, user_email, key),
             )
-            evict_row = await evict_cur.fetchone()
-            if evict_row is not None:
-                evicted_key = evict_row["key"]
-                await db.execute(
-                    "DELETE FROM user_memory WHERE user_email = ? AND key = ?",
-                    (user_email, evicted_key),
+        else:
+            # Cap check before insert; evict the LRU entry if full.
+            total = await count_memories(user_email)
+            if total >= MAX_MEMORIES:
+                # Find the single oldest-touched entry and remove it.
+                evict_cur = await db.execute(
+                    "SELECT key FROM user_memory WHERE user_email = ? "
+                    "ORDER BY updated_at ASC LIMIT 1",
+                    (user_email,),
                 )
-                evicted.append(evicted_key)
-        await db.execute(
-            "INSERT INTO user_memory "
-            "(user_email, key, value, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (user_email, key, value, now, now),
-        )
+                evict_row = await evict_cur.fetchone()
+                if evict_row is not None:
+                    evicted_key = evict_row["key"]
+                    await db.execute(
+                        "DELETE FROM user_memory WHERE user_email = ? AND key = ?",
+                        (user_email, evicted_key),
+                    )
+                    evicted.append(evicted_key)
+            await db.execute(
+                "INSERT INTO user_memory "
+                "(user_email, key, value, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_email, key, value, now, now),
+            )
 
-    await db.commit()
 
-    return {
-        "remembered": True,
-        "key": key,
-        "value": value,
-        "evicted": evicted,
-        "total_memories": await count_memories(user_email),
-        "max_memories": MAX_MEMORIES,
-    }
+        return {
+            "remembered": True,
+            "key": key,
+            "value": value,
+            "evicted": evicted,
+            "total_memories": await count_memories(user_email),
+            "max_memories": MAX_MEMORIES,
+        }
 
 
 async def forget(user_email: str, key: str) -> dict:
     key = _validate_key(key)
-    db = await get_db()
-    cur = await db.execute(
-        "DELETE FROM user_memory WHERE user_email = ? AND key = ?",
-        (user_email, key),
-    )
-    await db.commit()
-    return {
-        "forgotten": (cur.rowcount or 0) > 0,
-        "key": key,
-        "total_memories": await count_memories(user_email),
-    }
+    async with write_txn() as db:
+        cur = await db.execute(
+            "DELETE FROM user_memory WHERE user_email = ? AND key = ?",
+            (user_email, key),
+        )
+        return {
+            "forgotten": (cur.rowcount or 0) > 0,
+            "key": key,
+            "total_memories": await count_memories(user_email),
+        }
 
 
 # ----------------------------------------------------------------------------

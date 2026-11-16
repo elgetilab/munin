@@ -25,7 +25,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Optional
 
-from chat_store import _iso_now, _row_to_dict, get_db
+from chat_store import _iso_now, _row_to_dict, get_db, write_txn
 
 
 PROJECT_INSTRUCTIONS_LIMIT = 2000
@@ -91,31 +91,30 @@ def validate_project_input(payload: dict) -> dict:
 async def create_project(user_email: str, payload: dict) -> dict:
     if not payload.get("name"):
         raise ValueError("name is required")
-    db = await get_db()
-    pid = f"proj_{uuid.uuid4().hex[:12]}"
-    now = _iso_now()
-    await db.execute(
-        """
-        INSERT INTO projects
-            (id, user_email, name, description, instructions,
-             default_persona, archived, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
-        """,
-        (
-            pid,
-            user_email,
-            payload.get("name"),
-            payload.get("description"),
-            payload.get("instructions"),
-            payload.get("default_persona"),
-            now,
-            now,
-        ),
-    )
-    await db.commit()
-    created = await get_project(pid, user_email)
-    assert created is not None
-    return created
+    async with write_txn() as db:
+        pid = f"proj_{uuid.uuid4().hex[:12]}"
+        now = _iso_now()
+        await db.execute(
+            """
+            INSERT INTO projects
+                (id, user_email, name, description, instructions,
+                 default_persona, archived, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+            """,
+            (
+                pid,
+                user_email,
+                payload.get("name"),
+                payload.get("description"),
+                payload.get("instructions"),
+                payload.get("default_persona"),
+                now,
+                now,
+            ),
+        )
+        created = await get_project(pid, user_email)
+        assert created is not None
+        return created
 
 
 async def get_project(
@@ -197,33 +196,32 @@ async def update_project(
 ) -> Optional[dict]:
     if not fields:
         return await get_project(project_id, user_email)
-    db = await get_db()
-    set_parts: list[str] = []
-    params: list[Any] = []
-    for field in PROJECT_FIELDS:
-        if field not in fields:
-            continue
-        value = fields[field]
-        if field == "archived":
-            set_parts.append("archived = ?")
-            params.append(1 if value else 0)
-            continue
-        set_parts.append(f"{field} = ?")
-        params.append(value)
-    if not set_parts:
+    async with write_txn() as db:
+        set_parts: list[str] = []
+        params: list[Any] = []
+        for field in PROJECT_FIELDS:
+            if field not in fields:
+                continue
+            value = fields[field]
+            if field == "archived":
+                set_parts.append("archived = ?")
+                params.append(1 if value else 0)
+                continue
+            set_parts.append(f"{field} = ?")
+            params.append(value)
+        if not set_parts:
+            return await get_project(project_id, user_email)
+        set_parts.append("updated_at = ?")
+        params.append(_iso_now())
+        params.extend([project_id, user_email])
+        cur = await db.execute(
+            f"UPDATE projects SET {', '.join(set_parts)} "
+            f"WHERE id = ? AND user_email = ?",
+            params,
+        )
+        if cur.rowcount == 0:
+            return None
         return await get_project(project_id, user_email)
-    set_parts.append("updated_at = ?")
-    params.append(_iso_now())
-    params.extend([project_id, user_email])
-    cur = await db.execute(
-        f"UPDATE projects SET {', '.join(set_parts)} "
-        f"WHERE id = ? AND user_email = ?",
-        params,
-    )
-    await db.commit()
-    if cur.rowcount == 0:
-        return None
-    return await get_project(project_id, user_email)
 
 
 async def delete_project(project_id: str, user_email: str) -> bool:
@@ -233,27 +231,26 @@ async def delete_project(project_id: str, user_email: str) -> bool:
     and unfiles Qdrant payloads separately so this module stays free of
     the Qdrant dependency.
     """
-    db = await get_db()
-    cur = await db.execute(
-        "SELECT id FROM projects WHERE id = ? AND user_email = ?",
-        (project_id, user_email),
-    )
-    if await cur.fetchone() is None:
-        return False
-    # Unfile conversations first so the delete of the project row can
-    # succeed cleanly (SQLite FK deferral is fussy and this is trivially
-    # equivalent).
-    await db.execute(
-        "UPDATE conversations SET project_id = NULL "
-        "WHERE user_email = ? AND project_id = ?",
-        (user_email, project_id),
-    )
-    await db.execute(
-        "DELETE FROM projects WHERE id = ? AND user_email = ?",
-        (project_id, user_email),
-    )
-    await db.commit()
-    return True
+    async with write_txn() as db:
+        cur = await db.execute(
+            "SELECT id FROM projects WHERE id = ? AND user_email = ?",
+            (project_id, user_email),
+        )
+        if await cur.fetchone() is None:
+            return False
+        # Unfile conversations first so the delete of the project row can
+        # succeed cleanly (SQLite FK deferral is fussy and this is trivially
+        # equivalent).
+        await db.execute(
+            "UPDATE conversations SET project_id = NULL "
+            "WHERE user_email = ? AND project_id = ?",
+            (user_email, project_id),
+        )
+        await db.execute(
+            "DELETE FROM projects WHERE id = ? AND user_email = ?",
+            (project_id, user_email),
+        )
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -271,33 +268,31 @@ async def file_conversation(
     proj = await get_project(project_id, user_email)
     if proj is None:
         return None
-    db = await get_db()
-    cur = await db.execute(
-        "UPDATE conversations SET project_id = ?, updated_at = ? "
-        "WHERE id = ? AND user_email = ?",
-        (project_id, _iso_now(), conversation_id, user_email),
-    )
-    await db.commit()
-    if cur.rowcount == 0:
-        return None
-    return {
-        "conversation_id": conversation_id,
-        "project_id": project_id,
-    }
+    async with write_txn() as db:
+        cur = await db.execute(
+            "UPDATE conversations SET project_id = ?, updated_at = ? "
+            "WHERE id = ? AND user_email = ?",
+            (project_id, _iso_now(), conversation_id, user_email),
+        )
+        if cur.rowcount == 0:
+            return None
+        return {
+            "conversation_id": conversation_id,
+            "project_id": project_id,
+        }
 
 
 async def unfile_conversation(
     conversation_id: str,
     user_email: str,
 ) -> bool:
-    db = await get_db()
-    cur = await db.execute(
-        "UPDATE conversations SET project_id = NULL, updated_at = ? "
-        "WHERE id = ? AND user_email = ?",
-        (_iso_now(), conversation_id, user_email),
-    )
-    await db.commit()
-    return cur.rowcount > 0
+    async with write_txn() as db:
+        cur = await db.execute(
+            "UPDATE conversations SET project_id = NULL, updated_at = ? "
+            "WHERE id = ? AND user_email = ?",
+            (_iso_now(), conversation_id, user_email),
+        )
+        return cur.rowcount > 0
 
 
 async def get_project_for_conversation(

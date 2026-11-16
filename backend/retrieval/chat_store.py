@@ -7,16 +7,27 @@ Schema: two tables (`conversations`, `messages`) + an FTS5 virtual table
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import contextvars
 import json
+import logging
 import os
 import re
+import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 import aiosqlite
 
+logger = logging.getLogger(__name__)
+
 CHATS_DB_PATH = os.getenv("CHATS_DB_PATH", "/data/chats.db")
+
+# How long a write waits for another process's lock (the eval instance or a
+# maintenance script share this file). sqlite3's default is 5 s.
+BUSY_TIMEOUT_S = float(os.getenv("CHATS_DB_BUSY_TIMEOUT_S", "15"))
 
 _db: Optional[aiosqlite.Connection] = None
 
@@ -77,7 +88,7 @@ async def init_db() -> aiosqlite.Connection:
     if parent:
         os.makedirs(parent, exist_ok=True)
 
-    _db = await aiosqlite.connect(CHATS_DB_PATH)
+    _db = await aiosqlite.connect(CHATS_DB_PATH, timeout=BUSY_TIMEOUT_S)
     _db.row_factory = aiosqlite.Row
     await _db.execute("PRAGMA journal_mode=WAL")
     await _db.execute("PRAGMA foreign_keys=ON")
@@ -363,6 +374,110 @@ async def close_db() -> None:
 
 
 # ==============================================================================
+# Write transactions
+# ==============================================================================
+# Every write goes through write_txn() (docs/agent-track/CHATDB-LOCK-PLAN.md).
+# Before it, a write that failed after its first statement (a foreign-key
+# error, a lock error, a cancelled task) left the shared connection inside an
+# open transaction: the process held the database write lock until some later
+# commit, which then also committed the failed unit's half. On 2026-11-16 a
+# save for a deleted conversation did exactly that and blocked every other
+# writer of chats.db for about 12 minutes.
+
+_in_write: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "chat_store_in_write", default=False)
+_write_lock: Optional[asyncio.Lock] = None
+_write_lock_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _get_write_lock() -> asyncio.Lock:
+    """One lock per event loop (tests run several loops in one process)."""
+    global _write_lock, _write_lock_loop
+    loop = asyncio.get_running_loop()
+    if _write_lock is None or _write_lock_loop is not loop:
+        _write_lock, _write_lock_loop = asyncio.Lock(), loop
+    return _write_lock
+
+
+def _is_lock_error(e: BaseException) -> bool:
+    msg = str(e).lower()
+    return isinstance(e, aiosqlite.OperationalError) and ("locked" in msg or "busy" in msg)
+
+
+async def _begin_immediate(db: aiosqlite.Connection) -> None:
+    """BEGIN IMMEDIATE: take the write lock now, not at the first INSERT.
+
+    The busy timeout covers a lock held by another process. It does not
+    cover a stale snapshot: another coroutine's half-read cursor on this
+    connection pins an old read snapshot, and SQLite then refuses the write
+    lock at once. That cursor goes away when its coroutine moves on, so a
+    lock error that came back quickly is retried after yielding.
+    """
+    if db.in_transaction:
+        # Only an unconverted write path can leave this; end it rather than
+        # write on top of someone else's half-done unit.
+        logger.warning("chats.db connection was left in a transaction; rolling it back")
+        await db.rollback()
+    deadline = time.monotonic() + BUSY_TIMEOUT_S
+    delay = 0.02
+    while True:
+        started = time.monotonic()
+        try:
+            await db.execute("BEGIN IMMEDIATE")
+            return
+        except asyncio.CancelledError:
+            # The BEGIN still runs on aiosqlite's thread; the rollback is
+            # queued behind it, so it always ends that transaction.
+            with contextlib.suppress(Exception):
+                await asyncio.shield(db.rollback())
+            raise
+        except aiosqlite.OperationalError as e:
+            waited = time.monotonic() - started
+            if not _is_lock_error(e) or waited >= 1.0 or time.monotonic() + delay > deadline:
+                raise
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 0.5)
+
+
+@contextlib.asynccontextmanager
+async def write_txn() -> AsyncIterator[aiosqlite.Connection]:
+    """One atomic write unit on the shared connection.
+
+    Serialised per process (so two coroutines' statements never share a
+    transaction), started with BEGIN IMMEDIATE, committed on success and
+    rolled back on ANY exception, cancellation included. A write unit that
+    calls another (a store function inside a store function) joins the
+    outer transaction. Put the unit's own reads inside the block too, so
+    they see the state the write lock protects.
+    """
+    db = await get_db()
+    if _in_write.get():
+        yield db
+        return
+    async with _get_write_lock():
+        await _begin_immediate(db)
+        token = _in_write.set(True)
+        try:
+            yield db
+        except BaseException:
+            try:
+                # shield: a second cancel must not skip the rollback
+                await asyncio.shield(db.rollback())
+            except Exception as e:  # pragma: no cover - logged, original error wins
+                logger.warning("chats.db rollback failed: %s", e)
+            raise
+        else:
+            try:
+                await db.commit()
+            except BaseException:
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(db.rollback())
+                raise
+        finally:
+            _in_write.reset(token)
+
+
+# ==============================================================================
 # Conversations
 # ==============================================================================
 
@@ -372,39 +487,38 @@ async def create_conversation(
     title: Optional[str] = None,
     default_tags: Optional[list[dict]] = None,
 ) -> dict:
-    db = await get_db()
-    cid = str(uuid.uuid4())
-    now = _iso_now()
-    # §28 follow-up: persist the first request's #tag chips so
-    # subsequent turns fall back to them when the frontend omits
-    # `tags`. An explicit empty list and None both store as NULL
-    # (= no default).
-    default_tags_json = (
-        json.dumps(default_tags) if default_tags else None
-    )
-    await db.execute(
-        """
-        INSERT INTO conversations
-            (id, user_email, title, persona, created_at, updated_at,
-             summary, summary_through_index, default_tags)
-        VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)
-        """,
-        (cid, user_email, title, persona, now, now, default_tags_json),
-    )
-    await db.commit()
-    return {
-        "id": cid,
-        "user_email": user_email,
-        "title": title,
-        "persona": persona,
-        "created_at": now,
-        "updated_at": now,
-        "summary": None,
-        "summary_through_index": None,
-        "default_tags": default_tags or None,
-        "message_count": 0,
-        "preview": None,
-    }
+    async with write_txn() as db:
+        cid = str(uuid.uuid4())
+        now = _iso_now()
+        # §28 follow-up: persist the first request's #tag chips so
+        # subsequent turns fall back to them when the frontend omits
+        # `tags`. An explicit empty list and None both store as NULL
+        # (= no default).
+        default_tags_json = (
+            json.dumps(default_tags) if default_tags else None
+        )
+        await db.execute(
+            """
+            INSERT INTO conversations
+                (id, user_email, title, persona, created_at, updated_at,
+                 summary, summary_through_index, default_tags)
+            VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, ?)
+            """,
+            (cid, user_email, title, persona, now, now, default_tags_json),
+        )
+        return {
+            "id": cid,
+            "user_email": user_email,
+            "title": title,
+            "persona": persona,
+            "created_at": now,
+            "updated_at": now,
+            "summary": None,
+            "summary_through_index": None,
+            "default_tags": default_tags or None,
+            "message_count": 0,
+            "preview": None,
+        }
 
 
 _UNFILED_SENTINEL = "__unfiled__"
@@ -626,20 +740,19 @@ async def set_conversation_pinned(
     ``pinned`` and ``pinned_at`` fields), or None if the conversation is
     not owned by the user. Idempotent.
     """
-    db = await get_db()
-    pinned_at = _iso_now() if pinned else None
-    cursor = await db.execute(
-        "UPDATE conversations SET pinned = ?, pinned_at = ? "
-        "WHERE id = ? AND user_email = ?",
-        (1 if pinned else 0, pinned_at, conversation_id, user_email),
-    )
-    await db.commit()
-    if cursor.rowcount == 0:
-        return None
-    meta = await _get_conversation_meta(conversation_id, user_email)
-    if meta is not None and "pinned" in meta:
-        meta["pinned"] = bool(meta["pinned"])
-    return meta
+    async with write_txn() as db:
+        pinned_at = _iso_now() if pinned else None
+        cursor = await db.execute(
+            "UPDATE conversations SET pinned = ?, pinned_at = ? "
+            "WHERE id = ? AND user_email = ?",
+            (1 if pinned else 0, pinned_at, conversation_id, user_email),
+        )
+        if cursor.rowcount == 0:
+            return None
+        meta = await _get_conversation_meta(conversation_id, user_email)
+        if meta is not None and "pinned" in meta:
+            meta["pinned"] = bool(meta["pinned"])
+        return meta
 
 
 async def get_conversation(conversation_id: str, user_email: str) -> Optional[dict]:
@@ -698,31 +811,30 @@ async def update_conversation(
     Chat/Code/Research selector). Patching it here persists the user's
     selection; the A3 per-turn router then composes each turn from that
     pin plus the routed profile."""
-    db = await get_db()
-    updates: list[str] = []
-    params: list[Any] = []
-    if title is not None:
-        updates.append("title = ?")
-        params.append(title)
-    if persona is not None:
-        updates.append("persona = ?")
-        params.append(persona)
-    if not updates:
+    async with write_txn() as db:
+        updates: list[str] = []
+        params: list[Any] = []
+        if title is not None:
+            updates.append("title = ?")
+            params.append(title)
+        if persona is not None:
+            updates.append("persona = ?")
+            params.append(persona)
+        if not updates:
+            return await _get_conversation_meta(conversation_id, user_email)
+
+        updates.append("updated_at = ?")
+        params.append(_iso_now())
+        params.extend([conversation_id, user_email])
+
+        cursor = await db.execute(
+            f"UPDATE conversations SET {', '.join(updates)} "
+            f"WHERE id = ? AND user_email = ?",
+            params,
+        )
+        if cursor.rowcount == 0:
+            return None
         return await _get_conversation_meta(conversation_id, user_email)
-
-    updates.append("updated_at = ?")
-    params.append(_iso_now())
-    params.extend([conversation_id, user_email])
-
-    cursor = await db.execute(
-        f"UPDATE conversations SET {', '.join(updates)} "
-        f"WHERE id = ? AND user_email = ?",
-        params,
-    )
-    await db.commit()
-    if cursor.rowcount == 0:
-        return None
-    return await _get_conversation_meta(conversation_id, user_email)
 
 
 async def _get_conversation_meta(
@@ -740,36 +852,35 @@ async def _get_conversation_meta(
 
 
 async def delete_conversation(conversation_id: str, user_email: str) -> bool:
-    db = await get_db()
-    cursor = await db.execute(
-        "SELECT id FROM conversations WHERE id = ? AND user_email = ?",
-        (conversation_id, user_email),
-    )
-    if await cursor.fetchone() is None:
-        return False
+    async with write_txn() as db:
+        cursor = await db.execute(
+            "SELECT id FROM conversations WHERE id = ? AND user_email = ?",
+            (conversation_id, user_email),
+        )
+        if await cursor.fetchone() is None:
+            return False
 
-    # Explicit delete for the FTS trigger and ordering guarantees — we don't
-    # rely on ON DELETE CASCADE since SQLite's FK cascades don't fire the
-    # per-row delete triggers on the child table consistently across versions.
-    await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
-    # Memory proposals extracted from this conversation. `proposed_memories` has
-    # a plain conversation_id with NO foreign key, so unlike `artifacts` and
-    # `conversation_plans` nothing cleans it up implicitly. Left behind, the rows
-    # are not merely dead weight: list_pending() is USER-scoped, so proposals
-    # from a deleted conversation keep rendering as accept/reject pills and keep
-    # occupying the MAX_PENDING=10 budget. Measured 2026-09-02 before this fix,
-    # one user sat at 10/10 pending with every slot belonging to a conversation
-    # they had deleted.
-    await db.execute(
-        "DELETE FROM proposed_memories WHERE conversation_id = ? AND user_email = ?",
-        (conversation_id, user_email),
-    )
-    await db.execute(
-        "DELETE FROM conversations WHERE id = ? AND user_email = ?",
-        (conversation_id, user_email),
-    )
-    await db.commit()
-    return True
+        # Explicit delete for the FTS trigger and ordering guarantees — we don't
+        # rely on ON DELETE CASCADE since SQLite's FK cascades don't fire the
+        # per-row delete triggers on the child table consistently across versions.
+        await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+        # Memory proposals extracted from this conversation. `proposed_memories` has
+        # a plain conversation_id with NO foreign key, so unlike `artifacts` and
+        # `conversation_plans` nothing cleans it up implicitly. Left behind, the rows
+        # are not merely dead weight: list_pending() is USER-scoped, so proposals
+        # from a deleted conversation keep rendering as accept/reject pills and keep
+        # occupying the MAX_PENDING=10 budget. Measured 2026-09-02 before this fix,
+        # one user sat at 10/10 pending with every slot belonging to a conversation
+        # they had deleted.
+        await db.execute(
+            "DELETE FROM proposed_memories WHERE conversation_id = ? AND user_email = ?",
+            (conversation_id, user_email),
+        )
+        await db.execute(
+            "DELETE FROM conversations WHERE id = ? AND user_email = ?",
+            (conversation_id, user_email),
+        )
+        return True
 
 
 async def count_conversations(user_email: str) -> int:
@@ -797,61 +908,60 @@ async def add_message(
     token_count: Optional[int] = None,
     persona: Optional[str] = None,
 ) -> dict:
-    db = await get_db()
-    msg_id = str(uuid.uuid4())
-    now = _iso_now()
+    async with write_txn() as db:
+        msg_id = str(uuid.uuid4())
+        now = _iso_now()
 
-    cursor = await db.execute(
-        "SELECT COALESCE(MAX(index_in_conversation), -1) + 1 AS next_idx "
-        "FROM messages WHERE conversation_id = ?",
-        (conversation_id,),
-    )
-    row = await cursor.fetchone()
-    next_index = int(row["next_idx"]) if row else 0
+        cursor = await db.execute(
+            "SELECT COALESCE(MAX(index_in_conversation), -1) + 1 AS next_idx "
+            "FROM messages WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+        row = await cursor.fetchone()
+        next_index = int(row["next_idx"]) if row else 0
 
-    await db.execute(
-        """
-        INSERT INTO messages
-            (id, conversation_id, index_in_conversation, role, content,
-             thinking, tool_calls, rag_context, attachments, created_at,
-             token_count, persona)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            msg_id,
-            conversation_id,
-            next_index,
-            role,
-            content,
-            thinking,
-            json.dumps(tool_calls) if tool_calls is not None else None,
-            json.dumps(rag_context) if rag_context is not None else None,
-            json.dumps(attachments) if attachments is not None else None,
-            now,
-            token_count,
-            persona,
-        ),
-    )
-    await db.execute(
-        "UPDATE conversations SET updated_at = ? WHERE id = ?",
-        (now, conversation_id),
-    )
-    await db.commit()
+        await db.execute(
+            """
+            INSERT INTO messages
+                (id, conversation_id, index_in_conversation, role, content,
+                 thinking, tool_calls, rag_context, attachments, created_at,
+                 token_count, persona)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                msg_id,
+                conversation_id,
+                next_index,
+                role,
+                content,
+                thinking,
+                json.dumps(tool_calls) if tool_calls is not None else None,
+                json.dumps(rag_context) if rag_context is not None else None,
+                json.dumps(attachments) if attachments is not None else None,
+                now,
+                token_count,
+                persona,
+            ),
+        )
+        await db.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ?",
+            (now, conversation_id),
+        )
 
-    return {
-        "id": msg_id,
-        "conversation_id": conversation_id,
-        "index_in_conversation": next_index,
-        "role": role,
-        "content": content,
-        "thinking": thinking,
-        "tool_calls": tool_calls,
-        "rag_context": rag_context,
-        "attachments": attachments,
-        "created_at": now,
-        "token_count": token_count,
-        "persona": persona,
-    }
+        return {
+            "id": msg_id,
+            "conversation_id": conversation_id,
+            "index_in_conversation": next_index,
+            "role": role,
+            "content": content,
+            "thinking": thinking,
+            "tool_calls": tool_calls,
+            "rag_context": rag_context,
+            "attachments": attachments,
+            "created_at": now,
+            "token_count": token_count,
+            "persona": persona,
+        }
 
 
 async def delete_messages_from(conversation_id: str, message_id: str) -> Optional[int]:
@@ -866,33 +976,32 @@ async def delete_messages_from(conversation_id: str, message_id: str) -> Optiona
     covers any deleted message is cleared, so the next compaction rebuilds it
     from what is left. The FTS index follows through messages_fts_delete.
     """
-    db = await get_db()
-    cursor = await db.execute(
-        "SELECT index_in_conversation, role FROM messages "
-        "WHERE id = ? AND conversation_id = ?",
-        (message_id, conversation_id),
-    )
-    row = await cursor.fetchone()
-    if row is None or row["role"] != "user":
-        return None
-    from_index = int(row["index_in_conversation"])
+    async with write_txn() as db:
+        cursor = await db.execute(
+            "SELECT index_in_conversation, role FROM messages "
+            "WHERE id = ? AND conversation_id = ?",
+            (message_id, conversation_id),
+        )
+        row = await cursor.fetchone()
+        if row is None or row["role"] != "user":
+            return None
+        from_index = int(row["index_in_conversation"])
 
-    cursor = await db.execute(
-        "DELETE FROM messages WHERE conversation_id = ? AND index_in_conversation >= ?",
-        (conversation_id, from_index),
-    )
-    deleted = cursor.rowcount
-    await db.execute(
-        "UPDATE conversations SET summary = NULL, summary_through_index = NULL "
-        "WHERE id = ? AND summary_through_index IS NOT NULL AND summary_through_index >= ?",
-        (conversation_id, from_index),
-    )
-    await db.execute(
-        "UPDATE conversations SET updated_at = ? WHERE id = ?",
-        (_iso_now(), conversation_id),
-    )
-    await db.commit()
-    return deleted
+        cursor = await db.execute(
+            "DELETE FROM messages WHERE conversation_id = ? AND index_in_conversation >= ?",
+            (conversation_id, from_index),
+        )
+        deleted = cursor.rowcount
+        await db.execute(
+            "UPDATE conversations SET summary = NULL, summary_through_index = NULL "
+            "WHERE id = ? AND summary_through_index IS NOT NULL AND summary_through_index >= ?",
+            (conversation_id, from_index),
+        )
+        await db.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ?",
+            (_iso_now(), conversation_id),
+        )
+        return deleted
 
 
 async def get_messages_after_index(conversation_id: str, index: int) -> list[dict]:
@@ -915,10 +1024,9 @@ async def get_messages_after_index(conversation_id: str, index: int) -> list[dic
 async def update_summary(
     conversation_id: str, summary: str, through_index: int
 ) -> None:
-    db = await get_db()
-    await db.execute(
-        "UPDATE conversations SET summary = ?, summary_through_index = ?, updated_at = ? "
-        "WHERE id = ?",
-        (summary, through_index, _iso_now(), conversation_id),
-    )
-    await db.commit()
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE conversations SET summary = ?, summary_through_index = ?, updated_at = ? "
+            "WHERE id = ?",
+            (summary, through_index, _iso_now(), conversation_id),
+        )

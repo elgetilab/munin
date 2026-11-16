@@ -1,6 +1,15 @@
 # chats.db write lock: plan
 
-Status: PLAN, waiting for "proceed". Found 2026-11-16 during the Phase 2 lab
+Status: IMPLEMENTED 2026-11-16 ("proceed", Q1-Q2 defaults), not yet deployed.
+`tests/test_chatdb_txn.py` 9/9 (against the old stores 3/9: the FK case
+holds the lock, the stale snapshot raises, a failed unit gets committed by
+another coroutine, and one of six stress processes ends with 72 lock errors
+stuck in a transaction); retrieval hermetic 114/114 on the CI runner.
+One finding beyond the plan: a half-read cursor (fetchone on a multi-row
+SELECT) pins a stale snapshot that makes even BEGIN IMMEDIATE fail at once,
+so `_begin_immediate` retries a lock error that came back quickly (the
+cursor goes when its coroutine moves on), and `research_store._ensure_tables`
+no longer uses `executescript`, which COMMITs first. Found 2026-11-16 during the Phase 2 lab
 baseline; production writes were blocked from 13:18:43 to the retrieval restart
 at about 13:30 UTC. No user turn was lost: none was sent in that window.
 

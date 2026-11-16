@@ -54,6 +54,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
@@ -904,10 +905,35 @@ async def api_rename_chat(conversation_id: str, request: Request):
     return updated
 
 
+# How long deleting a chat waits for its running turn to stop and save.
+DELETE_STOP_WAIT_S = 5.0
+
+
+async def _stop_live_turn(conversation_id: str, user_email: str) -> None:
+    """Cancel a turn still running for a chat that is about to be deleted.
+
+    Without this the turn (often a background one, its client gone) ran on
+    and its final save hit a foreign-key error on the deleted conversation
+    (2026-11-16, docs/agent-track/CHATDB-LOCK-PLAN.md). Waits briefly so the
+    turn's own save lands before the delete removes it; if it is slower,
+    its save fails cleanly (write_txn rolls it back).
+    """
+    stream = stream_registry_module.registry.find_for_conversation(
+        conversation_id, user_email)
+    if stream is None or stream.done:
+        return
+    stream.cancel_reason = "conversation deleted"
+    stream.cancel_event.set()
+    deadline = time.monotonic() + DELETE_STOP_WAIT_S
+    while not stream.done and time.monotonic() < deadline:
+        await asyncio.sleep(0.1)
+
+
 @app.delete("/api/chats/{conversation_id}")
 async def api_delete_chat(conversation_id: str, request: Request):
     """Delete a conversation and all of its messages."""
     user_email = _require_user_email(request)
+    await _stop_live_turn(conversation_id, user_email)
     deleted = await chat_store.delete_conversation(conversation_id, user_email)
     if not deleted:
         raise _error_404("Conversation not found")
