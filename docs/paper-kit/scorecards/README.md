@@ -132,6 +132,7 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-14_routing-sage-a1.5-2026-11-13.json` | Routing anchor tier on Sage-A1.5: pass rate 0.787 [0.64, 0.93]. The deploy gate; not a paper number | R7 |
 | `2026-07-27_toolreliability-clean.json` | Tool-use telemetry over the Qwen3.6 clean run. `web_fetch` error rate not comparable to 08-26 (failure definition changed between the runs) | R6 |
 | `2026-11-14_smoke.json` | Lab-analysis Phase 1 smoke run: 11 cases, 1 rep, Sage-A1.5, ad hoc arm. Proves the harness end to end; **not a result**, no section cites it | none |
+| `2026-11-16_phase2-baseline.json` | Lab-analysis Phase 2 baseline, ad hoc arm (no `labkit`), Sage-A1.5, 95 cases x 3 reps (S1 76, S2 10, S3 2, S5 2, S6 5): 243/285 pass, mean check score 0.935 (S1 203/228 0.962, S2 23/30 0.808, S3 2/6 0.935, S5 4/6 0.833, S6 11/15 0.817). Runs 1-243 on production at concurrency 1, the rest on the `eval` instance (GPU1, same weights and profile) at concurrency 4 then 2 (`resumed: true`); two `s6_relaxation` runs lost to the chats.db lock bug were redone (`CHATDB-LOCK-PLAN.md`). The paired baseline for the Phase 4 `labkit` arm | none yet |
 
 ## Cautions when regenerating figures
 

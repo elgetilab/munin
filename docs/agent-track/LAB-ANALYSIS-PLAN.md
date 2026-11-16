@@ -7,7 +7,9 @@ main. The VPS gateway (streamed downloads) followed when the stack was
 unified on main (1e30217): gateway, auth, upload and webui bundle
 index-D1dYM7oQ.js all match main. Phase 1 (fixtures and eval harness,
 `LAB-PHASE1-PLAN.md`) DONE 2026-11-14 on branch `varghele/coding-improvements`,
-smoke scorecard `2026-11-14_smoke.json`. Next: Phase 2 (baseline).
+smoke scorecard `2026-11-14_smoke.json`. Bug-fix pass F1-F12 (`LAB-BUGFIX-PLAN.md`)
+DONE 2026-11-16. Phase 2 DONE 2026-11-16: `2026-11-16_phase2-baseline.json`,
+243/285 pass, mean 0.935. Next: set pass thresholds, then Phase 3 (`labkit`).
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -157,6 +159,22 @@ chats, because the sandbox refuses ephemeral ones):
 Run S1, S2, S3, S5 and the S6 subset on the production backbone with the
 plumbing fixed but without `labkit`. Pass thresholds are set after this run,
 not before.
+
+**Result (2026-11-16, Sage-A1.5, 95 cases x 3 reps):** 243/285 pass, mean
+check score 0.935. S1 fits 203/228 (0.962), S2 instrument files 23/30
+(0.808), S3 plot editing 2/6 (0.935), S5 reproducibility 4/6 (0.833), S6 NMR
+11/15 (0.817). Failure families, all model-side (no plumbing bug left open):
+- Conventions: one-phase decay "Y0" reported as the span (Y0 minus plateau)
+  in 10/12 `decay1` runs; replicate unknowns reported as pairs
+  (`standard_s2`); R1/R2/hetNOE in the wrong shape (`s6_relaxation` 3/3).
+- Interval method: confidence intervals off the reference (about 9 S1 runs).
+- Raw formats: Bruker FID parameters misread (`s2_bruker_1d` 0/3).
+- Unrequested figure edits on S3 turns (title, a moved reference line).
+These are the `labkit` targets (Phase 3): Prism-convention fit outputs,
+standard intervals, a vetted Bruker reader.
+Runs 1-243 ran on production at concurrency 1, the rest on the eval instance
+(same weights and profile, GPU1) at concurrency 4 then 2. Two `s6_relaxation`
+runs lost to the chats.db write-lock bug (`CHATDB-LOCK-PLAN.md`) were redone.
 
 ## Phase 3: `labkit` helper library
 
