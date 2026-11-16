@@ -1,6 +1,15 @@
 # Lab analysis Phase 3: `labkit`, plan
 
-Status: PLAN, waiting for "proceed". Parent plan: `LAB-ANALYSIS-PLAN.md`
+Status: 3a IMPLEMENTED 2026-11-16 ("proceed", defaults Q1-Q5), frozen at
+`6900e5f`, not yet deployed. Tests: labkit 26/26 in the sandbox image
+(all 27 NIST StRD problems from both certified starts: parameters to 1e-6,
+standard errors to 1e-4, Lanczos1 to 1e-2; a 200-dataset ROUT false-positive
+check), sandbox live 54/54, figure hook 20/20, retrieval hermetic 114/114;
+an isolated kernel imports it. Fresh set: 27 S1 cases (seeds 6-8) in
+`backend/benchmarks/fixtures/lab_fresh/`, generated after the freeze, not
+inspected. Checked first: `s5_anova` (unseeded jitter) and `s2_jasco_cd` (a
+x100 unit slip) are model-side, not plumbing. Not done from the 3a list: fresh
+S2/S6 variants (those generators are not seeded). Parent plan: `LAB-ANALYSIS-PLAN.md`
 (Phase 3 spec, Phase 4 paired comparison). Baseline to beat:
 `2026-11-16_phase2-baseline.json`, 243/285, mean 0.935.
 

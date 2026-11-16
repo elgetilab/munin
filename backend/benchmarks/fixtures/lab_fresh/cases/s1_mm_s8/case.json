@@ -1,0 +1,50 @@
+{
+ "id": "s1_mm_s8",
+ "suite": "S1",
+ "inputs": [
+  "kinetics_8.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "kinetics_8.csv has initial rates at eight substrate concentrations, in duplicate. Fit the Michaelis-Menten equation by nonlinear regression to all points (no linearisation). Report Vmax and Km with their 95% confidence intervals.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "Vmax",
+     "truth": "truth:ref.Vmax",
+     "rtol": 0.01,
+     "atol": 0
+    },
+    {
+     "type": "numeric",
+     "key": "Km",
+     "truth": "truth:ref.Km",
+     "rtol": 0.02,
+     "atol": 0
+    },
+    {
+     "type": "ci_close",
+     "key": "Km_ci",
+     "truth": "truth:ref.Km_ci",
+     "tol": 0.25
+    },
+    {
+     "type": "ci_close",
+     "key": "Vmax_ci",
+     "truth": "truth:ref.Vmax_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "Vmax": "",
+  "Km": "",
+  "Vmax_ci": "",
+  "Km_ci": ""
+ },
+ "tags": [
+  "enzyme"
+ ],
+ "provenance": "synthetic, s1.case_mm seed 8"
+}
