@@ -28,7 +28,7 @@
 #   sudo ./deploy.sh model validate <slug>  - check a profile file, change nothing
 #   sudo ./deploy.sh instance up <slug> --name <n> [--vllm-port 8001] [--api-port 8082]
 #                                     [--corpus shadow] [--vllm <other-instance>]
-#                                     [--gpu-util 0.90] [--download]
+#                                     [--gpu-util 0.90] [--max-seqs 4] [--download]
 #                                   - a SECOND backbone beside production: its own
 #                                     vLLM job on GPU 0 (or another instance's vLLM)
 #                                     and its own retrieval container, gated, never
@@ -1601,7 +1601,7 @@ instance_compose() {
 
 deploy_instance_up() {
     local slug=$1; shift
-    local name="" vllm_port=8001 api_port=8082 corpus=live vllm_of="" gpu_util="" do_download=0
+    local name="" vllm_port=8001 api_port=8082 corpus=live vllm_of="" gpu_util="" max_seqs="" do_download=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --name) name=$2; shift 2 ;;
@@ -1610,6 +1610,9 @@ deploy_instance_up() {
             --corpus) corpus=$2; shift 2 ;;
             --vllm) vllm_of=$2; shift 2 ;;
             --gpu-util) gpu_util=$2; shift 2 ;;
+            # vLLM --max-num-seqs for this instance (default: the profile's
+            # single-GPU cap). An eval-only card can batch more than production.
+            --max-seqs) max_seqs=$2; shift 2 ;;
             --download) do_download=1; shift ;;
             *) echo "[ERROR] instance up: unknown flag $1"; exit 1 ;;
         esac
@@ -1617,6 +1620,7 @@ deploy_instance_up() {
     [ -n "$name" ] || { echo "[ERROR] instance up needs --name <n>"; exit 1; }
     case "$name" in *[!a-z0-9-]*) echo "[ERROR] --name: lowercase letters, digits, dashes"; exit 1 ;; esac
     case "$corpus" in live|shadow) ;; *) echo "[ERROR] --corpus live|shadow"; exit 1 ;; esac
+    case "$max_seqs" in ""|[1-9]|[1-9][0-9]) ;; *) echo "[ERROR] --max-seqs: 1-99"; exit 1 ;; esac
     if [ "$name" = "prod" ] || [ "$api_port" = "8080" ] || [ "$vllm_port" = "8000" ]; then
         echo "[ERROR] :8080 / :8000 / 'prod' are production; an instance never takes them"; exit 1
     fi
@@ -1686,6 +1690,7 @@ deploy_instance_up() {
         echo "[instance] sbatch $INSTANCE_SCRIPT as $jobname (gpu:batch:1) ..."
         local export_vars="ALL,MUNIN_MODEL_PROFILE=$MODEL_PROFILES_DST/$MODEL_SLUG.env,INSTANCE_NAME=$name,INSTANCE_PORT=$vllm_port,INSTANCE_STATE_DIR=$state,TOKENIZER_HOST_DIR=$tok_dir"
         [ -n "$gpu_util" ] && export_vars="$export_vars,INSTANCE_GPU_UTIL=$gpu_util"
+        [ -n "$max_seqs" ] && export_vars="$export_vars,INSTANCE_MAX_NUM_SEQS=$max_seqs"
         run "install -m 0644 $src $MODEL_PROFILES_DST/$MODEL_SLUG.env"
         if [ "$DRY_RUN" = "1" ]; then
             echo "  [dry-run] sbatch --job-name=$jobname --export=$export_vars $INSTANCE_SCRIPT"

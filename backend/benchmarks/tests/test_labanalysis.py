@@ -474,3 +474,65 @@ def test_text_checks_ignore_lookalike_codepoints():
     ok, _ = graders.grade({"type": "manifest", "file": "dose.png", "assert": [
         {"path": "axes.0.xlabel", "eq": "Concentration (nM)"}]}, rec, 1)
     assert not ok
+
+
+# --- runner: --concurrency and --resume -----------------------------------------
+
+class _FakeLabClient:
+    """Stands in for LabClient: no network, records how many runs overlap."""
+    calls: list = []
+    in_flight = 0
+    peak = 0
+
+    def __init__(self, base=None, persona=None):
+        pass
+
+    def run_case(self, case, rep, keep=False, sandbox_image=None):
+        import threading
+        import time
+        cls = _FakeLabClient
+        with _FAKE_LOCK:
+            cls.in_flight += 1
+            cls.peak = max(cls.peak, cls.in_flight)
+            cls.calls.append((case.id, rep, threading.get_ident()))
+        time.sleep(0.05)
+        with _FAKE_LOCK:
+            cls.in_flight -= 1
+        return RunRecord(case_id=case.id, suite=case.suite, rep=rep), None
+
+    def close(self):
+        pass
+
+
+import threading as _threading  # noqa: E402
+_FAKE_LOCK = _threading.Lock()
+
+
+def _run_main(monkeypatch, tmp_path, *extra):
+    from munin_bench.labanalysis import client as client_mod, run as run_mod
+    monkeypatch.setattr(run_mod, "BENCH", tmp_path)
+    monkeypatch.setattr(client_mod, "LabClient", _FakeLabClient)
+    _FakeLabClient.calls, _FakeLabClient.in_flight, _FakeLabClient.peak = [], 0, 0
+    rc = run_mod.main(["--tag", "t", "--no-scorecard", "--case", "s1_4pl_s1",
+                       "--case", "s1_decay1_s1", "--reps", "2", *extra])
+    rec = (tmp_path / "results" / "lab" / "t" / "records.jsonl").read_text().splitlines()
+    graded = json.loads((tmp_path / "results" / "lab" / "t" / "graded.json").read_text())
+    return rc, rec, graded
+
+
+def test_runner_concurrency_runs_in_parallel_and_records_every_run(monkeypatch, tmp_path):
+    rc, rec, graded = _run_main(monkeypatch, tmp_path, "--concurrency", "3")
+    assert rc == 0 and len(rec) == 4 and len(graded) == 4
+    assert _FakeLabClient.peak > 1, "runs did not overlap"
+    assert {(json.loads(r)["case_id"], json.loads(r)["rep"]) for r in rec} == {
+        ("s1_4pl_s1", 1), ("s1_4pl_s1", 2), ("s1_decay1_s1", 1), ("s1_decay1_s1", 2)}
+
+
+def test_runner_resume_skips_recorded_runs_and_grades_the_whole_file(monkeypatch, tmp_path):
+    _run_main(monkeypatch, tmp_path)
+    p = tmp_path / "results" / "lab" / "t" / "records.jsonl"
+    lines = p.read_text().splitlines()
+    p.write_text("\n".join(lines[:3]) + "\n")          # an interrupted run
+    rc, rec, graded = _run_main(monkeypatch, tmp_path, "--resume", "--concurrency", "2")
+    assert [(c[0], c[1]) for c in _FakeLabClient.calls] == [("s1_decay1_s1", 2)]
+    assert rc == 0 and len(rec) == 4 and len(graded) == 4
