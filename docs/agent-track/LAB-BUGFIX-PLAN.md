@@ -1,13 +1,12 @@
 # Lab analysis bug fixes: plan
 
-Status: Steps 1-6 IMPLEMENTED 2026-11-15 ("proceed", defaults Q1-Q6 taken),
-not yet deployed; Step 7 live check pending a sandbox, personas and retrieval
-deploy. Commits: `84ed114` graders, `4505dd9` answer tags, `660daf6` current
-scripts and prompt rules, `b6d5d25` kernel race, `f15c96b` figure hook. Tests:
-retrieval hermetic 112/112, sandbox live 54/54 and figure hook 20/20, lab
-124/124; timeout check under `--cpus 0.25` 10/10 failed before, 0/10 after.
-Re-grading the overflow-check records with the new graders: mean 0.676 to
-0.694 (only the KO2 false failure flips). Was: PLAN, waiting for "proceed". Bugs first, then the Phase 2
+Status: DONE 2026-11-16. F1-F12 fixed, deployed and live-checked (four
+checks, sections at the end). Commits: `84ed114` graders, `4505dd9` answer
+tags, `660daf6` current scripts and prompt rules, `b6d5d25` kernel race,
+`f15c96b` figure hook, `f905745` phantom links, `b754797` NFKC, `d3e1811`
+loops and fitted retries, `9b59d37` data-file routing, `3fa37a7` rerun guard.
+Retrieval hermetic 113/113 (CI runner), sandbox live 54/54, figure hook 20/20,
+lab 125/125. Next: the Phase 2 baseline. Was: PLAN, waiting for "proceed". Bugs first, then the Phase 2
 baseline (deferred work: [`LAB-DEFERRED.md`](LAB-DEFERRED.md)). Found by the
 Phase 1 smoke run and the overflow check (`CONTEXT-OVERFLOW-PLAN.md`), then
 investigated by four read-only agents on 2026-11-15. Key code claims below were
@@ -237,6 +236,22 @@ id exists nowhere in the sandbox), so F8 kept the audit's value.
   (`_repeated_call_skips` in `chat_service.py`); a rerun after a timeout or
   an infrastructure error is allowed. The second blocked rerun in a message
   ends the tool loop into the wrap-up. Tests: `tests/test_repeat_calls.py`.
+
+## Fourth live check (after F12)
+
+2026-11-16 07:09-07:47 UTC, tags `bugfix4-bruker` (x3) and `bugfix4-smoke`.
+
+- The guard works: it fired in Bruker reps 1 and 3 (two blocked reruns each,
+  then the wrap-up), ending rep 3 at 9 calls instead of 20. Rep 1 wrapped up
+  honestly ("I will not fabricate numbers"); rep 3's wrap-up was only another
+  promise ("Let me process it correctly ..."). It never fired in the smoke set.
+- Bruker still 0/3: rep 2 wrote a JSON block with wrong shifts. The model
+  misreads the acquisition parameters every time; that is a capability limit,
+  not plumbing. Every Bruker step used the whole 8,192-token thinking budget
+  (about 47 s at 193 tok/s).
+- Smoke 8/9: `s1_trap_unidentifiable` missed the keyword check this time (it
+  said the top is pinned and the slope and EC50 strongly correlated, but none
+  of the listed phrases). n=1 variance; it passed in the last two checks.
 
 ## Open questions (defaults taken unless you say otherwise)
 

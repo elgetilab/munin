@@ -418,11 +418,17 @@ Phase 1 DONE 2026-11-14 (harness, 95 cases, smoke scorecard). Context overflow f
   overflowed the context (turn 4 of `s3_bars`, raw vLLM 400 stored as the
   reply). Live check `s3_bars` + `s3_dose` x3: no overflow, no guard fired.
   Keep grepping retrieval logs for "near the context" and "context full".
-- FIXED, not deployed (`LAB-BUGFIX-PLAN.md`): the stray repeated `<answer>`
-  turn, seaborn error bars in `fighook`, false layout warnings, the model
-  rewriting figures from memory each turn (earlier code not in context), a
-  silent empty run after a kernel timeout, grader false positives. Live check
-  (Step 7) after the deploy, then the Phase 2 baseline.
+- FIXED and live 2026-11-16 (`LAB-BUGFIX-PLAN.md`, F1-F12): the stray
+  repeated `<answer>` turn, seaborn error bars in `fighook`, false layout
+  warnings, figures rewritten from memory, a silent empty run after a kernel
+  timeout, grader false positives, the phantom-link loop, looping streams,
+  unbudgeted forced retries, data-file turns routed to research, verbatim
+  sandbox reruns. Live checks: S3 0.676 to 0.981, smoke 9/10 then 8/9.
+- Open, model-bound (not a plumbing bug): `s2_bruker_1d` 0/3 on Sage-A1.5
+  (SW in ppm read as MHz, int32 FID read as int16). A `labkit` Bruker reader
+  is the lever; also a multi-backbone check (`LAB-DEFERRED.md`).
+- Open: a wrap-up after the rerun guard can still be a promise ("Let me
+  process it now") instead of an answer (Bruker rep 3, 2026-11-16).
 - Open: a looping reply streams to the user as is and only shows collapsed
   after a reload (needs a frontend "replace content" event).
 
