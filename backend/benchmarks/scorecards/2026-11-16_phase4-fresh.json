@@ -1,0 +1,402 @@
+{
+  "meta": {
+    "tag": "phase4-fresh",
+    "generated_at": "2026-11-16T20:34:23.802675+00:00",
+    "git_sha": "b4bcae3",
+    "encoder": "n/a",
+    "seed": 42,
+    "packages": {
+      "numpy": "1.26.4",
+      "scipy": "1.13.1",
+      "sentence_transformers": "n/a",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "suite": "lab-analysis",
+    "arm": "labkit",
+    "persona": "munin",
+    "reps": 3,
+    "heldout": false,
+    "base": "http://127.0.0.1:8082",
+    "concurrency": 4,
+    "resumed": true,
+    "cases": [
+      "s1_3pl_s6",
+      "s1_3pl_s7",
+      "s1_3pl_s8",
+      "s1_4pl_s6",
+      "s1_4pl_s7",
+      "s1_4pl_s8",
+      "s1_5pl_s6",
+      "s1_5pl_s7",
+      "s1_5pl_s8",
+      "s1_competitive_s6",
+      "s1_competitive_s7",
+      "s1_competitive_s8",
+      "s1_decay1_s6",
+      "s1_decay1_s7",
+      "s1_decay1_s8",
+      "s1_decay2_s6",
+      "s1_decay2_s7",
+      "s1_decay2_s8",
+      "s1_mm_s6",
+      "s1_mm_s7",
+      "s1_mm_s8",
+      "s1_morrison_s6",
+      "s1_morrison_s7",
+      "s1_morrison_s8",
+      "s1_standard_s6",
+      "s1_standard_s7",
+      "s1_standard_s8"
+    ],
+    "vision_judge": null
+  },
+  "tasks": {
+    "lab-S1": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.9442386831275719,
+            "ci_low": 0.9065792181069959,
+            "ci_high": 0.9749074074074073,
+            "n": 81
+          },
+          "case_pass": {
+            "mean": 0.8518518518518519,
+            "ci_low": 0.7777777777777778,
+            "ci_high": 0.9259259259259259,
+            "n": 81
+          }
+        },
+        "per_query": {
+          "s1_3pl_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s6#1": {
+            "case_score": 0.6666666666666666,
+            "case_pass": 0.0
+          },
+          "s1_4pl_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s8#2": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s1_4pl_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s8#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s1_5pl_s6#2": {
+            "case_score": 0.6,
+            "case_pass": 0.0
+          },
+          "s1_5pl_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s7#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_5pl_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s7#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s6#1": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s7#1": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s8#3": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s8#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s7#1": {
+            "case_score": 0.3333333333333333,
+            "case_pass": 0.0
+          },
+          "s1_standard_s6#3": {
+            "case_score": 0.3333333333333333,
+            "case_pass": 0.0
+          },
+          "s1_standard_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    }
+  }
+}

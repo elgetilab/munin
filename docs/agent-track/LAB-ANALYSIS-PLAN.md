@@ -214,6 +214,32 @@ values.
 Re-run the Phase 2 set with `labkit` available. Paired comparison against the
 baseline (`pipelines/compare.py`). The delta is a paper result.
 
+**Run 1 (2026-11-16), inconclusive: the model rarely used the helper.**
+Scorecards `2026-11-16_phase4-labkit` and `2026-11-16_phase4-fresh`, on the
+`eval` instance at concurrency 4. Paired against the Phase 2 baseline (same
+95 cases x 3 reps):
+
+| Group | Pass, baseline -> labkit arm | Mean |
+|---|---|---|
+| S1 synthetic | 123 -> 126 / 147 | 0.942 -> 0.952 |
+| S1 NIST | 80 -> 78 / 81 | 0.998 -> 0.965 |
+| S2 | 23 -> 25 / 30 | 0.808 -> 0.883 |
+| S3 | 2 -> 4 / 6 | 0.935 -> 0.944 |
+| S5 | 4 -> 5 / 6 | 0.833 -> 0.917 |
+| S6 | 11 -> 11 / 15 | 0.817 -> 0.783 |
+| All | 243 -> 249 / 285 | 0.935 -> 0.939 |
+
+Only 16 of 285 runs imported `labkit` (15 passed), 6 of 81 on the fresh set,
+so the delta is run-to-run noise (S1 synthetic: 15 pass->fail, 18
+fail->pass) and says nothing about the helper yet. Fresh set: 69/81 (0.852)
+vs 114/135 (0.844) for the same families in the baseline, so no sign of
+tuning to the seen cases. Remaining failures are conventions `labkit`
+already gets right: `s1_decay1` reports the span as Y0 (10 runs, e.g. Y0
+699.9 = 832.0 - 132.2), Bruker 1D 0/3, S6 relaxation 0/3, two
+`trap_outlier` runs. No chats.db lock errors or tracebacks in the eval
+retrieval log. Next: make the model reach for `labkit` (tool/persona
+wording, then a short usage check) before a second full run.
+
 ## Phase 5: structure viewer and S7
 
 Extend `show_protein`: load a PDB or mmCIF artifact from the sandbox or an

@@ -1,7 +1,9 @@
 # Lab analysis Phase 3: `labkit`, plan
 
 Status: 3a IMPLEMENTED 2026-11-16 ("proceed", defaults Q1-Q5), frozen at
-`6900e5f`, not yet deployed. Tests: labkit 26/26 in the sandbox image
+`6900e5f`, deployed. Phase 4 run 1 done 2026-11-16: 249/285 vs 243/285, but
+only 16/285 runs imported labkit, so inconclusive (`LAB-ANALYSIS-PLAN.md`
+Phase 4). Tests: labkit 26/26 in the sandbox image
 (all 27 NIST StRD problems from both certified starts: parameters to 1e-6,
 standard errors to 1e-4, Lanczos1 to 1e-2; a 200-dataset ROUT false-positive
 check), sandbox live 54/54, figure hook 20/20, retrieval hermetic 114/114;
