@@ -62,6 +62,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt constraints.txt ./
 RUN pip install --no-cache-dir -r requirements.txt -c constraints.txt
 
+# labkit: Munin's vetted lab-analysis helpers (Prism-style fitting, instrument
+# readers, NMR, statistics). --no-deps: it must never change the pins above;
+# --no-build-isolation: build with the image's setuptools, no download.
+COPY labkit /tmp/labkit-src
+RUN pip install --no-cache-dir --no-deps --no-build-isolation /tmp/labkit-src \
+    && rm -rf /tmp/labkit-src \
+    && python -c "import labkit; print('labkit', labkit.__version__)"
+
 # Drop build deps once the wheels are installed - shaves ~300 MB from the
 # final image and removes a meaningful chunk of attack surface inside the
 # sandbox container.

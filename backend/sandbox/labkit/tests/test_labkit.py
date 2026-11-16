@@ -1,0 +1,495 @@
+"""labkit tests. Standalone (the sandbox image has no pytest); run inside the
+sandbox image so the library versions are the ones kernels get:
+
+    backend/scripts/ci/run_sandbox_live_tests.sh      (CI: builds munin-sandbox:ci-live)
+
+Independent of the eval cases by design (docs/agent-track/LAB-PHASE3-PLAN.md):
+nothing here reads fixtures/lab/cases or the case generators. The NIST StRD
+certificates are read as published data (NIST_RAW, default: the copy under
+backend/benchmarks/fixtures/lab/nist/raw).
+"""
+from __future__ import annotations
+
+import io
+import math
+import os
+import sys
+import tempfile
+import traceback
+import warnings
+from pathlib import Path
+
+import numpy as np
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+sys.path.insert(0, str(HERE.parent))
+warnings.simplefilter("ignore")
+
+import labkit  # noqa: E402
+from labkit import fit, fit_global, compare, rout, interpolate  # noqa: E402
+
+def _default_nist() -> Path:
+    try:
+        return HERE.parents[2] / "benchmarks" / "fixtures" / "lab" / "nist" / "raw"
+    except IndexError:  # copied into a container without the repo around it
+        return HERE / "nist_raw"
+
+
+NIST_RAW = Path(os.environ.get("NIST_RAW") or _default_nist())
+TMP = Path(tempfile.mkdtemp(prefix="labkit-test-"))
+RESULTS: list[tuple[str, bool, str]] = []
+
+
+def check(name, ok, detail=""):
+    RESULTS.append((name, bool(ok), detail))
+    shown = "" if ok or detail is None or (isinstance(detail, str) and not detail) else f" - {detail}"
+    print(f"[{'PASS' if ok else 'FAIL'}] {name}{shown}")
+    return ok
+
+
+def close(a, b, rtol):
+    return abs(a - b) <= rtol * max(abs(b), 1e-300)
+
+
+# ==============================================================================
+# fit: NIST StRD
+# ==============================================================================
+
+def test_nist():
+    from nist_models import MODELS, parse
+    if not NIST_RAW.exists():
+        return check("NIST certificates present", False, str(NIST_RAW))
+    bad = []
+    for name, f in MODELS.items():
+        d = parse(NIST_RAW / f"{name}.dat")
+        a = d["data"]
+        y = a[:, 0]
+        x = (a[:, 1], a[:, 2]) if name == "Nelson" else a[:, 1]
+        if name == "Nelson":
+            y = np.log(y)
+        for s in ("start1", "start2"):
+            r = fit(f, x, y, p0=d[s])
+            got = [r.params[k] for k in r.fitted]
+            for g, c in zip(got, d["cert"]):
+                if not close(g, c, 1e-6):
+                    bad.append(f"{name}/{s} param {g} vs {c}")
+            se_tol = 1e-2 if name == "Lanczos1" else 1e-4   # Lanczos1: noise-free, SEs ~1e-12
+            for k, c in zip(r.fitted, d["sd"]):
+                if not close(r.se[k], c, se_tol):
+                    bad.append(f"{name}/{s} se {r.se[k]} vs {c}")
+            if not close(r.rss, d["rss"], 1e-5 if name != "Lanczos1" else 1e-1):
+                bad.append(f"{name}/{s} rss {r.rss} vs {d['rss']}")
+    check("NIST StRD: 27 problems x 2 starts, parameters 1e-6, SEs 1e-4, RSS", not bad, bad[:5])
+
+
+# ==============================================================================
+# fit: model library and conventions
+# ==============================================================================
+
+RNG = np.random.default_rng(7)
+
+
+def test_decay_names_and_derived():
+    t = np.linspace(0, 20, 16)
+    y = (1000 - 100) * np.exp(-0.3 * t) + 100
+    reps = np.column_stack([y + RNG.normal(0, 5, t.size) for _ in range(3)])
+    r = fit("one_phase_decay", t, reps)
+    ok = (close(r.params["Y0"], 1000, 0.01) and close(r.params["Plateau"], 100, 0.05)
+          and close(r.params["Span"], r.params["Y0"] - r.params["Plateau"], 1e-12)
+          and close(r.params["HalfLife"], math.log(2) / r.params["K"], 1e-12)
+          and r.n == 48 and "VALUE" in r.definitions["Y0"])
+    lo, hi = r.ci["HalfLife"]
+    klo, khi = r.ci["K"]
+    ok = ok and close(lo, math.log(2) / khi, 1e-9) and close(hi, math.log(2) / klo, 1e-9)
+    check("one_phase_decay: Prism names, Y0 is the value, Span/HalfLife derived, all replicates fitted", ok, str(r))
+
+
+def test_replicates_mean_vs_all():
+    x = np.arange(8.0)
+    reps = np.column_stack([2 * x + 1 + RNG.normal(0, 0.3, 8) for _ in range(3)])
+    reps[2, 1] = np.nan
+    a = fit("linear", x, reps)
+    m = fit("linear", x, reps, replicates="mean")
+    check("replicates: 'all' uses every point (NaN skipped), 'mean' the row means", a.n == 23 and m.n == 8, (a.n, m.n))
+
+
+def test_linear_matches_linregress():
+    from scipy import stats as sps
+    x = np.linspace(0, 10, 12)
+    y = 3 * x - 2 + RNG.normal(0, 0.5, 12)
+    r = fit("linear", x, y)
+    lr = sps.linregress(x, y)
+    rp = fit("linear", x, y, ci="profile")
+    ok = (close(r.params["Slope"], lr.slope, 1e-8) and close(r.se["Slope"], lr.stderr, 1e-6)
+          and close(r.se["YIntercept"], lr.intercept_stderr, 1e-6)
+          and all(close(rp.ci[k][i], r.ci[k][i], 1e-4) for k in ("Slope", "YIntercept") for i in (0, 1)))
+    check("linear: estimates and SEs equal scipy linregress; profile CI equals Wald for a linear model", ok)
+
+
+def test_dose_response_requires_x_scale():
+    conc = np.array([1e-9, 1e-8, 1e-7, 1e-6, 1e-5, 1e-4])
+    y = 5 + 95 / (1 + 10 ** ((-7 - np.log10(conc)) * 1.0))
+    try:
+        fit("4pl", conc, y)
+        raised = False
+    except ValueError as e:
+        raised = "x_scale" in str(e)
+    a = fit("4pl", conc, y, x_scale="linear")
+    b = fit("4pl", np.log10(conc), y, x_scale="log")
+    try:
+        fit("4pl", np.r_[0, conc], np.r_[5, y], x_scale="linear")
+        zero = False
+    except ValueError:
+        zero = True
+    lo, hi = a.ci["EC50"]
+    ok = (raised and zero and close(a.params["LogEC50"], -7, 1e-6) and close(b.params["LogEC50"], -7, 1e-6)
+          and close(a.params["EC50"], 1e-7, 1e-5) and lo <= a.params["EC50"] <= hi)
+    check("4pl: x_scale required; linear/log agree; EC50 = 10^LogEC50 with transformed CI; zero dose raises", ok)
+
+
+def test_ambiguous_fit_warns():
+    x = np.linspace(-9, -7.5, 8)           # only the bottom of the curve
+    y = 10 + 90 / (1 + 10 ** ((-5 - x) * 1.0)) + RNG.normal(0, 0.5, 8)
+    r = fit("4pl", x, y, x_scale="log")
+    w = " ".join(r.warnings)
+    check("4pl on one plateau only: warns that parameters are not determined",
+          any(k in w for k in ("dependency", "not determined", "singular", "constraint")), r.warnings)
+
+
+def test_weights_relative():
+    from scipy.optimize import curve_fit
+    x = np.linspace(0.5, 20, 15)
+    y = 50 * x / (4 + x) * (1 + RNG.normal(0, 0.05, 15))
+    r = fit("michaelis_menten", x, y, weights="1/y^2")
+    p, cov = curve_fit(lambda s, v, k: v * s / (k + s), x, y, p0=[50, 4], sigma=y, absolute_sigma=False)
+    ok = close(r.params["Vmax"], p[0], 1e-6) and close(r.se["Km"], math.sqrt(cov[1, 1]), 1e-4)
+    check("weights='1/y^2' equals curve_fit(sigma=y): estimates and SEs", ok, (r.params, p))
+
+
+def test_two_phase_and_mm_and_competitive_and_morrison():
+    t = np.linspace(0, 30, 40)
+    y = 20 + 600 * np.exp(-1.2 * t) + 300 * np.exp(-0.08 * t)
+    r2 = fit("two_phase_decay", t, y + RNG.normal(0, 1, t.size))
+    ok2 = (close(r2.params["KFast"], 1.2, 0.05) and close(r2.params["KSlow"], 0.08, 0.05)
+           and close(r2.params["SpanFast"], 600, 0.05) and close(r2.params["Plateau"], 20, 0.2))
+    S = np.tile([1, 2, 5, 10, 20, 50.0], 3)
+    I = np.repeat([0, 5, 20.0], 6)
+    v = 100 * S / (8 * (1 + I / 4) + S)
+    rc = fit("competitive_inhibition", (S, I), v * (1 + RNG.normal(0, 0.01, v.size)))
+    okc = close(rc.params["Ki"], 4, 0.05) and close(rc.params["Km"], 8, 0.05)
+    xi = np.array([0, 1, 2, 4, 8, 16, 32, 64.0])
+    from labkit.fit import _f_morrison
+    vi = _f_morrison(xi, 100, 3, 5)
+    try:
+        fit("morrison", xi, vi)
+        need_et = False
+    except ValueError as e:
+        need_et = "Et" in str(e)
+    rm = fit("morrison", xi, vi + RNG.normal(0, 0.3, xi.size), constants={"Et": 5})
+    okm = need_et and close(rm.params["KiApp"], 3, 0.1)
+    check("two_phase_decay, competitive_inhibition (x=(S, I)), morrison (Et required) recover parameters",
+          ok2 and okc and okm, (r2.params, rc.params, rm.params))
+
+
+def test_compare_and_aicc():
+    x = np.linspace(0, 10, 30)
+    y = 2 * x + 1 + 0.5 * x ** 2 + RNG.normal(0, 0.5, 30)
+    lin = fit("linear", x, y)
+    quad = fit(lambda x, a, b, c: a * x * x + b * x + c, x, y, p0=[0, 1, 0])
+    c = compare(lin, quad)
+    check("compare: F test and AICc prefer the true (quadratic) model", c["p"] < 1e-6 and c["aicc_prefers"] != "linear", c)
+
+
+def test_rout_false_positive_rate():
+    rng = np.random.default_rng(11)
+    flagged = 0
+    for _ in range(200):
+        x = np.linspace(0, 10, 20)
+        if rout("linear", x, 3 * x + 2 + rng.normal(0, 0.3, 20)).outliers:
+            flagged += 1
+    check("rout: Q=1% flags at most a few percent of clean datasets (200 simulated)", flagged / 200 <= 0.04,
+          flagged / 200)
+
+
+def test_rout():
+    x = np.linspace(0, 10, 20)
+    y = 3 * x + 2 + RNG.normal(0, 0.3, 20)
+    clean = rout("linear", x, y)
+    y2 = y.copy()
+    y2[7] += 15
+    dirty = rout("linear", x, y2)
+    ok = clean.outliers == [] and dirty.outliers == [7] and close(dirty.params["Slope"], 3, 0.03)
+    check("rout: no false outlier on clean data; finds a gross outlier and refits without it", ok,
+          (clean.outliers, dirty.outliers))
+
+
+def test_interpolate():
+    conc = np.array([0, 5, 10, 20, 40, 80.0])
+    reads = 0.05 + 0.01 * conc
+    std = fit("linear", conc, np.column_stack([reads, reads + 0.002]))
+    out = interpolate(std, {"u1": [0.30, 0.32], "u2": 0.55, "hi": 2.0, "lo": -1.0})
+    ok = (close(out["u1"], (0.31 - 0.051) / 0.01, 1e-6) and close(out["u2"], (0.55 - 0.051) / 0.01, 1e-6)
+          and out["hi"] is None and out["lo"] is None and len(out["warnings"]) == 2)
+    check("interpolate: replicate readings averaged; outside the standards -> None with a warning", ok, out)
+
+
+def test_fit_global():
+    x = np.linspace(0, 10, 15)
+    d1 = 5 * x / (2 + x) + RNG.normal(0, 0.02, 15)
+    d2 = 9 * x / (2 + x) + RNG.normal(0, 0.02, 15)
+    g = fit_global("michaelis_menten", [(x, d1), (x, d2)], shared=["Km"])
+    ok = close(g["shared"]["Km"], 2, 0.03) and close(g["per_dataset"][0]["Vmax"], 5, 0.03) \
+        and close(g["per_dataset"][1]["Vmax"], 9, 0.03)
+    check("fit_global: one shared Km, Vmax per dataset", ok, g["shared"])
+
+
+def test_to_dict_is_json():
+    import json
+    r = fit("one_phase_decay", np.linspace(0, 10, 10), 50 * np.exp(-0.4 * np.linspace(0, 10, 10)) + 5)
+    d = r.to_dict()
+    json.dumps(d)
+    check("to_dict: JSON-serialisable with name, name_se, name_ci", "Y0_ci" in d and "HalfLife" in d)
+
+
+# ==============================================================================
+# readers
+# ==============================================================================
+
+def _w(name, data: bytes) -> Path:
+    p = TMP / name
+    p.write_bytes(data)
+    return p
+
+
+def test_read_german_and_utf16():
+    rows = "Sample Name\tNucleic Acid(ng/uL)\tA260/A280\r\ns1\t78,7\t1,91\r\ns2\t1.272,3\t1,86\r\ns3\t5,0\t2,01\r\n"
+    de = labkit.read(_w("nd_de.tsv", rows.encode("cp1252")))
+    us = rows.replace(",", ".").replace("1.272.3", "1272.3")
+    u16 = labkit.read(_w("nd_u16.tsv", "﻿".encode("utf-16-le")[:0] + us.encode("utf-16")))
+    ok = (list(de["conc_ng_ul"]) == [78.7, 1272.3, 5.0] and de.attrs["decimal"] == ","
+          and list(u16["conc_ng_ul"]) == [78.7, 1272.3, 5.0] and u16.attrs["encoding"].startswith("utf-16"))
+    check("read: NanoDrop German decimal comma + thousands dot, and UTF-16 with BOM", ok, (de.head(), u16.head()))
+
+
+def test_read_preamble_table():
+    text = "User: X\r\nTest Name: FI_485_520\r\nDate: 03/11/2026\r\n\r\nWell,Content,Raw Data (485/520)\r\n" \
+           + "".join(f"A0{i},Sample {i},{1000 * i}\r\n" for i in range(1, 6))
+    df = labkit.read(_w("bmg.csv", text.encode()))
+    ok = df.attrs["meta"].get("Test Name") == "FI_485_520" and list(df["Raw Data (485/520)"]) == [1000, 2000, 3000, 4000, 5000]
+    check("read: preamble lines become attrs['meta'], the table below is parsed", ok, (df.attrs["meta"], df.head()))
+
+
+def test_read_plate_over():
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Application: plate reader"])
+    ws.append(["Measurement Wavelength", None, None, None, 450, "nm"])
+    ws.append(["<>"] + list(range(1, 13)))
+    for i, r in enumerate("ABCDEFGH"):
+        row = [r] + [round(0.1 + 0.01 * (i * 12 + c), 4) for c in range(12)]
+        if r == "B":
+            row[4] = "OVER"
+        ws.append(row)
+    buf = io.BytesIO()
+    wb.save(buf)
+    df = labkit.read(_w("plate.xlsx", buf.getvalue()))
+    b4 = df[df.well == "B4"]["value"].iloc[0]
+    ok = len(df) == 96 and np.isnan(b4) and "B4" in df.attrs["warnings"][0] and "OVER" in df.attrs["warnings"][0] \
+        and close(df[df.well == "A1"]["value"].iloc[0], 0.1, 1e-9)
+    check("read_plate: 96 wells long format; OVER is NaN AND reported", ok, df.attrs["warnings"])
+
+
+def test_read_gen5():
+    head = "Software Version\t3.11\r\nReader Type:\tSynergy H1\r\n\r\nRead 1:405\r\n\r\n"
+    tbl = "Time\tT° Read 1:405\tA1\tA2\r\n" + "".join(
+        f"0:{m:02d}:{s:02d}\t30.0\t{0.1 + 0.01 * k:.4f}\t{0.2:.4f}\r\n"
+        for k, (m, s) in enumerate([(0, 0), (0, 30), (1, 0), (1, 30)]))
+    df = labkit.read(_w("k.txt", (head + tbl).encode()))
+    ok = list(df["time_min"]) == [0, 0.5, 1.0, 1.5] and "temperature_C" in df.columns and df.attrs["format"] == "gen5"
+    check("read_gen5: H:MM:SS to minutes, temperature column named, wells as columns", ok, df.head())
+
+
+def test_read_jasco():
+    head = "TITLE\tx\r\nORIGIN\tJASCO\r\nLOCALE\t1031\r\nXUNITS\tNANOMETERS\r\nYUNITS\tCD [mdeg]\r\nY2UNITS\tHT [V]\r\nXYDATA\r\n"
+    rows = "".join(f"{w},0000\t{-w / 10:.4f}".replace(".", ",") + f"\t{200 + (260 - w) * 10},00\r\n"
+                   for w in range(260, 189, -10))
+    df = labkit.read(_w("cd.txt", (head + rows).encode()))
+    ok = list(df.columns) == ["wavelength_nm", "cd_mdeg", "ht_v"] and close(df["cd_mdeg"].iloc[0], -26.0, 1e-9)
+    check("read_jasco: German locale, columns named from the unit fields", ok, df.head())
+
+
+def test_binary_refused():
+    ole = _w("plate.sda", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + bytes(500))
+    pcrd = _w("run.pcrd", bytes(range(256)) * 4)
+    msgs = []
+    for p in (ole, pcrd):
+        try:
+            labkit.read(p)
+            msgs.append(None)
+        except labkit.UnsupportedFormat as e:
+            msgs.append(str(e))
+    ok = all(m and "export" in m for m in msgs) and "SoftMax" in msgs[0] and "CFX" in msgs[1]
+    check("read: proprietary binaries raise UnsupportedFormat with what to export", ok, msgs)
+
+
+# ==============================================================================
+# NMR
+# ==============================================================================
+
+def _synthetic_bruker(path: Path, shifts_ppm, amps, *, grpdly=76):
+    import nmrglue as ng
+    sfo1, sw_h, td = 600.13, 12019.2307692, 16384
+    o1_ppm = 4.7
+    o1 = o1_ppm * sfo1
+    t = np.arange(td) / sw_h
+    fid = np.zeros(td, complex)
+    for s, a in zip(shifts_ppm, amps):
+        f = (s - o1_ppm) * sfo1
+        fid += a * np.exp(2j * np.pi * f * t) * np.exp(-t / 0.3)
+    rec = np.concatenate([np.zeros(grpdly, complex), fid[:-grpdly]])   # the digital filter's delay
+    rec = np.round(rec * 2e6)
+    udic = {"ndim": 1, 0: {"size": td, "complex": True, "encoding": "direct", "sw": sw_h, "obs": sfo1,
+                           "car": o1, "label": "1H", "time": True, "freq": False}}
+    dic = ng.bruker.create_dic(udic)
+    dic["acqus"].update({"SW": sw_h / sfo1, "SW_h": sw_h, "SFO1": sfo1, "BF1": sfo1, "O1": o1,
+                         "DTYPA": 0, "BYTORDA": 0, "GRPDLY": float(grpdly), "DECIM": 1680, "DSPFVS": 20,
+                         "TD": 2 * td, "NUC1": "<1H>", "PULPROG": "<zg30>"})
+    ng.bruker.write(str(path), dic, rec.astype(np.complex128), overwrite=True)
+    return path
+
+
+def test_bruker_chain():
+    from labkit import nmr
+    shifts, amps = [0.0, 1.20, 3.35, 7.10], [1.0, 3.0, 2.0, 1.0]
+    d = _synthetic_bruker(TMP / "exp10", shifts, amps)
+    import zipfile
+    z = TMP / "exp.zip"
+    with zipfile.ZipFile(z, "w") as zz:
+        for f in d.iterdir():
+            zz.write(f, f"sample/10/{f.name}")
+    raw = nmr.read_bruker(z)
+    spec = nmr.process_1d(raw, phase=(0.0, 0.0))
+    spec = nmr.reference(spec, ppm=0.0)
+    found = [p["ppm"] for p in nmr.peaks(spec, threshold=0.2 * spec.real.max())]
+    pos_ok = len(found) == 4 and all(abs(a - b) < 0.003 for a, b in zip(found, sorted(shifts)))
+    ints = nmr.integrate(spec, [(s - 0.08, s + 0.08) for s in shifts], relative_to=3)
+    rel = [r["relative"] for r in ints]
+    int_ok = all(close(r, a / amps[3], 0.03) for r, a in zip(rel, amps))
+    par_ok = raw.params["dtype"] == "int32" and close(raw.params["SW_ppm"] * raw.params["SFO1"], raw.params["SW_h"], 1e-6)
+    try:
+        nmr.process_1d(raw)
+        must_choose = False
+    except ValueError:
+        must_choose = True
+    check("bruker: zip read with int32 from DTYPA, digital filter removed, peaks at the right ppm, "
+          "integrals in ratio, phasing must be chosen",
+          pos_ok and int_ok and par_ok and must_choose, (found, rel, raw.params["dtype"]))
+
+
+def test_csp_and_kd_and_relaxation():
+    from labkit import nmr
+    free = {"G10": (8.0, 120.0), "A11": (8.2, 121.0), "K12": (7.9, 118.0)}
+    bound = {"G10": (8.1, 121.0), "A11": None, "K12": (7.9, 118.5)}
+    try:
+        nmr.csp(free, bound, alpha=0.14, scheme="?")
+        need = False
+    except ValueError:
+        need = True
+    e = nmr.csp(free, bound, alpha=0.14, scheme="euclidean")
+    w = nmr.csp(free, bound, alpha=0.14, scheme="williamson")
+    ok_csp = need and e["A11"] is None and close(e["G10"], math.sqrt(0.01 + 0.14 ** 2), 1e-9) \
+        and close(w["G10"], e["G10"] / math.sqrt(2), 1e-9)
+    L = np.array([0, 25, 50, 100, 200, 400, 800, 1600.0])
+    P = 100.0
+    from labkit.nmr import _binding_isotherm
+    data = {r: list(_binding_isotherm(L, m, 150.0, P) + RNG.normal(0, 0.0005, L.size)) for r, m in
+            {"G10": 0.12, "K12": 0.3, "V20": 0.08}.items()}
+    k = nmr.kd_fit(L, data, protein_conc=P)
+    ok_kd = close(k["Kd"], 150, 0.1) and k["Kd_ci"][0] < 150 < k["Kd_ci"][1] and close(k["per_residue"]["K12"]["CSPmax"], 0.3, 0.05)
+    tt = np.array([0.01, 0.05, 0.1, 0.2, 0.4, 0.8])
+    rel = nmr.relaxation_fit(tt, {"G10": list(1e6 * np.exp(-1.6 * tt)), "A11": [1.0, None, None, None, None, None]})
+    ok_rel = close(rel["G10"]["R"], 1.6, 1e-6) and rel["A11"] is None
+    h = nmr.hetnoe({"G10": 0.8, "A11": 0.5}, {"G10": 1.0, "A11": None})
+    ok_h = close(h["G10"]["hetNOE"], 0.8, 1e-12) and h["A11"] is None
+    check("nmr: csp (alpha/scheme required, missing kept missing), global Kd with depletion, relaxation, hetNOE",
+          ok_csp and ok_kd and ok_rel and ok_h, (e, w, k["Kd"], rel["G10"]))
+
+
+# ==============================================================================
+# stats, cd, plot, guide
+# ==============================================================================
+
+def test_stats():
+    import pandas as pd
+    from labkit import stats
+    from statsmodels.stats.multicomp import pairwise_tukeyhsd
+    rows = []
+    for a in ("wt", "ko"):
+        for b in ("veh", "drug"):
+            mu = {"wt": 10, "ko": 14}[a] + {"veh": 0, "drug": 3}[b] + (2 if (a, b) == ("ko", "drug") else 0)
+            n = 4 if (a, b) != ("ko", "veh") else 6
+            rows += [{"g": a, "t": b, "y": mu + RNG.normal(0, 1)} for _ in range(n)]
+    df = pd.DataFrame(rows)
+    t = stats.anova2(df, "y", "g", "t")
+    ok_a = set(t.index) == {"g", "t", "g:t", "Residual"} and t.loc["Residual", "df"] == len(df) - 4
+    one = df[df.t == "veh"].assign(grp=lambda d: d.g)
+    ph = stats.posthoc(one, "y", "grp")
+    ref = pairwise_tukeyhsd(one["y"], one["grp"])
+    ok_p = close(float(ph["p_adj"].iloc[0]), float(ref.pvalues[0]), 1e-3)
+    ok_s = [stats.asterisks(p) for p in (0.2, 0.05, 0.01, 0.001, 0.0001, 0.00001)] == ["ns", "*", "**", "***", "****", "****"]
+    check("stats: Type III two-way table, Tukey on the pooled error = statsmodels for one-way, asterisks",
+          ok_a and ok_p and ok_s, (t, ph))
+
+
+def test_cd():
+    from labkit import cd
+    mre = float(cd.mean_residue_ellipticity(-28.0612, conc_mg_ml=0.2, path_cm=0.1, mw_da=14300, n_residues=129))
+    ok = close(mre, -28.0612 * (14300 / 128) / (10 * 0.2 * 0.1), 1e-12)
+    w = np.arange(260, 189, -1.0)
+    ht = np.where(w >= 200, 300.0, 700.0)
+    ok = ok and cd.ht_cutoff(w, ht, max_v=600) == 200.0
+    check("cd: MRE = mdeg*MRW/(10*c*l) with MRW = MW/(N-1); HT cutoff", ok, mre)
+
+
+def test_plot():
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from PIL import Image
+    from labkit.plot import save_figure, jitter
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    ax.set_title("A long title that would need room")
+    p = TMP / "f.png"
+    info = save_figure(fig, str(p), width_mm=85, height_mm=60, dpi=300)
+    w, h = Image.open(p).size
+    ok = (w, h) == (info["width_px"], info["height_px"]) == (1003, 708)   # 85 mm = 1003.9 px, truncated
+    ok = ok and np.array_equal(jitter(1, 5), jitter(1, 5)) and not np.array_equal(jitter(1, 5), jitter(2, 5) - 1)
+    check("plot: save_figure is exactly 85x60 mm at 300 dpi; jitter is reproducible", ok, (w, h, info))
+
+
+def test_guide():
+    import contextlib
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        for t in ("overview", "fit", "read", "nmr", "stats", "cd", "plot"):
+            labkit.guide(t)
+    text = buf.getvalue()
+    check("guide: every topic prints and names its functions",
+          all(k in text for k in ("x_scale", "read_bruker", "anova2", "mean_residue_ellipticity", "save_figure")))
+
+
+TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
+
+if __name__ == "__main__":
+    for t in TESTS:
+        try:
+            t()
+        except Exception:
+            traceback.print_exc()
+            check(t.__name__, False, "raised")
+    failed = [r for r in RESULTS if not r[1]]
+    print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} passed")
+    sys.exit(1 if failed else 0)

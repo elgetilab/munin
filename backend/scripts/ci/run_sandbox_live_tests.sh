@@ -36,4 +36,10 @@ for suite in "${suites[@]}"; do
     echo "== $suite"
     docker exec "$NAME" python "/tmp/$suite" || status=1
 done
+# labkit: unit tests plus the NIST StRD certificates they check the fitter against.
+docker exec "$NAME" mkdir -p /tmp/labkit-tests
+docker cp "$REPO/backend/sandbox/labkit/tests/." "$NAME:/tmp/labkit-tests/"
+docker cp "$REPO/backend/benchmarks/fixtures/lab/nist/raw" "$NAME:/tmp/labkit-tests/nist_raw"
+echo "== labkit"
+docker exec -e NIST_RAW=/tmp/labkit-tests/nist_raw "$NAME" python /tmp/labkit-tests/test_labkit.py || status=1
 exit $status
