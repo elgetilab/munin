@@ -247,6 +247,46 @@ def test_loop_no_tools_unchanged():
           saved["content"].strip() == ANSWER and done.get("narration_in_log") is False, saved)
 
 
+# --- show_protein(query=...): look a protein up instead of recalling an id ------
+
+def test_show_protein_query_returns_candidates_without_a_viewer():
+    import asyncio
+    import httpx
+    from mcp.tools import structures
+
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        if "rcsbsearch" in str(request.url):
+            body = json.loads(request.content)
+            assert body["query"]["parameters"]["value"] == "angiotensin II receptor type 1"
+            return httpx.Response(200, json={"result_set": [{"identifier": "4YAY"}, {"identifier": "4ZUD"}]})
+        return httpx.Response(200, json={"data": {"entries": [
+            {"rcsb_id": "4YAY", "struct": {"title": "XFEL structure of human Angiotensin Receptor"},
+             "rcsb_entry_info": {"experimental_method": "X-ray", "resolution_combined": [2.9]},
+             "polymer_entities": [{"rcsb_entity_source_organism": [{"scientific_name": "Homo sapiens"}]}]},
+            {"rcsb_id": "4ZUD", "struct": {"title": "Angiotensin II type 1 receptor with olmesartan"},
+             "rcsb_entry_info": {"experimental_method": "X-ray", "resolution_combined": [2.8]},
+             "polymer_entities": []}]}})
+
+    real = structures.httpx.AsyncClient
+
+    def fake_client(*a, **k):
+        k["transport"] = httpx.MockTransport(handler)
+        return real(*a, **k)
+    structures.httpx.AsyncClient = fake_client
+    try:
+        out = asyncio.run(structures.show_protein(query="angiotensin II receptor type 1"))
+    finally:
+        structures.httpx.AsyncClient = real
+    c = out.get("candidates") or []
+    ok = ([x["pdb_id"] for x in c] == ["4YAY", "4ZUD"] and c[0]["organisms"] == ["Homo sapiens"]
+          and c[0]["resolution_A"] == 2.9 and "id" not in out and "Nothing is shown" in out.get("note", "")
+          and len(seen) == 2)
+    check("show_protein(query=) returns RCSB candidates and creates no viewer", ok, out)
+
+
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
 
 if __name__ == "__main__":

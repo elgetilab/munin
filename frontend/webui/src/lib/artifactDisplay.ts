@@ -194,13 +194,40 @@ function refsFromResult(name: string, result: unknown): ArtifactRef[] {
   });
 }
 
-/** One ref per artifact, in order of first appearance, at its newest version. */
-export function artifactRefsFromToolCalls(toolCalls: ToolCall[] | null | undefined): ArtifactRef[] {
+/** Ids of results a later call in the same turn replaced (TURN-RESULTS-PLAN.md). */
+export function supersededArtifactIds(toolCalls: ToolCall[] | null | undefined): Set<string> {
+  const ids = new Set<string>();
+  for (const call of toolCalls ?? []) {
+    for (const id of Object.keys(call.superseded_by ?? {})) ids.add(id);
+  }
+  return ids;
+}
+
+function allRefs(toolCalls: ToolCall[] | null | undefined): Map<string, ArtifactRef> {
   const refs = new Map<string, ArtifactRef>();
   for (const call of toolCalls ?? []) {
     for (const ref of refsFromResult(call.name, call.result)) refs.set(ref.id, ref);
   }
-  return [...refs.values()];
+  return refs;
+}
+
+/** The turn's RESULTS: one ref per artifact, in order of first appearance, at
+ * its newest version, without the ones a later call replaced (a wrong
+ * structure, an earlier drawing of a redrawn figure). */
+export function artifactRefsFromToolCalls(toolCalls: ToolCall[] | null | undefined): ArtifactRef[] {
+  const gone = supersededArtifactIds(toolCalls);
+  return [...allRefs(toolCalls).values()].filter(ref => !gone.has(ref.id));
+}
+
+/** The replaced results, for the work log ("earlier attempt"). */
+export function supersededRefsFromToolCalls(toolCalls: ToolCall[] | null | undefined): ArtifactRef[] {
+  const gone = supersededArtifactIds(toolCalls);
+  return [...allRefs(toolCalls).values()].filter(ref => gone.has(ref.id));
+}
+
+/** Refs a single call produced (for its row in the work log). */
+export function artifactRefsOfCall(call: ToolCall): ArtifactRef[] {
+  return refsFromResult(call.name, call.result);
 }
 
 /** True when the model already placed this image in its text with ![](url). */

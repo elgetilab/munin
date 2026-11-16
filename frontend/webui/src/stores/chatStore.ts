@@ -416,6 +416,14 @@ export const useChatStore = create<ChatState>()(
       let planSnapshot: Plan | null = null;
       let thinkingText = '';
       let contentText = '';
+      // All of the turn's text, narration put back in front of the answer,
+      // for the cases where the server keeps it in the message (interrupted
+      // turns, a thin final answer, older servers). Clears step_text.
+      const takeAllText = (): string => {
+        const all = toolCalls.map(t => t.step_text ?? '').join('') + contentText;
+        for (const t of toolCalls) delete t.step_text;
+        return all;
+      };
       let ragCtx: RagContext | null = null;
       let clarification: Clarification | null = null;
 
@@ -492,10 +500,14 @@ export const useChatStore = create<ChatState>()(
         // The saved ids of this turn's two messages, so a later Retry or
         // Edit can name them. Absent on ephemeral chats and older servers.
         const savedIds = (event.data.message_ids ?? {}) as { user?: string; assistant?: string };
+        // The server kept all of the turn's text in the message (a thin final
+        // answer, an older server): put the narration back the same way, so
+        // the bubble matches what a reload shows.
+        const finalContent = event.data.narration_in_log === true ? contentText : takeAllText();
         const assistantMessage: Message = {
           id: savedIds.assistant ?? `msg-${Date.now()}`,
           role: 'assistant',
-          content: contentText,
+          content: finalContent,
           thinking: thinkingText || null,
           tool_calls:
             toolCalls.length > 0 ? _snapshotToolCalls(toolCalls) : null,
@@ -646,17 +658,42 @@ export const useChatStore = create<ChatState>()(
               });
             }
             break;
-          case 'tool_call':
-            toolCalls.push({
+          case 'tool_call': {
+            // The text so far was written before this step's tool calls: it
+            // is narration, not the answer. Move it into the work log on the
+            // step's first call, so the live view matches the saved message
+            // (TURN-RESULTS-PLAN.md). Includes text the pacer has not shown.
+            const stepText = contentText;
+            const call: ToolCall = {
               id: event.data.id,
               name: event.data.name,
               arguments: event.data.arguments,
-            });
+            };
+            if (stepText.trim()) call.step_text = stepText;
+            toolCalls.push(call);
+            contentText = '';
+            displayedContent = '';
+            pendingText = '';
+            charCarry = 0;
             set(state => {
               state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
               state.streaming.phase = 'tool_call';
+              state.streaming.content = '';
             });
             break;
+          }
+          case 'artifact_superseded': {
+            // A later call replaced this result: it leaves the inline
+            // results and shows in the log as an earlier attempt.
+            const owner = toolCalls.find(t => t.id === event.data.tool_call_id);
+            if (owner) {
+              owner.superseded_by = { ...(owner.superseded_by ?? {}), [event.data.artifact_id]: event.data.superseded_by };
+            }
+            set(state => {
+              state.streaming.toolCalls = _snapshotToolCalls(toolCalls);
+            });
+            break;
+          }
           case 'tool_result': {
             const tc = toolCalls.find(t => t.id === event.data.id);
             if (tc) {
@@ -822,8 +859,9 @@ export const useChatStore = create<ChatState>()(
             // partial content + marker inline.
             const reason = (event.data.message || '').trim() || 'vLLM stream error';
             const marker = `_(stream interrupted: ${reason})_`;
-            const interruptedContent = contentText
-              ? `${contentText.replace(/\s+$/, '')}\n\n${marker}`
+            const sofar = takeAllText();
+            const interruptedContent = sofar
+              ? `${sofar.replace(/\s+$/, '')}\n\n${marker}`
               : marker;
             const interruptedMessage: Message = {
               id: `msg-${Date.now()}`,
@@ -951,8 +989,9 @@ export const useChatStore = create<ChatState>()(
           // the SSE 'error' branch above.
           const reason = e instanceof Error ? e.message : 'Stream failed';
           const marker = `_(stream interrupted: ${reason})_`;
-          const interruptedContent = contentText
-            ? `${contentText.replace(/\s+$/, '')}\n\n${marker}`
+          const sofar = takeAllText();
+          const interruptedContent = sofar
+            ? `${sofar.replace(/\s+$/, '')}\n\n${marker}`
             : marker;
           const interruptedMessage: Message = {
             id: `msg-${Date.now()}`,

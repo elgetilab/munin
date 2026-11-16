@@ -1,6 +1,20 @@
 # One result per turn: self-corrections and redraws, plan
 
-Status: PLAN, waiting for "proceed". Reported 2026-11-16 by the user as the
+Status: IMPLEMENTED 2026-11-16 ("proceed", Q1-Q4 defaults), not yet
+deployed. Backend `4a5166b`, frontend and tests in the next commit.
+Regression tests the user asked for, at three layers, each failing on the
+old code: `backend/retrieval/tests/test_turn_results.py` (12: the supersede
+rules, the AT1R turn replayed through the real chat loop, the show_protein
+lookup), `frontend/webui/src/turnResults.test.tsx` (10; 7 fail on the old
+client, the 3 that pass are the unchanged-behaviour checks), and
+`frontend/webui/e2e/turn-results.spec.ts` (browser, both themes). Changes
+from the plan: the redraw rule needs auto-captured figures with matching
+plot types as well as code similarity >= 0.75 (similarity alone scored 0.88
+for two different plots sharing their data loading); replaying the rules on
+the user's chats collapses the three redraw turns to one figure each and the
+11-times-rewritten script to one, and leaves turns with genuinely different
+outputs alone. The AT1R turn itself only collapses when the model passes
+`replaces` (new tool description and CORE RULE 7). Reported 2026-11-16 by the user as the
 main bug: when the model corrects itself in a turn, the chat shows several
 results.
 
