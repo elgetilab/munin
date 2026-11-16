@@ -314,6 +314,7 @@ async def _show_protein(arguments: dict) -> dict:
         color=arguments.get("color", "spectrum"),
         highlight=arguments.get("highlight"),
         title=arguments.get("title"),
+        query=arguments.get("query"),
     )
 
 

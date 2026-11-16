@@ -543,6 +543,11 @@ MCP_TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
+                "replaces": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Artifact ids (from earlier tool results in THIS turn) that this call replaces because they were wrong or are superseded by this redo. The replaced results are then shown as earlier attempts, not as results."
+                },
                 "title": {
                     "type": "string",
                     "description": "Short human-readable title for the artifact (max 200 chars), e.g. 'Kinase inhibitor abstract' or 'Figure 3 plot script'."
@@ -570,13 +575,22 @@ MCP_TOOLS = {
     "show_protein": {
         "name": "show_protein",
         "is_concurrency_safe": False,
-        "description": "Show a protein as an interactive 3D molecular structure viewer in your message, which the user can rotate, zoom and restyle. Use it whenever the user asks to see, view, visualise, visualize or display a protein, enzyme, antibody or other molecule or macromolecule structure in 3D. Give a pdb_id for an experimental structure from the RCSB Protein Data Bank, or a uniprot_id for an AlphaFold predicted model. Look the id up first if you are not sure of it; an unknown id returns an error. Returns the entry's real title, so check it matches what the user asked for. Not available in ephemeral chats.",
+        "description": "Show a protein as an interactive 3D molecular structure viewer in your message, which the user can rotate, zoom and restyle. Use it whenever the user asks to see, view, visualise, visualize or display a protein, enzyme, antibody or other molecule or macromolecule structure in 3D. Give a pdb_id for an experimental structure from the RCSB Protein Data Bank, or a uniprot_id for an AlphaFold predicted model. Do not recall PDB ids from memory: if you are not certain, call it with `query` (a protein name) first and pick from the entries it returns. With a pdb_id it returns the entry's real title: check it is the protein the user asked for; if not, call again with the right id and `replaces` set to the wrong viewer's id. Not available in ephemeral chats.",
         "inputSchema": {
             "type": "object",
             "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "A protein name (e.g. 'angiotensin II receptor type 1') when you do not KNOW the PDB id. Returns matching PDB entries (id, title, organism, method, resolution) and shows nothing; then call again with the chosen pdb_id."
+                },
+                "replaces": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Artifact ids (from earlier tool results in THIS turn) that this call replaces because they were wrong or are superseded by this redo. The replaced results are then shown as earlier attempts, not as results."
+                },
                 "pdb_id": {
                     "type": "string",
-                    "description": "Four-character PDB id, e.g. '1CRN'. Pass this or uniprot_id, not both."
+                    "description": "Four-character PDB id, e.g. '1CRN'. Pass this or uniprot_id (or only query), not both."
                 },
                 "uniprot_id": {
                     "type": "string",
@@ -890,6 +904,11 @@ MCP_TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
+                "replaces": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Artifact ids (from earlier tool results in THIS turn) that this call replaces because they were wrong or are superseded by this redo. The replaced results are then shown as earlier attempts, not as results."
+                },
                 "edits": {
                     "type": "array",
                     "description": "Replacements to apply in order.",
@@ -928,6 +947,11 @@ MCP_TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
+                "replaces": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Artifact ids (from earlier tool results in THIS turn) that this call replaces because they were wrong or are superseded by this redo. The replaced results are then shown as earlier attempts, not as results."
+                },
                 "code": {
                     "type": "string",
                     "description": "Python source to execute. Multi-line is fine."
@@ -1020,6 +1044,11 @@ MCP_TOOLS = {
         "inputSchema": {
             "type": "object",
             "properties": {
+                "replaces": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Artifact ids (from earlier tool results in THIS turn) that this call replaces because they were wrong or are superseded by this redo. The replaced results are then shown as earlier attempts, not as results."
+                },
                 "source": {
                     "type": "string",
                     "description": "Full contents of main.tex. Must be a complete, compilable document (\\documentclass, body, \\end{document}). Use this for brand-new documents only; for follow-up edits to an existing artifact, use `artifact_id` + `edits` instead so you don't burn tokens re-emitting the body.",

@@ -54,6 +54,7 @@ from usage_tracker import (
 from metrics import observe_citation_claims, observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
 from answer_tags import AnswerTagStreamFilter, clean_reply, cut_loop, has_repeats, strip_answer_tags, tail_is_looping
+import turn_results
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 import hooks as hooks_module
@@ -2787,6 +2788,11 @@ async def stream_chat_completion(
         # as (key, result, number) and the count of blocked reruns.
         last_call: Optional[tuple] = None
         blocked_repeats = 0
+        # The answer: text of the final step (no tool calls) plus the wrap-up.
+        # Text of steps that called tools is narration, kept on the step's
+        # first tool call as step_text (TURN-RESULTS-PLAN.md).
+        answer_raw = ""
+        narration_in_log = False
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -3036,6 +3042,7 @@ async def stream_chat_completion(
 
             if not tool_calls:
                 hit_turn_cap = False
+                answer_raw = acc.content
                 break
 
             # --- §14 ask_clarification intercept ---
@@ -3263,6 +3270,7 @@ async def stream_chat_completion(
                         await run_task
                 current_sse_emitter.set(None)
 
+            step_start = len(final_tool_calls)
             for res in results:
                 final_tool_calls.append({
                     "id": res["id"],
@@ -3360,6 +3368,14 @@ async def stream_chat_completion(
                                 "base_version": tr.get("base_version"),
                             },
                         )
+
+            # This step's text was written before its tool calls: narration,
+            # not the answer. Results replaced by these calls collapse.
+            if len(final_tool_calls) > step_start and (acc.content or "").strip():
+                final_tool_calls[step_start]["step_text"] = acc.content
+            for _sup in turn_results.supersede(final_tool_calls, step_start):
+                logger.info("result %s superseded by %s", _sup["artifact_id"], _sup["superseded_by"])
+                yield _sse("artifact_superseded", _sup)
 
             # Append the assistant turn (with tool_calls) and each tool result to
             # the message list so vLLM can continue generating.
@@ -3488,6 +3504,7 @@ async def stream_chat_completion(
             if wrap_acc is not None:
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_acc.content
+                answer_raw += wrap_acc.content
                 record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
             if not final_content.strip():
@@ -3535,12 +3552,32 @@ async def stream_chat_completion(
                         wrap_content = retried
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_content
+                answer_raw += wrap_content
                 record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
 
         # Drop stray <answer> tags and collapse looped paragraphs before the
         # audits and the save (LAB-BUGFIX-PLAN.md F5).
         final_content = _clean_final_content(final_content)
+
+        # Narration to the work log, the answer stays the message
+        # (TURN-RESULTS-PLAN.md). Not on a stream error: that save shows
+        # everything up to the break, as before.
+        narration_in_log, _ = turn_results.answer_and_narration(
+            [(e.get("id"), e.get("step_text") or "") for e in final_tool_calls], answer_raw)
+        if had_stream_error or _cancelled():
+            narration_in_log = False
+        if narration_in_log:
+            final_content = _clean_final_content(answer_raw)
+            for _e in final_tool_calls:
+                if _e.get("step_text"):
+                    _t = _clean_final_content(_e["step_text"])
+                    _t, _ = audit_artifact_urls_in_content(_t, final_tool_calls, prior_artifact_urls)
+                    _t, _ = audit_paper_urls_in_content(_t, final_tool_calls)
+                    _e["step_text"] = _t
+        else:
+            for _e in final_tool_calls:
+                _e.pop("step_text", None)
 
         # --- 6. Persist assistant message ---
         # Stream-error marker. When the loop bailed because vLLM yielded an
@@ -3694,6 +3731,10 @@ async def stream_chat_completion(
                 "terminal_reason": terminal_reason,
                 # Saved ids of this turn's two messages; empty when ephemeral.
                 "message_ids": saved_ids,
+                # True: the text written before tool calls is in the work log
+                # (tool_calls[].step_text) and the message holds the answer.
+                # False: the message holds all of the turn's text, as before.
+                "narration_in_log": narration_in_log,
             },
         )
 
@@ -3783,6 +3824,9 @@ async def stream_chat_completion(
                 # disconnect) would otherwise truncate the write mid-row.
                 # The shield lets add_message run to completion in the
                 # background even if our await is cancelled.
+                # The interrupted save keeps all of the text in the message.
+                for _e in final_tool_calls:
+                    _e.pop("step_text", None)
                 await asyncio.shield(
                     chat_store.add_message(
                         conversation_id=conversation["id"],

@@ -193,6 +193,67 @@ def _clean_highlight(highlight: Any) -> tuple[list[dict], Optional[str]]:
     return cleaned, None
 
 
+_RCSB_SEARCH = "https://search.rcsb.org/rcsbsearch/v2/query"
+_RCSB_GRAPHQL = "https://data.rcsb.org/graphql"
+_MAX_CANDIDATES = 8
+
+
+async def find_structures(query: str, limit: int = 6) -> dict:
+    """PDB entries matching a protein name, best first, for the model to pick
+    from instead of recalling an id (TURN-RESULTS-PLAN.md, part 3).
+
+    Returns {"candidates": [{pdb_id, title, organisms, method, resolution_A}]}
+    or {"error": ...}. Uses RCSB's full-text search, then one GraphQL call for
+    the details of the hits.
+    """
+    import provenance
+    q = (query or "").strip()
+    if not q:
+        return {"error": "query is empty"}
+    if len(q) > 200:
+        return {"error": "query is too long (200 characters at most)"}
+    if not provenance.may_fetch(provenance.NET_WEB):
+        return {"error": "structure search is not available here (network egress is off); "
+                         "find the PDB id with search, then call show_protein with pdb_id"}
+    limit = max(1, min(int(limit or 6), _MAX_CANDIDATES))
+    body = {
+        "query": {"type": "terminal", "service": "full_text", "parameters": {"value": q}},
+        "return_type": "entry",
+        "request_options": {"paginate": {"start": 0, "rows": limit},
+                            "results_content_type": ["experimental"],
+                            "sort": [{"sort_by": "score", "direction": "desc"}]},
+    }
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT_S,
+                                     headers={"User-Agent": site_config.bot_user_agent()}) as client:
+            r = await client.post(_RCSB_SEARCH, json=body)
+            if r.status_code == 204:
+                return {"candidates": [], "note": f"no PDB entry matches {q!r}"}
+            r.raise_for_status()
+            ids = [h["identifier"] for h in r.json().get("result_set", [])][:limit]
+            if not ids:
+                return {"candidates": [], "note": f"no PDB entry matches {q!r}"}
+            gql = ("query($ids:[String!]!){entries(entry_ids:$ids){rcsb_id struct{title} "
+                   "rcsb_entry_info{experimental_method resolution_combined} "
+                   "polymer_entities{rcsb_entity_source_organism{scientific_name}}}}")
+            d = await client.post(_RCSB_GRAPHQL, json={"query": gql, "variables": {"ids": ids}})
+            d.raise_for_status()
+            entries = {e["rcsb_id"]: e for e in (d.json().get("data") or {}).get("entries") or []}
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+        return {"error": f"could not reach the RCSB search ({type(exc).__name__})"}
+    out = []
+    for pid in ids:
+        e = entries.get(pid) or {}
+        info = e.get("rcsb_entry_info") or {}
+        res = info.get("resolution_combined") or []
+        orgs = sorted({o.get("scientific_name") for pe in (e.get("polymer_entities") or [])
+                       for o in (pe.get("rcsb_entity_source_organism") or []) if o.get("scientific_name")})
+        out.append({"pdb_id": pid, "title": (e.get("struct") or {}).get("title"),
+                    "organisms": orgs, "method": info.get("experimental_method"),
+                    "resolution_A": res[0] if res else None})
+    return {"candidates": out}
+
+
 async def show_protein(
     pdb_id: Optional[str] = None,
     uniprot_id: Optional[str] = None,
@@ -200,9 +261,21 @@ async def show_protein(
     color: str = "spectrum",
     highlight: Any = None,
     title: Optional[str] = None,
+    query: Optional[str] = None,
 ) -> dict:
-    """Create an interactive 3D viewer for a protein in the current conversation."""
+    """Create an interactive 3D viewer for a protein in the current conversation.
+
+    With only `query` (a protein name), nothing is shown: the matching PDB
+    entries come back for the model to choose from.
+    """
     import artifact_store  # lazy to avoid circular init
+
+    if query and not (pdb_id or uniprot_id):
+        found = await find_structures(query)
+        if "candidates" in found:
+            found["note"] = ("Nothing is shown yet. Pick the entry that is the protein the user asked "
+                             "for (check title and organism) and call show_protein with its pdb_id.")
+        return found
 
     user_email, conv_id, refusal = _require_persistent_conversation()
     if refusal is not None:
