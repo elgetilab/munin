@@ -63,6 +63,55 @@ detail.
    like an empty account again. Both scripts are dry run by default; a
    rollback is the pre-converge DB backups plus the previous images.
 
+## Part B: detailed design (2026-11-17, after surveying the code)
+
+What identity_email already gives: one account per person whatever address
+they sign in with, and a key that never moves. What Part B adds on top:
+addresses become fully reusable (today a removed identity address is locked
+forever), no email addresses inside storage keys, logs, user_docs hashes or
+Qdrant payloads, and a deleted user's data is keyed by a number, not a
+person's address.
+
+Survey of where the key is read:
+
+- retrieval: three helpers (`_require_user_email` in main.py, 44 call
+  sites; `_require_email` in research_routes.py; the MCP endpoint that sets
+  `current_user_email`). Two places need a real address, not the key: the
+  admin gate (`_require_admin_email` -> check-role) and KB paper uploads
+  (contributors.yml is keyed by address).
+- gateway: 11 endpoints read X-Munin-Email; API-key requests take the owner
+  from `api_keys.user_email`. Uses of a real address: ADMIN_EMAILS fallback,
+  quotas.yml overrides, the X-Munin-Name fallback (`email.split("@")[0]`).
+  Admin usage and activity views list users by `user_email`.
+- upload hook (tusd): KB contributor gate by address. Stays on X-Munin-Email.
+- Caddy: copy_headers and the strip list for client-sent identity headers.
+  X-Munin-User must be added to BOTH, or a client could set it.
+- Scripts and benchmarks send X-Munin-Email straight to retrieval with
+  test addresses (stress-test.py, munin_bench).
+
+Steps:
+
+1. auth: `/auth/check` adds `X-Munin-User: u<id>`; X-Munin-Email becomes
+   the primary address. check-role accepts `u<id>` and returns the key,
+   primary and role. lookup_user accepts `u<id>`.
+2. Caddy: copy X-Munin-User, strip it from client requests.
+3. gateway: forwards X-Munin-User; keys usage, keys and activity on it. For
+   API-key requests it resolves `u<id>` -> address and role through
+   check-role (bearer token, cached 60 s), so quotas, ADMIN_EMAILS and
+   role work the same as in the browser.
+4. retrieval: the three helpers return X-Munin-User, falling back to
+   X-Munin-Email when it is absent (keeps scripts and benchmarks working;
+   their data stays under their test addresses; `u\d+` and addresses
+   cannot collide). Admin gate and KB uploads read X-Munin-Email.
+5. Admin UI: usage and activity tables show the user's name and primary
+   address by joining `u<id>` against the Users list it already loads.
+6. Lift the "identity address cannot go to another user" guard once the
+   cutover is done; identity_email stays as a record.
+7. Cutover per host, no downtime window: deploy auth + Caddy + gateway
+   (X-Munin-User is sent but nothing keys on it yet); then on hugin run
+   converge with {identity: u<id>}, restart retrieval, run converge again to
+   catch writes made in between (it is idempotent); same for gateway.db.
+
 ## Open questions (defaults in brackets)
 
 1. Verify a self-added address by emailed code? [yes; without it anyone
@@ -71,3 +120,10 @@ detail.
 3. Cap on addresses per user? [5]
 4. Part B: keep the `user_email` column names? [yes, rename never]
 5. Part B timing: right after Part A, or after v1.1? [after Part A]
+6. Part B: after cutover, X-Munin-Email carries the primary address? [yes]
+7. Part B: API-key requests resolve their owner's address through
+   check-role, rather than storing an address on each key? [check-role]
+8. Part B: retrieval falls back to X-Munin-Email as the key when
+   X-Munin-User is missing, for scripts and benchmarks? [yes]
+9. Part B: lift the reuse guard on removed identity addresses after
+   cutover? [yes]
