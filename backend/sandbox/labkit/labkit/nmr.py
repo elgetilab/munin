@@ -25,6 +25,7 @@ from typing import Any, Optional, Sequence
 
 import numpy as np
 
+from ._attrs import FieldHelp
 from .fit import Model, fit, fit_global
 
 
@@ -33,7 +34,7 @@ from .fit import Model, fit, fit_global
 # ==============================================================================
 
 @dataclass
-class BrukerData:
+class BrukerData(FieldHelp):
     fid: np.ndarray
     dic: dict
     path: str
@@ -47,7 +48,7 @@ class BrukerData:
 
 
 @dataclass
-class Spectrum:
+class Spectrum(FieldHelp):
     ppm: np.ndarray
     real: np.ndarray
     steps: list[str] = field(default_factory=list)
@@ -174,17 +175,30 @@ def reference(spec: Spectrum, *, ppm: float = 0.0, near: Optional[float] = None,
 
 
 def peaks(spec: Spectrum, *, threshold: Optional[float] = None, min_separation_ppm: float = 0.02,
-          region: Optional[tuple] = None) -> list[dict]:
-    """Peak maxima above `threshold` (default: 5x the noise from the outer
-    10% of the spectrum), with ppm refined by a parabola through the top 3 points."""
+          region: Optional[tuple] = None, min_rel_height: float = 0.005) -> list[dict]:
+    """Peak maxima, with ppm refined by a parabola through the top 3 points.
+
+    The baseline level and the noise come from the outer 10% of the
+    spectrum at each end. A peak must rise at least 5x the noise above the
+    baseline and stand out by 5x the noise from its surroundings
+    (prominence), and reach `min_rel_height` (default 0.5%) of the tallest
+    peak above the baseline, which drops the truncation ripples beside
+    strong lines (set 0 to keep everything). `threshold`, if given, is an
+    absolute height instead.
+    "snr" is the height above the baseline over the noise. (Up to 0.1.2 the
+    threshold ignored the baseline, and a spectrum whose baseline sat above
+    zero returned hundreds of noise peaks.)"""
     from scipy.signal import find_peaks
     y, x = spec.real, spec.ppm
     n = y.size
     edge = np.r_[y[: n // 10], y[-n // 10:]]
-    noise = float(np.std(edge)) or 1e-12
-    thr = threshold if threshold is not None else 5 * noise
+    base = float(np.median(edge))
+    noise = float(1.4826 * np.median(np.abs(edge - base))) or float(np.std(edge)) or 1e-12
+    tallest = float(np.max(y)) - base
+    thr = threshold if threshold is not None else base + max(5 * noise, min_rel_height * tallest)
     step = abs(x[1] - x[0])
-    idx, props = find_peaks(y, height=thr, distance=max(1, int(min_separation_ppm / step)))
+    idx, props = find_peaks(y, height=thr, prominence=5 * noise,
+                            distance=max(1, int(min_separation_ppm / step)))
     out = []
     for i in idx:
         if region and not (min(region) <= x[i] <= max(region)):
@@ -196,7 +210,7 @@ def peaks(spec: Spectrum, *, threshold: Optional[float] = None, min_separation_p
             ppm_i = x[i] + d * (x[i + 1] - x[i])
         else:
             ppm_i = x[i]
-        out.append({"ppm": float(ppm_i), "height": float(y[i]), "snr": float(y[i] / noise)})
+        out.append({"ppm": float(ppm_i), "height": float(y[i]), "snr": float((y[i] - base) / noise)})
     return sorted(out, key=lambda r: r["ppm"])
 
 
@@ -229,6 +243,101 @@ def integrate(spec: Spectrum, regions: Sequence[tuple], *, baseline: str = "line
 # ==============================================================================
 # Chemical shift perturbation and titrations
 # ==============================================================================
+
+def _read_text(path) -> str:
+    raw = Path(path).read_bytes()
+    for enc in ("utf-8-sig", "latin-1"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("latin-1", errors="replace")
+
+
+def read_sparky(path) -> dict:
+    """A Sparky 2D 1H-15N peak list as {residue: (1H ppm, 15N ppm)}, H FIRST,
+    the order csp() takes.
+
+    Sparky writes w1 = 15N and w2 = 1H; which column is which is decided
+    from the values (amide 1H 5-12 ppm, 15N 95-140 ppm), not assumed.
+    Backbone amides lose the "N-H" suffix ("G2N-H" -> "G2"); other
+    assignments (side chains, "W48NE1-HE1") keep their full label;
+    unassigned peaks ("?-?") are skipped and counted in out.warnings.
+    """
+    rows, skipped = [], 0
+    for line in _read_text(path).splitlines():
+        t = line.split()
+        if len(t) < 3 or t[0].lower() == "assignment":
+            continue
+        try:
+            a, b = float(t[1]), float(t[2])
+        except ValueError:
+            continue
+        if t[0].startswith("?"):
+            skipped += 1
+            continue
+        rows.append((t[0], a, b))
+    if not rows:
+        raise ValueError(f"{path}: no peak rows (expected 'Assignment w1 w2 ...')")
+    m1 = float(np.median([r[1] for r in rows]))
+    m2 = float(np.median([r[2] for r in rows]))
+    if m1 > 50 > m2:
+        h_first = False
+    elif m2 > 50 > m1:
+        h_first = True
+    else:
+        raise ValueError(f"{path}: cannot tell 1H from 15N (column medians {m1:.1f} and {m2:.1f} ppm); "
+                         "build {residue: (H, N)} yourself")
+    out = _Peaks()
+    for label, a, b in rows:
+        key = label[:-3] if label.endswith("N-H") else label
+        out[key] = (a, b) if h_first else (b, a)
+    if skipped:
+        out.warnings.append(f"{skipped} unassigned peak(s) skipped")
+    return out
+
+
+class _Peaks(dict):
+    """dict of {residue: (H, N)} that also carries .warnings."""
+
+    def __init__(self, *a, **k):
+        super().__init__(*a, **k)
+        self.warnings: list[str] = []
+
+
+def read_integrals(path):
+    """A TopSpin integral list ("Object  Integral [abs]  (F2) [ppm]  (F1) [ppm]")
+    as a DataFrame in file order: columns integral, f2_ppm and f1_ppm (2D) or
+    ppm (1D). Rows are numbered as in the file (Integral 1 = row 0)."""
+    import pandas as pd
+    lines = _read_text(path).splitlines()
+    header = None
+    rows = []
+    for line in lines:
+        t = [c.strip() for c in line.strip().split("\t")] if "\t" in line else line.split()
+        if not t:
+            continue
+        if header is None and t[0].lower().startswith("object"):
+            header = t
+            continue
+        if t[0].lower().startswith("integral"):
+            nums = t[1:] if t[0].lower() != "integral" else t[2:]
+            try:
+                rows.append([float(v.replace(",", ".")) for v in nums if v])
+            except ValueError:
+                continue
+    if not rows:
+        raise ValueError(f"{path}: no 'Integral N' rows; not a TopSpin integral list")
+    width = min(len(r) for r in rows)
+    names = ["integral", "f2_ppm", "f1_ppm"] if width >= 3 else ["integral", "ppm"][:width]
+    if header:
+        h = " ".join(header).upper()
+        if width >= 3 and "F1" in h and h.index("F1") < h.index("F2"):
+            names = ["integral", "f1_ppm", "f2_ppm"]
+    df = pd.DataFrame([r[:len(names)] for r in rows], columns=names)
+    df.attrs["source"] = str(path)
+    return df
+
 
 def _check_hn_order(shifts: dict) -> None:
     """Raise when the tuples are (15N, 1H) instead of (1H, 15N).
@@ -373,4 +482,75 @@ def hetnoe(saturated: dict, reference: dict, *, noise_sat: Optional[float] = Non
         if noise_sat is not None and noise_ref is not None:
             err = abs(v) * math.sqrt((noise_sat / s) ** 2 + (noise_ref / r) ** 2) if s else None
         out[res] = {"hetNOE": v, "err": err}
+    return out
+
+
+# ==============================================================================
+# NOE buildup
+# ==============================================================================
+
+def _noe_buildup_f(t, sigma, T, A0):
+    return (A0 / 2.0) * (1.0 - np.exp(-2.0 * sigma * t)) * np.exp(-t / T)
+
+
+_NOE_MODEL = Model(
+    "noe_buildup", _noe_buildup_f, ["sigma", "T"],
+    "A(t) = (A0/2)*(1 - exp(-2*sigma*t))*exp(-t/T), A0 = diagonal integral at t = 0",
+    {"sigma": "cross-relaxation rate (1/s)", "T": "apparent decay time of the buildup (s)"},
+    constants=("A0",), bounds={"T": (1e-9, None)})
+# T must be positive: a negative T (a growing exponential) can fit a
+# buildup that is still linear at the last mixing time with a lower RSS,
+# but means nothing; the bound lets T run long instead (no decay seen).
+# Buildup fits have local minima (sigma small with T long, or the reverse):
+# start from a spread grid and keep the best, as the reference fit does.
+_NOE_STARTS = [(0.001, 0.4), (0.01, 0.4), (1, 1), (0.1, 0.4), (0.1, 7), (5, 0.5), (0.5, 5),
+               (0.2, 0.9), (0.27, 0.42)]
+
+
+def noe_buildup(mixing_s, cross: dict, diag0, *, include_origin: bool = True, level: float = 0.95) -> dict:
+    """Cross-relaxation rates from NOESY buildup curves, one fit per pair.
+
+    mixing_s        mixing times in SECONDS (convert ms first)
+    cross           {pair: [cross-peak integral at each mixing time]}
+    diag0           {pair: A_ii(0)} (the diagonal integral at the shortest
+                    mixing time), or one number for all pairs
+    include_origin  add the point A(0) = 0 (default, as in the usual analysis)
+    Model: A(t) = (A0/2)*(1 - exp(-2*sigma*t))*exp(-t/T), fitted from a grid
+    of starting points (the surface has local minima).
+    Returns {pair: {"sigma", "sigma_ci", "T", "T_ci", "warnings"} or None},
+    keyed exactly as `cross`: write it that way.
+    """
+    t = np.asarray(mixing_s, float)
+    if t.size and float(np.max(t)) > 20:
+        raise ValueError("mixing_s looks like milliseconds (max > 20): pass seconds")
+    out: dict[Any, Optional[dict]] = {}
+    for key, vals in cross.items():
+        a0 = diag0[key] if isinstance(diag0, dict) else diag0
+        y = np.asarray([np.nan if v is None else v for v in vals], float)
+        if y.size != t.size:
+            raise ValueError(f"{key!r}: {y.size} integrals for {t.size} mixing times")
+        ok = np.isfinite(y)
+        tt, yy = t[ok], y[ok]
+        if include_origin:
+            tt, yy = np.r_[0.0, tt], np.r_[0.0, yy]
+        if a0 is None or not np.isfinite(a0) or yy.size < 3:
+            out[key] = None
+            continue
+        best = None
+        for s0, T0 in _NOE_STARTS:
+            try:
+                r = fit(_NOE_MODEL, tt, yy, p0=[s0, T0], constants={"A0": float(a0)}, n_starts=1, level=level)
+            except (RuntimeError, ValueError, FloatingPointError):
+                continue
+            if best is None or r.rss < best.rss:
+                best = r
+        if best is None:
+            out[key] = None
+            continue
+        warn = list(best.warnings)
+        if best.params["T"] > 100 * float(np.max(tt)):
+            warn.append(f"T = {best.params['T']:.3g} s is far beyond the longest mixing time: no decay is "
+                        "resolved, so T is undetermined (sigma is still defined by the initial slope)")
+        out[key] = {"sigma": best.params["sigma"], "sigma_ci": list(best.ci["sigma"]),
+                    "T": best.params["T"], "T_ci": list(best.ci["T"]), "warnings": warn}
     return out

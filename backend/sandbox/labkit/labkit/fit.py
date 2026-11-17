@@ -22,6 +22,8 @@ from typing import Any, Callable, Optional, Sequence
 import numpy as np
 from scipy import optimize, stats
 
+from ._attrs import FieldHelp
+
 LN2 = math.log(2.0)
 
 
@@ -396,7 +398,7 @@ def _as_xy(x, y, replicates: str):
 # ==============================================================================
 
 @dataclass
-class FitResult:
+class FitResult(FieldHelp):
     model: str
     equation: str
     params: dict[str, float]
@@ -697,7 +699,8 @@ def _finish(m, names, free, fixed, theta, resid, f, xx, yy, sigma_fn, sig, ci, l
         if sv.size == 0 or sv.min() <= tol:
             warn.append("the parameters are not all determined by the data (singular fit): "
                         "at least one is redundant or unconstrained; CIs are unreliable")
-            inv_s2 = np.where(sv > tol, 1.0 / np.maximum(sv, 1e-300) ** 2, np.inf)
+            with np.errstate(divide="ignore", over="ignore"):
+                inv_s2 = np.where(sv > tol, 1.0 / np.maximum(sv, 1e-300) ** 2, np.inf)
         else:
             inv_s2 = 1.0 / sv ** 2
         with np.errstate(invalid="ignore"):

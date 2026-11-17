@@ -1438,6 +1438,20 @@ def _rerun_is_legit(result) -> bool:
     return err.startswith("tool execution failed") or "restart" in err.lower()
 
 
+def _error_line(result) -> str:
+    """The exception line of a failed sandbox call ("AttributeError: ..."),
+    or ''. In Phase 4 run 3 a Bruker run reran a call that had raised on a
+    wrong attribute; the block message said "same result" without the error
+    and the turn ended in a forced wrap-up (LABKIT-013-PLAN.md)."""
+    if not isinstance(result, dict):
+        return ""
+    err = str(result.get("error") or "").strip()
+    if not err:
+        return ""
+    first = err.splitlines()[0].strip()
+    return first if len(first) <= 400 else first[:400] + "..."
+
+
 def _repeated_call_skips(
     tool_calls: list[dict],
     last_call: Optional[tuple],
@@ -1460,16 +1474,22 @@ def _repeated_call_skips(
         number = call_number + i + 1
         if (key is not None and prev is not None and prev[0] == key
                 and not _rerun_is_legit(prev[1])):
-            skips[tc["id"]] = {
-                "skipped": True,
-                "repeated_call": True,
-                "reason": (
+            err = _error_line(prev[1])
+            if err:
+                reason = (
+                    f"Not run: this is exactly the {tc.get('name')} call you "
+                    f"made in call {prev[2]}, which failed with: {err} . "
+                    f"Running it unchanged fails the same way. Fix the line "
+                    f"that raised (the error names the cause), then run it."
+                )
+            else:
+                reason = (
                     f"Not run: this is exactly the {tc.get('name')} call you "
                     f"made in call {prev[2]}, with nothing run since, so it "
                     f"would give the same result shown there. Change the "
                     f"code, or answer with what you have."
-                ),
-            }
+                )
+            skips[tc["id"]] = {"skipped": True, "repeated_call": True, "reason": reason}
             continue
         prev = (key, None, number)
     return skips, prev

@@ -81,6 +81,19 @@ def test_rerun_after_code_error_is_skipped() -> bool:
     return _check("rerun after a plain code error is skipped", list(skips) == ["b"], str(skips))
 
 
+def test_blocked_rerun_quotes_the_error() -> bool:
+    """Phase 4 run 3 (LABKIT-013-PLAN.md): the block message said "same
+    result" without the error, and the Bruker run reran into a wrap-up."""
+    key = _repeated_call_skips([_rp("a")], None, 0)[1][0]
+    err = ("AttributeError: Spectrum has no attribute 'ppmm'; did you mean 'ppm'? It has: ppm, real\n"
+           "---------------------------------------------------------------------------\nTraceback ...")
+    skips, _ = _repeated_call_skips([_rp("b")], (key, {"error": err}, 3), 3)
+    reason = skips.get("b", {}).get("reason", "")
+    ok = ("did you mean 'ppm'" in reason and "call 3" in reason and "Traceback" not in reason
+          and "Fix the line" in reason)
+    return _check("a blocked rerun after an error quotes the exception line", ok, reason)
+
+
 def test_duplicate_within_one_response_is_skipped() -> bool:
     skips, _ = _repeated_call_skips([_rp("a"), _rp("b")], None, 0)
     return _check("a verbatim copy in the same response is skipped", list(skips) == ["b"], str(skips))
@@ -183,6 +196,7 @@ TESTS = [
     test_rerun_after_something_else_runs,
     test_rerun_after_timeout_or_infra_error_runs,
     test_rerun_after_code_error_is_skipped,
+    test_blocked_rerun_quotes_the_error,
     test_duplicate_within_one_response_is_skipped,
     test_edit_python_same_edits_is_skipped_unguarded_tools_are_not,
     test_argument_order_does_not_matter,

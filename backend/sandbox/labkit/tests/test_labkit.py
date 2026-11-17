@@ -523,6 +523,104 @@ def test_csp_and_kd_and_relaxation():
 # stats, cd, plot, guide
 # ==============================================================================
 
+def test_field_errors_name_the_fields():
+    from labkit import nmr
+    spec = nmr.Spectrum(ppm=np.linspace(0, 10, 5), real=np.zeros(5))
+    r = fit("linear", [1, 2, 3, 4], [2, 4, 6.1, 8])
+    msgs = []
+    for obj, attr in ((spec, "ppmm"), (spec, "ppmin"), (r, "param")):
+        try:
+            getattr(obj, attr)
+            msgs.append(None)
+        except AttributeError as e:
+            msgs.append(str(e))
+    import copy
+    import pickle
+    copy.deepcopy(spec)
+    pickle.loads(pickle.dumps(spec))
+    check("field errors: a wrong attribute names the closest field and lists them all; copy/pickle work",
+          msgs[0] and "did you mean 'ppm'" in msgs[0] and "real" in msgs[0]
+          and msgs[1] and "ppm" in msgs[1] and msgs[2] and "did you mean 'params'" in msgs[2], msgs)
+
+
+def test_peaks_on_raised_baseline():
+    """Up to 0.1.2 the default threshold ignored the baseline: a spectrum
+    sitting above zero (as processed Bruker data often does) gave hundreds
+    of noise peaks, and the ripples beside strong lines counted too."""
+    from labkit import nmr
+    rng = np.random.default_rng(3)
+    ppm = np.linspace(14, -5, 32768)
+    y = 1.3e7 + rng.normal(0, 3e4, ppm.size)
+    for c, h in ((1.205, 1.5e9), (3.652, 1.0e9), (7.261, 0.5e9)):
+        w = 0.002
+        y += h * w ** 2 / ((ppm - c) ** 2 + w ** 2)
+        # truncation ripples: 0.2% side lobes every 0.02 ppm
+        for k in (1, 2, 3):
+            y += 0.002 * h / k * np.exp(-((ppm - c - 0.02 * k) / 0.003) ** 2)
+            y += 0.002 * h / k * np.exp(-((ppm - c + 0.02 * k) / 0.003) ** 2)
+    pk = nmr.peaks(nmr.Spectrum(ppm=ppm, real=y))
+    weak = nmr.peaks(nmr.Spectrum(ppm=ppm, real=y), min_rel_height=0)
+    check("peaks: baseline-relative threshold, ripples dropped, 3 lines found, snr from the baseline",
+          [round(p["ppm"], 2) for p in pk] == [1.2, 3.65, 7.26] and pk[0]["snr"] > 1000
+          and len(weak) > 3, [(round(p["ppm"], 3), round(p["snr"])) for p in pk][:8])
+
+
+def test_read_sparky_order_and_keys():
+    from labkit import nmr
+    free = TMP / "free.list"
+    bound = TMP / "bound.list"
+    hdr = "      Assignment         w1         w2   Data Height\n\n"
+    free.write_text(hdr + "".join(f"{a:>16} {n:10.3f} {h:10.3f} {1000:13d}\n" for a, n, h in (
+        ("G2N-H", 113.084, 8.793), ("K12N-H", 121.500, 7.900), ("W48NE1-HE1", 129.1, 10.10),
+        ("?-?", 118.0, 8.0))))
+    bound.write_text(hdr + "".join(f"{a:>16} {n:10.3f} {h:10.3f} {1000:13d}\n" for a, n, h in (
+        ("G2N-H", 113.584, 8.843), ("K12N-H", 121.500, 7.900), ("W48NE1-HE1", 129.1, 10.10))))
+    f = nmr.read_sparky(free)
+    b = nmr.read_sparky(bound)
+    c = nmr.csp(f, b, alpha=0.14, scheme="euclidean")
+    want = math.sqrt(0.05 ** 2 + (0.14 * 0.5) ** 2)
+    check("read_sparky: (H, N) order from the values, 'G2N-H' -> 'G2', side chains kept, ?-? skipped",
+          f["G2"] == (8.793, 113.084) and "K12" in f and "W48NE1-HE1" in f and len(f) == 3
+          and f.warnings and close(c["G2"], want, 1e-9) and c["K12"] == 0.0, (dict(f), f.warnings, c))
+
+
+def test_read_integrals():
+    from labkit import nmr
+    p = TMP / "100ms.txt"
+    p.write_bytes("Object\tIntegral [abs]\t\xb4(F2) [ppm]\t\xb4(F1) [ppm]\t\n"
+                  "Integral 1\t225800.00\t8.6025\t0.8739\t\n"
+                  "Integral 2\t34764000.00\t8.6037\t1.1962\t\n".encode("latin-1"))
+    df = nmr.read_integrals(p)
+    check("read_integrals: TopSpin 2D list in file order, columns integral/f2_ppm/f1_ppm",
+          list(df.columns) == ["integral", "f2_ppm", "f1_ppm"] and df["integral"].tolist() == [225800.0, 34764000.0]
+          and df["f1_ppm"].tolist() == [0.8739, 1.1962], df)
+
+
+def test_noe_buildup():
+    from labkit import nmr
+    t = np.array([0.1, 0.2, 0.3, 0.5])
+    a0 = 4e9
+    truth = {"p1": (0.02, 0.4), "p2": (0.004, 1.5), "p3": (0.08, 0.25)}
+    rng = np.random.default_rng(11)
+    cross = {k: list((a0 / 2) * (1 - np.exp(-2 * s * t)) * np.exp(-t / T) * (1 + rng.normal(0, 0.002, t.size)))
+             for k, (s, T) in truth.items()}
+    # still linear at the last mixing time: T is undetermined but must stay positive
+    cross["lin"] = list(a0 * 0.0013 * t)
+    r = nmr.noe_buildup(t, cross, a0)
+    ok = all(close(r[k]["sigma"], s, 0.03) for k, (s, T) in truth.items())
+    lin = r["lin"]
+    try:
+        nmr.noe_buildup(t * 1000, cross, a0)
+        ms = False
+    except ValueError:
+        ms = True
+    check("noe_buildup: sigma recovered per pair, keyed as given; T > 0 with a warning when no decay "
+          "is resolved; milliseconds refused",
+          ok and list(r) == list(cross) and lin["T"] > 0 and close(lin["sigma"], 0.0013, 0.05)
+          and any("undetermined" in w for w in lin["warnings"]) and ms,
+          {k: (v["sigma"], v["T"]) for k, v in r.items()})
+
+
 def test_stats():
     import pandas as pd
     from labkit import stats
@@ -580,7 +678,8 @@ def test_guide():
             labkit.guide(t)
     text = buf.getvalue()
     check("guide: every topic prints and names its functions",
-          all(k in text for k in ("x_scale", "read_bruker", "anova2", "mean_residue_ellipticity", "save_figure")))
+          all(k in text for k in ("x_scale", "read_bruker", "anova2", "mean_residue_ellipticity", "save_figure",
+                                   "read_sparky", "noe_buildup", "read_integrals", "spec.ppm")))
 
 
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]

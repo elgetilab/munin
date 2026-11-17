@@ -22,6 +22,7 @@ from typing import Optional
 import httpx
 
 import labkit_hints
+import results_outline
 from text_edits import apply_edits as _apply_edits, near_misses
 
 from ..context import current_user_email, current_conversation_id
@@ -258,6 +259,7 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
             logger.warning("register_sandbox_artifact failed: %s", e)
     payload["conversation_id"] = conv_id
     _slim_artifacts(payload)
+    await _outline_json(conv_id, payload)
     _remember_source(conv_id, code)
     _remember_file_sources(conv_id, code, payload)
     # Adoption hint. The equivalent affordance for artifacts (update_artifact's
@@ -277,6 +279,35 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         # One line per hint so an eval can count them (LABKIT-011-PLAN.md).
         logger.info("labkit_hint kind=%s conv=%s", hint[0], conv_id)
     return payload
+
+
+async def _outline_json(conv_id: str, payload: dict) -> None:
+    """Add `json_outline`: what each JSON file this run wrote holds, key by
+    key (LABKIT-013-PLAN.md; results_outline.py says why). Best effort: a
+    fetch problem leaves the result as it was."""
+    arts = [a for a in payload.get("artifacts") or []
+            if str(a.get("filename") or "").lower().endswith(".json") and a.get("id")
+            and int(a.get("size_bytes") or 0) <= results_outline.MAX_BYTES]
+    if not arts:
+        return
+    lines = []
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            for a in arts[:3]:
+                r = await client.get(f"{SANDBOX_URL}/artifacts/{conv_id}/{a['id']}")
+                if r.status_code != 200:
+                    continue
+                line = results_outline.outline(a["filename"], r.content)
+                if line:
+                    lines.append(line)
+    except Exception as e:  # never fail the run over an outline
+        logger.info("json outline skipped: %s", e)
+        return
+    if lines:
+        payload["json_outline"] = lines
+        payload["json_outline_hint"] = (
+            "json_outline shows what each JSON file you wrote holds. Check it against "
+            "what the user asked for before answering.")
 
 
 # Keys of a sandbox artifact the model gets. The full figure description

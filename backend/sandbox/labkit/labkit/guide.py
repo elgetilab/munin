@@ -8,7 +8,8 @@ labkit: vetted helpers for lab data analysis. Topics: guide('fit'), guide('read'
 guide('nmr'), guide('stats'), guide('cd'), guide('plot').
 - fit:   Prism-style nonlinear regression with Prism's parameter NAMES and defaults
 - read:  instrument files (NanoDrop, Gen5, plate grids, JASCO, any table); refuses binaries
-- nmr:   Bruker 1D processing, integration, CSP, titration Kd, relaxation
+- nmr:   Bruker 1D processing, peaks, integration, Sparky lists, CSP, titration Kd,
+         relaxation, NOESY buildup
 - stats: two-way ANOVA (Type III), post-hoc on the pooled error, asterisks
 - cd:    mean residue ellipticity, HT cutoff
 - plot:  save_figure at exact mm size, seeded jitter
@@ -66,25 +67,43 @@ Bruker NMR: labkit.nmr.read_bruker.
 
 TOPICS["nmr"] = """\
 from labkit import nmr
-raw = nmr.read_bruker("bruker.zip" or "expdir")   # dtype/byte order from acqus (DTYPA, BYTORDA)
+1D, start to finish (read, process, reference, pick, integrate):
+  raw  = nmr.read_bruker("inputs/bruker_1h")       # dir, zip, or a file inside the dir
+  spec = nmr.process_1d(raw, autophase=True)       # or phase=(p0, p1); lb_hz=, zero_fill=
+  spec = nmr.reference(spec, ppm=0.0)              # tallest peak near 0 -> 0.00 (DSS/TMS)
+  pk   = [p for p in nmr.peaks(spec) if abs(p["ppm"]) > 0.1]       # drop the reference
+  ints = nmr.integrate(spec, [(p["ppm"] - 0.1, p["ppm"] + 0.1) for p in pk],
+                       relative_to=len(pk) - 1)    # relative to the last (highest-ppm) one
+  shifts = {k: p["ppm"] for k, p in zip("abc", pk)}
+  rel    = {k: i["relative"] for k, i in zip("abc", ints)}
 raw.params   SFO1 (MHz), SW_ppm, SW_h (Hz), O1_Hz, O1_ppm, TD, GRPDLY, dtype, PULPROG ...
              SW is in ppm and SW_h in Hz: never use SW as a frequency.
-spec = nmr.process_1d(raw, phase=(p0, p1))   # or autophase=True; lb_hz=, zero_fill=
-       digital filter removal, FT, phase, ppm axis from acqus; spec.steps lists all
-spec = nmr.reference(spec, ppm=0.0)          # tallest peak near 0 -> 0.00 (DSS/TMS);
-       near=... to search elsewhere, window= in ppm
-nmr.peaks(spec, threshold=None, region=(lo, hi))  -> [{ppm, height, snr}]
+Spectrum fields: spec.ppm (axis array), spec.real (intensities), spec.phase, spec.steps,
+             spec.ref_offset_ppm. Nothing else: ppm range is spec.ppm.min(), spec.ppm.max().
+nmr.peaks(spec, threshold=None, region=(lo, hi), min_rel_height=0.005)
+       -> [{ppm, height, snr}] sorted by ppm; above baseline + 5x noise and 0.5% of the
+       tallest peak (drops truncation ripples; min_rel_height=0 keeps weak peaks)
 nmr.integrate(spec, [(a, b), ...], relative_to=k) -> [{region, integral, relative}]
+Titrations:
+nmr.read_sparky("L0.list")  -> {res: (1H ppm, 15N ppm)}, H FIRST, "G2N-H" -> "G2";
+       columns told apart by their values; out.warnings counts unassigned peaks
 nmr.csp(free, bound, alpha=..., scheme="williamson"|"euclidean")  {res: CSP or None}
-       free/bound: {res: (1H ppm, 15N ppm)}, H FIRST (Sparky lists give 15N first: swap them;
-       the wrong order raises); alpha and scheme are REQUIRED, missing residues stay None
+       free/bound: {res: (1H ppm, 15N ppm)} as read_sparky gives them (the wrong order
+       raises); alpha and scheme are REQUIRED; missing residues stay None
 nmr.kd_fit(ligand_conc, {res: [csp...]}, protein_conc=P)  global Kd with ligand depletion
        -> {"Kd", "Kd_ci", "per_residue": {res: {"CSPmax", "CSPmax_ci"}}}
+Relaxation:
 nmr.relaxation_fit(delays_s, {res: [I...]}, kind="decay"|"inversion_recovery")
        -> {res: {"R", "R_err", "R_ci", "T", "I0"} or None}; delays in SECONDS
 nmr.hetnoe(sat, ref, noise_sat=, noise_ref=) -> {res: {"hetNOE", "err"} or None}
-Per-residue results are dicts keyed by residue: write them that way (one object per
-quantity, residue -> value), not as lists.
+NOESY buildup:
+nmr.read_integrals("100ms.txt")  TopSpin integral list -> DataFrame (integral, f2_ppm,
+       f1_ppm) in file order
+nmr.noe_buildup(mixing_s, {pair: [A at each t]}, {pair: A_ii(0)} or one number)
+       A(t) = (A0/2)(1 - exp(-2 sigma t)) exp(-t/T), A(0) = 0 included, grid of starts
+       -> {pair: {"sigma", "sigma_ci", "T", "T_ci", "warnings"} or None}; t in SECONDS
+Per-residue and per-pair results are dicts keyed by residue or pair: write them that
+way (one object per quantity, key -> value), not as lists.
 """
 
 TOPICS["stats"] = """\

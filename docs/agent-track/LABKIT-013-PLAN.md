@@ -1,7 +1,49 @@
 # labkit 0.1.3 and tooling, round 4: plan
 
-Status: PLAN, waiting for "proceed". Parent: `LAB-ANALYSIS-PLAN.md`
-(Phase 4 run 3), `LABKIT-011-PLAN.md`. The eval instance stays up.
+Status: IMPLEMENTED 2026-11-17 ("proceed", Q1-Q4 defaults), not yet
+deployed. Parent: `LAB-ANALYSIS-PLAN.md` (Phase 4 run 3),
+`LABKIT-011-PLAN.md`. The eval instance stays up.
+
+What was built, and what turned up on the way:
+- labkit 0.1.3: `FieldHelp` attribute errors (`Spectrum`, `BrukerData`,
+  `FitResult`); `nmr.read_sparky`, `nmr.read_integrals`, `nmr.noe_buildup`
+  (60/60 sigma on the NOESY fixture within the case tolerance; T is bounded
+  positive, since unbounded one pair found a lower RSS with T = -0.69 s, a
+  growing exponential); the NMR guide runs end to end to shifts and
+  relative integrals (on the Bruker fixture: 1.205/3.652/7.261 ppm,
+  3.011:2.007:1).
+- **A labkit bug found doing that**: `nmr.peaks()` ignored the baseline. On
+  the Bruker fixture the baseline sits about 15x the noise above zero, and
+  the default threshold returned hundreds of noise peaks, plus the
+  truncation ripples beside each strong line. Now baseline + 5x noise
+  (robust MAD), a 5x-noise prominence, and 0.5% of the tallest peak
+  (`min_rel_height`, as TopSpin's minimum intensity). This, not only the
+  attribute typos, is why the Bruker runs struggled to get from a
+  processed spectrum to three peaks.
+- Divide-by-zero RuntimeWarnings from singular fits are silenced (the
+  model saw them as stderr).
+- Hints: domain hints (Sparky, NOESY buildup, CD, Kd, relaxation, Bruker)
+  fire even when the script imports labkit, unless it calls the labkit
+  function itself (run 3's NOESY script defined its own `noe_buildup`; a
+  name match would have silenced the hint). The general fit hints keep the
+  stop-after-labkit rule; a new `custom_fit` hint covers curve_fit /
+  least_squares / lmfit models labkit does not name (the NIST check: labkit
+  already passes all 27 problems from both starts, `test_nist`). Sparky
+  needs the name, an "N-H" label, a quoted "w1" or an Assignment header:
+  bare w1/w2 fired on a relaxation script's warning lists. Upload notes
+  name `read_integrals` (TopSpin lists) and `read_sparky` (.list, also in
+  a zip).
+- Replay on all run-3 scripts: NOESY 3/3 noe_buildup (relaxation and
+  exponential no longer fire there), JASCO 3/3 cd, HSQC 5/6 sparky and 1/6
+  kd, relaxation 2/3 relaxation, Bruker 2/3; custom_fit on 17 NIST
+  problems and 1 competitive run; nothing on S2 readers, S3, S5, traps.
+- Rerun guard quotes the exception line of the blocked call.
+- `json_outline` in run_python results (`results_outline.py`), for each
+  JSON file the run wrote, with a one-line `json_outline_hint` like
+  `figure_hint`.
+- Tests: labkit 35/35 (sandbox live 54/54, figure hook 20/20); retrieval
+  hermetic 117/117 (`test_labkit_hints` 12, `test_repeat_calls` 11, new
+  `test_results_outline` 3).
 
 Goal: every failure left in run 3 should be solvable with the tools the
 model has, and the tools should catch the model's mistakes rather than hide
@@ -89,3 +131,17 @@ everything.
 | Q2 | `noe_buildup` and `read_integrals` in labkit (built from your 1H1H-NOESY repo)? | Yes. |
 | Q3 | Generic-fit hint (5), only if multi-start solves NIST? | Yes, under that condition. |
 | Q4 | Analysis bundles that import labkit carry labkit's source, so they run outside Munin? | Separately, after this round. It does not affect any failure. |
+
+## Future of labkit (direction from the user, 2026-11-17)
+
+- **Research agents for fits we do often**: for a recurring analysis, an
+  agent researches the method (papers, reference software, conventions),
+  writes the labkit function with tests against reference data, and it
+  ships after review, the way `noe_buildup` came from the 1H1H-NOESY repo.
+- **EPR** is the next domain: CW-EPR (spectral simulation and fitting,
+  g and hyperfine tensors, linewidths, multi-component spectra) and DEER /
+  PELDOR (background correction, distance distributions by Tikhonov or
+  model-based fits, modulation depth, uncertainty). These need special
+  fitting and established software as reference (for example EasySpin for
+  CW, DeerLab for DEER); plan it as its own round with fixtures and an S6
+  extension.

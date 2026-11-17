@@ -154,6 +154,53 @@ r = labkit.fit("one_phase_decay", t, y)
 '''
 
 
+# Round 4 (LABKIT-013-PLAN.md): the model's own Phase 4 run 3 scripts, trimmed.
+# s6_noesy_buildup#3: curve_fit with its own function named noe_buildup.
+NOESY_RUN3 = '''import numpy as np
+from scipy.optimize import curve_fit
+mixing_times_ms = [100, 200, 300, 500]
+mixing_times_s = [mt / 1000.0 for mt in mixing_times_ms]
+cross_data = {mt: parse_cross(f'inputs/{mt}ms.txt') for mt in mixing_times_ms}
+def noe_buildup(t, sigma, T):
+    """A(t) = (A0/2) * (1 - exp(-2*sigma*t)) * exp(-t/T)"""
+    return (A0_current / 2.0) * (1.0 - np.exp(-2.0 * sigma * t)) * np.exp(-t / T)
+# cross-relaxation rate per drug peak / lipid group
+popt, pcov = curve_fit(noe_buildup, t_data, y_data, p0=[0.01, 0.4])
+'''
+# s2_jasco_cd#3: read with labkit, MRE by hand (wrong units).
+JASCO_RUN3 = '''import labkit
+import numpy as np
+data = labkit.read_jasco("inputs/cd_lysozyme.txt")
+cd_222 = data.loc[data['wavelength_nm'] == 222.0, 'cd_mdeg'].values[0]
+# Mean residue ellipticity calculation
+c = 0.2 / 1000  # g/mL
+l = 0.1  # cm
+n = 129  # residues
+mre_222 = (cd_222 * 100) / (c * l * n)
+'''
+# s6_hsqc_titration_s2#3: labkit for kd_fit, Sparky lists parsed by hand.
+HSQC_RUN3 = '''import os, json, math
+import labkit
+def parse_list(fn):
+    peaks = {}
+    for line in open(fn):
+        parts = line.split()
+        assign = parts[0]
+        if assign in ("Assignment", "w1", "w2", "Data", "Height"):
+            continue
+        w1 = float(parts[1])
+        w2 = float(parts[2])
+        peaks[assign.replace("N-H", "")] = (w2, w1)
+    return peaks
+res = labkit.nmr.kd_fit(conc, csp_dict, protein_conc=100.0)
+'''
+NOESY_LABKIT = '''from labkit import nmr
+from scipy.optimize import curve_fit  # imported, not used
+mixing = [0.1, 0.2, 0.3, 0.5]
+r = nmr.noe_buildup(mixing, cross, diag0)
+'''
+
+
 def _check(name: str, ok: bool, detail: str = "") -> bool:
     print(f"[{'PASS' if ok else 'FAIL'}] {name}{(' - ' + detail) if detail and not ok else ''}")
     return ok
@@ -178,9 +225,40 @@ def test_dose_response_and_mm_and_bruker():
 
 def test_general_code_gets_nothing():
     got = {n: fit_hint(c) for n, c in
-           [("rosenbrock", ROSENBROCK), ("sine", SINE_FIT), ("plot", PLOT), ("labkit", USES_LABKIT)]}
-    return _check("optimisation, a non-labkit model, plotting and labkit code get no hint",
+           [("rosenbrock", ROSENBROCK), ("plot", PLOT), ("labkit", USES_LABKIT), ("trend", TREND)]}
+    return _check("general optimisation, plotting, labkit code and a plain trend line get no hint",
                   all(v is None for v in got.values()), repr(got))
+
+
+def test_custom_model_gets_the_general_fit_hint():
+    got = fit_hint(SINE_FIT)
+    return _check("a curve_fit of a model labkit does not name points at labkit.fit(f, ..., p0=)",
+                  got is not None and got[0] == "custom_fit" and "p0=" in got[1]
+                  and "several starting points" in got[1], repr(got))
+
+
+def test_round4_domain_hints_on_run3_scripts():
+    noe, cd, sp = fit_hint(NOESY_RUN3), fit_hint(JASCO_RUN3), fit_hint(HSQC_RUN3)
+    rel, done = fit_hint(RELAX_RUN2), fit_hint(NOESY_LABKIT)
+    ok = (noe is not None and noe[0] == "noe_buildup" and "nmr.noe_buildup" in noe[1]
+          and cd is not None and cd[0] == "cd" and "mean_residue_ellipticity" in cd[1]
+          and sp is not None and sp[0] == "sparky" and "read_sparky" in sp[1]
+          and rel is not None and rel[0] == "relaxation"
+          and done is None)
+    return _check("run-3 NOESY (own noe_buildup function), JASCO and HSQC scripts get the NOE, CD and "
+                  "Sparky hints even though two import labkit; hetNOE stays relaxation; a script "
+                  "calling labkit's noe_buildup gets nothing",
+                  ok, repr([noe and noe[0], cd and cd[0], sp and sp[0], rel and rel[0], done]))
+
+
+def test_domain_hints_survive_labkit_use_general_ones_do_not():
+    st = HintState()
+    st.hint_for("c9", USES_LABKIT)
+    general = st.hint_for("c9", SINE_FIT)
+    domain = st.hint_for("c9", JASCO_RUN3)
+    return _check("after the conversation used labkit, a CD hand calculation still gets its hint, "
+                  "a custom curve_fit does not",
+                  general is None and domain is not None and domain[0] == "cd", f"{general} {domain}")
 
 
 def test_round3_nmr_and_standard_curve_hints():
@@ -233,11 +311,18 @@ def test_upload_notes():
     pcrd = upload_hint("run.pcrd", b"\x00\x01binary", ["inputs/run.pcrd"])
     plain = upload_hint("data.csv", b"x,y\n1,2\n", ["inputs/data.csv"])
     image = upload_hint("gel.png", b"\x89PNG", ["inputs/gel.png"])
+    topspin = upload_hint("100ms.txt", b"Object\tIntegral [abs]\t\xb4(F2) [ppm]\t\xb4(F1) [ppm]\t\n"
+                          b"Integral 1\t225800.00\t8.6025\t0.8739\t\n", ["inputs/100ms.txt"])
+    sparky = upload_hint("L0.list", b"      Assignment         w1         w2   Data Height\n\n"
+                         b"           G2N-H    113.084      8.793        878767\n", ["inputs/L0.list"])
+    sparky_zip = upload_hint("hsqc_titration.zip", b"PK\x03\x04",
+                             ["inputs/titration/L0_0000uM.list", "inputs/titration/L1_0025uM.list"])
     ok = ("read_bruker('inputs/bruker_1h')" in bruker and "read_nanodrop" in nano16
           and "read_jasco" in jasco and "read_gen5" in gen5 and "export" in pcrd
-          and plain == "" and image == "")
+          and plain == "" and image == "" and "read_integrals" in topspin
+          and "read_sparky" in sparky and "read_sparky" in sparky_zip)
     return _check("uploads in labkit formats name the reader; a plain csv or an image gets nothing",
-                  ok, repr([bruker, nano16, jasco, gen5, pcrd, plain, image]))
+                  ok, repr([bruker, nano16, jasco, gen5, pcrd, plain, image, topspin, sparky, sparky_zip]))
 
 
 def test_run_python_result_carries_the_hint_once():
@@ -290,6 +375,9 @@ TESTS = [
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
     test_general_code_gets_nothing,
+    test_custom_model_gets_the_general_fit_hint,
+    test_round4_domain_hints_on_run3_scripts,
+    test_domain_hints_survive_labkit_use_general_ones_do_not,
     test_round3_nmr_and_standard_curve_hints,
     test_dose_response_hint_explains_x_scale,
     test_once_per_conversation_and_silent_after_labkit,
