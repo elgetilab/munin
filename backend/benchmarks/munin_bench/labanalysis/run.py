@@ -26,7 +26,7 @@ from pathlib import Path
 
 from ..metrics.bootstrap import single_bootstrap
 from ..scorecard import make_run_header, write_scorecard
-from .cases import Case, load_cases
+from .cases import DEFAULT_RESULTS_SUFFIX, RESULTS_SUFFIXES, Case, load_cases
 from .graders import grade
 from .record import RunRecord
 
@@ -93,7 +93,8 @@ def _run_jobs(jobs, args, out_dir: Path, rec_path: Path, client_cls) -> list[dic
     def one(job):
         case, rep = job
         rec, bundle = client().run_case(case, rep, keep=args.keep,
-                                        sandbox_image=args.sandbox_image)
+                                        sandbox_image=args.sandbox_image,
+                                        results_suffix=args.results_suffix)
         g = grade_record(case, rec)
         fails = [f"{c['name']}: {c['detail']}" for c in g["checks"] if not c["passed"]]
         with lock:
@@ -141,6 +142,8 @@ def main(argv=None) -> int:
     ap.add_argument("--regrade", type=Path, help="re-grade a records.jsonl without the model")
     ap.add_argument("--sandbox-image", default="munin-sandbox:latest")
     ap.add_argument("--list", action="store_true", help="list the selected cases and exit")
+    ap.add_argument("--results-suffix", choices=sorted(RESULTS_SUFFIXES), default=DEFAULT_RESULTS_SUFFIX,
+                    help="wording of the results.json request (v1 = Phase 2 to round 4; v2 since; see cases.py)")
     ap.add_argument("--concurrency", type=int, default=1,
                     help="runs in flight at once; keep it at or below the vLLM max-num-seqs "
                          "of the stack behind --base (production allows 2: use an eval instance)")
@@ -197,6 +200,7 @@ def main(argv=None) -> int:
     if not args.no_scorecard:
         meta = make_run_header(tag=args.tag, encoder="n/a", extra={
             "suite": "lab-analysis", "arm": args.arm, "persona": args.persona,
+            "results_suffix": args.results_suffix,
             "reps": args.reps, "heldout": bool(args.heldout),
             "base": args.base, "concurrency": args.concurrency, "resumed": bool(args.resume),
             "cases": sorted({g["case"] for g in graded}), "vision_judge": None,

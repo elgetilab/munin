@@ -23,7 +23,7 @@ from typing import Optional
 import httpx
 
 from ..gateway import gateway_headers
-from .cases import Case
+from .cases import Case, DEFAULT_RESULTS_SUFFIX
 from .filemeta import file_meta
 from .record import Artifact, RunRecord, TurnRecord, results_from_answer
 
@@ -132,7 +132,8 @@ class LabClient:
     # -- one case ------------------------------------------------------------
 
     def run_case(self, case: Case, rep: int = 1, keep: bool = False,
-                 sandbox_image: str = "munin-sandbox:latest") -> tuple[RunRecord, Optional[bytes]]:
+                 sandbox_image: str = "munin-sandbox:latest",
+                 results_suffix: str = DEFAULT_RESULTS_SUFFIX) -> tuple[RunRecord, Optional[bytes]]:
         rec = RunRecord(case_id=case.id, suite=case.suite, rep=rep)
         docs: list[dict] = []
         bundle: Optional[bytes] = None
@@ -142,7 +143,7 @@ class LabClient:
             for p in case.input_paths():
                 doc = self.upload(p)
                 docs.append({"document_id": doc["document_id"], "filename": p.name})
-            for i, prompt in enumerate(case.prompts(), start=1):
+            for i, prompt in enumerate(case.prompts(results_suffix), start=1):
                 cid, tr = self.turn(prompt, cid, docs if i == 1 else [])
                 tr.index = i
                 rec.conversation_id = cid

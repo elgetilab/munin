@@ -24,7 +24,7 @@ from pathlib import Path
 import pytest
 
 from munin_bench.labanalysis import graders
-from munin_bench.labanalysis.cases import RESULTS_SUFFIX, load_cases
+from munin_bench.labanalysis.cases import RESULTS_SUFFIX, RESULTS_SUFFIXES, load_cases
 from munin_bench.labanalysis.client import outputs_match
 from munin_bench.labanalysis.filemeta import file_meta, png_meta
 from munin_bench.labanalysis.record import Artifact, RunRecord, TurnRecord, results_from_answer
@@ -172,6 +172,16 @@ def test_results_request_goes_on_the_right_turn():
     assert '"p_ko1"' in prompts[5] and '"p_ko1"' not in prompts[-1]
     single = BY_ID["s1_mm_s1"].prompts()
     assert '"Km_ci"' in single[0]
+
+
+def test_results_suffix_versions():
+    """v2 (default) asks for per-item objects; v1 keeps the old wording,
+    selectable to measure the change (LABKIT-013-PLAN.md)."""
+    case = BY_ID["s6_relaxation"]
+    v2, v1 = case.prompts()[-1], case.prompts("v1")[-1]
+    assert "mapping each item's name to its number" in v2 and "plain numbers" not in v2
+    assert "Use plain numbers" in v1 and v1.startswith(case.turns[-1].prompt)
+    assert set(RESULTS_SUFFIXES) == {"v1", "v2"}
 
 
 # -- figures ------------------------------------------------------------------
@@ -487,7 +497,7 @@ class _FakeLabClient:
     def __init__(self, base=None, persona=None):
         pass
 
-    def run_case(self, case, rep, keep=False, sandbox_image=None):
+    def run_case(self, case, rep, keep=False, sandbox_image=None, results_suffix="v2"):
         import threading
         import time
         cls = _FakeLabClient

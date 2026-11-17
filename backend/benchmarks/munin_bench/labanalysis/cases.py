@@ -29,13 +29,34 @@ SUITES = ("S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7")
 
 # Appended to the LAST turn that has results_keys, identical in both arms, so
 # graders read numbers from a file instead of parsing prose (plan D1).
-RESULTS_SUFFIX = (
-    "\n\nWhen you are done, also save your final numbers with Python as "
-    "'results.json' in the working directory: one JSON object with exactly "
-    "these keys: {keys}. Use plain numbers (null if you cannot determine a "
-    "value), lists for intervals as [low, high], and put any warning about "
-    "the data or the fit as strings in a 'warnings' list."
-)
+#
+# v1 (Phase 2 to Phase 4 round 4) said "Use plain numbers ..., lists for
+# intervals as [low, high]". The model followed it over the case wording:
+# per-residue maps saved as bare lists, a Gen5 result keyed by well rewritten
+# as lists, standard-curve unknowns saved as [value, [low, high]]
+# (LABKIT-013-PLAN.md). v2 says what each kind of key holds. v1 stays
+# selectable (--results-suffix v1) to measure the change.
+RESULTS_SUFFIXES = {
+    "v1": (
+        "\n\nWhen you are done, also save your final numbers with Python as "
+        "'results.json' in the working directory: one JSON object with exactly "
+        "these keys: {keys}. Use plain numbers (null if you cannot determine a "
+        "value), lists for intervals as [low, high], and put any warning about "
+        "the data or the fit as strings in a 'warnings' list."
+    ),
+    "v2": (
+        "\n\nWhen you are done, also save your final numbers with Python as "
+        "'results.json' in the working directory: one JSON object with exactly "
+        "these keys: {keys}. Under each key put what the request asks for under "
+        "that name: a single value as a number (null if you cannot determine it); "
+        "values per item (per residue, well, sample, peak or pair) as an object "
+        "mapping each item's name to its number; an interval as [low, high] only "
+        "for a key that is an interval. Put any warning about the data or the fit "
+        "as strings in a 'warnings' list."
+    ),
+}
+DEFAULT_RESULTS_SUFFIX = "v2"
+RESULTS_SUFFIX = RESULTS_SUFFIXES[DEFAULT_RESULTS_SUFFIX]
 
 
 class CaseError(ValueError):
@@ -64,15 +85,17 @@ class Case:
     def input_paths(self) -> list[Path]:
         return [self.dir / name for name in self.inputs]
 
-    def prompts(self) -> list[str]:
+    def prompts(self, suffix: str = DEFAULT_RESULTS_SUFFIX) -> list[str]:
         """Turn prompts as sent. A turn with its own results_keys gets the
-        results.json request; otherwise the case-level keys go on the last turn."""
+        results.json request (wording `suffix`, see RESULTS_SUFFIXES);
+        otherwise the case-level keys go on the last turn."""
+        template = RESULTS_SUFFIXES[suffix]
         out = []
         for i, t in enumerate(self.turns):
             keys = t.results_keys or (self.results_keys if i == len(self.turns) - 1
                                       and not any(x.results_keys for x in self.turns) else {})
-            suffix = RESULTS_SUFFIX.format(keys=", ".join(f'"{k}"' for k in keys)) if keys else ""
-            out.append(t.prompt + suffix)
+            tail = template.format(keys=", ".join(f'"{k}"' for k in keys)) if keys else ""
+            out.append(t.prompt + tail)
         return out
 
 
