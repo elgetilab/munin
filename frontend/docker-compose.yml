@@ -142,6 +142,11 @@ services:
       BACKEND_RECOVER_AFTER: ${BACKEND_RECOVER_AFTER:-12}
       BACKEND_MIN_HOLD_S: ${BACKEND_MIN_HOLD_S:-300}
       ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      # API keys store their owner's user key ("u12"); the gateway asks
+      # munin-auth for the owner's address and role (quotas.yml overrides,
+      # ADMIN_EMAILS), with the same token the upload hook uses.
+      AUTH_CHECK_URL: http://127.0.0.1:8090/admin/check-role
+      KB_GATE_TOKEN: ${KB_GATE_TOKEN:-}
 
   # ── webui-build - build the chat SPA without a host Node toolchain ─────────
   # Profile `webui`, which configure.sh enables, so an install needs no Node on

@@ -12,10 +12,12 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import sqlite3
 import time
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -275,6 +277,12 @@ def init_db():
             source TEXT NOT NULL DEFAULT 'browser'
         );
     """)
+    # user_activity.email (like usage_log.user_email and api_keys.user_email)
+    # holds the user KEY; address is the last address seen for that user,
+    # so the admin views can show a person rather than "u12".
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_activity)")]
+    if "address" not in cols:
+        conn.execute("ALTER TABLE user_activity ADD COLUMN address TEXT")
     conn.commit()
     conn.close()
 
@@ -309,30 +317,105 @@ def validate_api_key(bearer_token: str) -> dict | None:
 
 
 # ── Auth Resolution ──────────────────────────────────────────────────────────
+#
+# Who is calling, as two things: `key`, the user key every table here (and
+# every backend table) stores per-user data under ("u12", X-Munin-User from
+# munin-auth), and `email`, the user's primary address, used only where an
+# address is the point: quotas.yml overrides, ADMIN_EMAILS, display. A caller
+# without X-Munin-User (scripts, benchmarks, an API key made before user keys)
+# is keyed by its address, as before; "u12" and an address cannot collide.
 
-def resolve_auth(request: Request) -> tuple[str | None, str, str | None]:
+_USER_KEY_RE = re.compile(r"^u\d+$")
+AUTH_CHECK_URL = os.environ.get("AUTH_CHECK_URL", "http://127.0.0.1:8090/admin/check-role")
+KB_GATE_TOKEN = os.environ.get("KB_GATE_TOKEN", "")
+OWNER_CACHE_TTL = 60.0
+_owner_cache: dict[str, tuple[float, "Caller | None"]] = {}
+
+
+@dataclass
+class Caller:
+    key: str
+    email: str
+    name: str
+    role: str | None = None
+
+
+def browser_caller(request: Request) -> Caller | None:
+    """The caller as munin-auth's forward-auth headers describe it."""
+    email = (request.headers.get("X-Munin-Email") or "").strip()
+    key = (request.headers.get("X-Munin-User") or "").strip() or email
+    if not key:
+        return None
+    address = email or key
+    return Caller(
+        key=key,
+        email=address,
+        name=request.headers.get("X-Munin-Name") or address.split("@")[0],
+        role=request.headers.get("X-Munin-Role") or None,
+    )
+
+
+async def _ask_auth(owner: str) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=5.0) as c:
+        return await c.get(AUTH_CHECK_URL, params={"email": owner},
+                           headers={"Authorization": f"Bearer {KB_GATE_TOKEN}"})
+
+
+async def resolve_key_owner(owner: str) -> Caller | None:
+    """An API key's owner as a Caller. Keys store the owner's user key; the
+    address, name and role come from munin-auth (cached briefly), so quotas
+    and ADMIN_EMAILS see the same address a browser session would. None when
+    auth says the user no longer exists: their keys stop working. If auth
+    cannot be asked, the key still works, keyed correctly, with the key
+    standing in for the address."""
+    if not _USER_KEY_RE.match(owner):
+        return Caller(key=owner, email=owner, name=owner.split("@")[0])
+    hit = _owner_cache.get(owner)
+    if hit and hit[0] > time.monotonic():
+        return hit[1]
+    try:
+        r = await _ask_auth(owner)
+    except httpx.HTTPError as e:
+        log.warning("owner lookup for %s failed: %s: %s", owner, type(e).__name__, e)
+        return Caller(key=owner, email=owner, name=owner)
+    if r.status_code == 404:
+        found = None
+    elif r.status_code == 200:
+        body = r.json()
+        address = body.get("email") or owner
+        found = Caller(key=owner, email=address,
+                       name=body.get("name") or address.split("@")[0],
+                       role=body.get("role"))
+    else:
+        log.warning("owner lookup for %s: HTTP %s (is KB_GATE_TOKEN set?)", owner, r.status_code)
+        return Caller(key=owner, email=owner, name=owner)
+    _owner_cache[owner] = (time.monotonic() + OWNER_CACHE_TTL, found)
+    return found
+
+
+async def resolve_auth(request: Request) -> tuple[Caller | None, str, str | None]:
     """
-    Resolve the user from the request.
-    Returns (email, source, api_key_id) or (None, ..., ...) if unauthorized.
+    Resolve the caller from the request.
+    Returns (caller, source, api_key_id), caller None if unauthorized.
     """
     # A Bearer token decides identity whenever one is sent, valid or not, and
-    # is checked first: api.<domain> has no forward-auth, so an
-    # X-Munin-Email there comes from the client, not from munin-auth. Caddy
-    # strips it on that host; this keeps a spoofed header from winning if a
-    # request ever reaches the gateway without that strip. Browsers never
-    # send a Bearer token.
+    # is checked first: api.<domain> has no forward-auth, so identity headers
+    # there come from the client, not from munin-auth. Caddy strips them on
+    # that host; this keeps a spoofed header from winning if a request ever
+    # reaches the gateway without that strip. Browsers never send a Bearer token.
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         key_info = validate_api_key(auth_header[7:].strip())
         if key_info:
-            return key_info["email"], "api_key", key_info["id"]
+            caller = await resolve_key_owner(key_info["email"])
+            if caller:
+                return caller, "api_key", key_info["id"]
         return None, "unknown", None
 
-    # X-Munin-Email, set by munin-auth via forward-auth on the browser hosts
-    email = request.headers.get("X-Munin-Email")
-    if email:
-        return email, "browser", None
-
+    # Set by munin-auth via forward-auth on the browser hosts.
+    caller = browser_caller(request)
+    if caller:
+        return caller, "browser", None
     return None, "unknown", None
 
 
@@ -346,7 +429,7 @@ def is_admin_email(email: str) -> bool:
     return overrides.get("unlimited", False)
 
 
-def check_rate_limits(email: str) -> dict | None:
+def check_rate_limits(caller: Caller) -> dict | None:
     """Check the monthly token quota. Returns an error dict if exceeded, else None.
 
     Admin users (and anyone with `unlimited: true`) bypass it. Requests/minute
@@ -354,10 +437,10 @@ def check_rate_limits(email: str) -> dict | None:
     quota, and it is a COST control rather than a load-shedding one. Keeping the
     function name means every call site and the 429 envelope are unchanged.
     """
-    if is_admin_email(email):
+    if caller.role == "admin" or is_admin_email(caller.email):
         return None
 
-    limits = get_user_quotas(email)
+    limits = get_user_quotas(caller.email)
 
     # Monthly token limit — only API key usage counts against quota (browser chat is free)
     token_limit = limits["tokens_per_month"]
@@ -365,7 +448,7 @@ def check_rate_limits(email: str) -> dict | None:
     conn = get_db()
     row = conn.execute(
         "SELECT COALESCE(SUM(tokens_total), 0) as total FROM usage_log WHERE user_email = ? AND timestamp >= ? AND source = 'api_key'",
-        (email, month_start),
+        (caller.key, month_start),
     ).fetchone()
     conn.close()
     tokens_used = row["total"] if row else 0
@@ -384,7 +467,7 @@ def check_rate_limits(email: str) -> dict | None:
 # ── Usage Logging ────────────────────────────────────────────────────────────
 
 def log_usage(
-    email: str, source: str, api_key_id: str | None, endpoint: str,
+    key: str, source: str, api_key_id: str | None, endpoint: str,
     tokens_input: int = 0, tokens_output: int = 0, tokens_total: int = 0,
     tools_invoked: list[str] | None = None, duration_ms: int = 0,
     status_code: int = 200, model: str | None = None, persona: str | None = None,
@@ -396,7 +479,7 @@ def log_usage(
             tokens_input, tokens_output, tokens_total, tools_invoked, duration_ms, status_code, model)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
-            str(uuid.uuid4()), email, datetime.now(timezone.utc).isoformat(),
+            str(uuid.uuid4()), key, datetime.now(timezone.utc).isoformat(),
             persona, source, api_key_id, endpoint,
             tokens_input, tokens_output, tokens_total,
             json.dumps(tools_invoked) if tools_invoked else None,
@@ -409,13 +492,14 @@ def log_usage(
 
 # ── Activity Tracking ────────────────────────────────────────────────────
 
-def track_activity(email: str, source: str):
+def track_activity(caller: Caller, source: str):
     """Record that a user was seen (upsert into user_activity)."""
     conn = get_db()
     conn.execute(
-        "INSERT INTO user_activity (email, last_seen_at, source) VALUES (?, ?, ?) "
-        "ON CONFLICT(email) DO UPDATE SET last_seen_at = excluded.last_seen_at, source = excluded.source",
-        (email, datetime.now(timezone.utc).isoformat(), source),
+        "INSERT INTO user_activity (email, last_seen_at, source, address) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(email) DO UPDATE SET last_seen_at = excluded.last_seen_at, "
+        "source = excluded.source, address = excluded.address",
+        (caller.key, datetime.now(timezone.utc).isoformat(), source, caller.email),
     )
     conn.commit()
     conn.close()
@@ -445,8 +529,8 @@ async def startup():
 
 @app.post("/api/keys")
 async def create_key(request: Request, body: CreateKeyRequest):
-    email = request.headers.get("X-Munin-Email")
-    if not email:
+    caller = browser_caller(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
 
     raw_key = f"sk-munin-{secrets.token_hex(16)}"
@@ -456,7 +540,7 @@ async def create_key(request: Request, body: CreateKeyRequest):
     conn = get_db()
     conn.execute(
         "INSERT INTO api_keys (id, key_hash, key_prefix, user_email, name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (key_id, hash_key(raw_key), raw_key[:16], email, body.name, now),
+        (key_id, hash_key(raw_key), raw_key[:16], caller.key, body.name, now),
     )
     conn.commit()
     conn.close()
@@ -466,14 +550,14 @@ async def create_key(request: Request, body: CreateKeyRequest):
 
 @app.get("/api/keys")
 async def list_keys(request: Request):
-    email = request.headers.get("X-Munin-Email")
-    if not email:
+    caller = browser_caller(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
 
     conn = get_db()
     rows = conn.execute(
         "SELECT id, key_prefix, name, created_at, last_used_at, revoked_at FROM api_keys WHERE user_email = ? ORDER BY created_at DESC",
-        (email,),
+        (caller.key,),
     ).fetchall()
     conn.close()
 
@@ -490,14 +574,14 @@ async def list_keys(request: Request):
 
 @app.delete("/api/keys/{key_id}")
 async def revoke_key(request: Request, key_id: str):
-    email = request.headers.get("X-Munin-Email")
-    if not email:
+    caller = browser_caller(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
 
     conn = get_db()
     result = conn.execute(
         "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND user_email = ? AND revoked_at IS NULL",
-        (datetime.now(timezone.utc).isoformat(), key_id, email),
+        (datetime.now(timezone.utc).isoformat(), key_id, caller.key),
     )
     conn.commit()
     conn.close()
@@ -511,11 +595,11 @@ async def revoke_key(request: Request, key_id: str):
 
 @app.get("/api/usage/me")
 async def usage_me(request: Request):
-    email = request.headers.get("X-Munin-Email")
-    if not email:
+    caller = browser_caller(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
 
-    limits = get_user_quotas(email)
+    limits = get_user_quotas(caller.email)
     month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
     conn = get_db()
@@ -523,17 +607,17 @@ async def usage_me(request: Request):
     # Monthly totals — split by source
     row = conn.execute(
         "SELECT COALESCE(SUM(tokens_total), 0) as tokens, COUNT(*) as requests FROM usage_log WHERE user_email = ? AND timestamp >= ?",
-        (email, month_start),
+        (caller.key, month_start),
     ).fetchone()
     api_row = conn.execute(
         "SELECT COALESCE(SUM(tokens_total), 0) as tokens, COUNT(*) as requests FROM usage_log WHERE user_email = ? AND timestamp >= ? AND source = 'api_key'",
-        (email, month_start),
+        (caller.key, month_start),
     ).fetchone()
 
     # Tool breakdown
     tool_rows = conn.execute(
         "SELECT tools_invoked FROM usage_log WHERE user_email = ? AND timestamp >= ? AND tools_invoked IS NOT NULL",
-        (email, month_start),
+        (caller.key, month_start),
     ).fetchall()
     tools_used: dict[str, int] = {}
     for tr in tool_rows:
@@ -546,7 +630,7 @@ async def usage_me(request: Request):
            FROM api_keys k LEFT JOIN usage_log u ON u.api_key_id = k.id AND u.timestamp >= ?
            WHERE k.user_email = ? AND k.revoked_at IS NULL
            GROUP BY k.id""",
-        (month_start, email),
+        (month_start, caller.key),
     ).fetchall()
     conn.close()
 
@@ -606,6 +690,7 @@ async def usage_admin(request: Request):
         "SELECT tools_invoked FROM usage_log WHERE timestamp >= ? AND tools_invoked IS NOT NULL",
         (month_start,),
     ).fetchall()
+    addresses = _known_addresses(conn)
     conn.close()
 
     tools_usage: dict[str, int] = {}
@@ -628,7 +713,8 @@ async def usage_admin(request: Request):
         "active_users": totals["users"],
         "top_users": [
             {
-                "email": r["user_email"],
+                "email": addresses.get(r["user_email"], r["user_email"]),
+                "user": r["user_email"],
                 "tokens": r["tokens"],
                 "requests": r["requests"],
                 "by_source": source_breakdown.get(r["user_email"], {}),
@@ -636,6 +722,14 @@ async def usage_admin(request: Request):
             for r in top_users
         ],
         "tools_usage": tools_usage,
+    }
+
+
+def _known_addresses(conn: sqlite3.Connection) -> dict[str, str]:
+    """User key -> last address seen, for showing people instead of keys."""
+    return {
+        r["email"]: r["address"]
+        for r in conn.execute("SELECT email, address FROM user_activity WHERE address IS NOT NULL")
     }
 
 
@@ -649,7 +743,7 @@ async def admin_activity(request: Request):
 
     conn = get_db()
     rows = conn.execute(
-        "SELECT email, last_seen_at, source FROM user_activity ORDER BY last_seen_at DESC"
+        "SELECT email, address, last_seen_at, source FROM user_activity ORDER BY last_seen_at DESC"
     ).fetchall()
     conn.close()
 
@@ -659,7 +753,8 @@ async def admin_activity(request: Request):
     all_users = []
 
     for r in rows:
-        user = {"email": r["email"], "last_seen_at": r["last_seen_at"], "source": r["source"]}
+        user = {"email": r["address"] or r["email"], "user": r["email"],
+                "last_seen_at": r["last_seen_at"], "source": r["source"]}
         all_users.append(user)
         try:
             seen = datetime.fromisoformat(r["last_seen_at"].replace("Z", "+00:00"))
@@ -737,8 +832,8 @@ async def clear_announcement(request: Request):
 async def get_backend_mode(request: Request):
     """Which backend serves this user. Admins also get the probe state and the
     reduced episodes, whose start times are the merge cutoffs."""
-    email, _source, _key = resolve_auth(request)
-    if not email:
+    caller, _source, _key = await resolve_auth(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
     if standby_client is None:
         return {"mode": NORMAL, "standby_configured": False}
@@ -837,11 +932,11 @@ async def proxy_api(request: Request, path: str):
             )
             return JSONResponse(status_code=502, content={"error": {"code": "proxy_error", "message": "Backend unavailable."}})
 
-    email, source, api_key_id = resolve_auth(request)
-    if not email:
+    caller, source, api_key_id = await resolve_auth(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Valid authentication required."}})
 
-    track_activity(email, source)
+    track_activity(caller, source)
 
     # Endpoints that bypass the quota check entirely:
     # - Lightweight read-only GET endpoints
@@ -856,7 +951,7 @@ async def proxy_api(request: Request, path: str):
 
     if not is_exempt:
         # Monthly token quota
-        rate_error = check_rate_limits(email)
+        rate_error = check_rate_limits(caller)
         if rate_error:
             retry_after = rate_error.pop("retry_after", 30)
             return JSONResponse(
@@ -874,10 +969,9 @@ async def proxy_api(request: Request, path: str):
         url = f"/api/{path}{query_string}"
 
         headers = {
-            "X-Munin-Email": header_safe(email),
-            "X-Munin-Name": header_safe(
-                request.headers.get("X-Munin-Name", email.split("@")[0])
-            ),
+            "X-Munin-User": header_safe(caller.key),
+            "X-Munin-Email": header_safe(caller.email),
+            "X-Munin-Name": header_safe(caller.name),
         }
         content_type = request.headers.get("Content-Type")
         if content_type:
@@ -945,7 +1039,7 @@ async def proxy_api(request: Request, path: str):
                     duration_ms = int((time.time() - start_time) * 1000)
                     if should_log:
                         log_usage(
-                            email, source, api_key_id, f"/api/{path}",
+                            caller.key, source, api_key_id, f"/api/{path}",
                             tokens_total=tokens_total, tools_invoked=tools or None,
                             duration_ms=duration_ms, status_code=upstream_resp.status_code,
                             model=model,
@@ -988,7 +1082,7 @@ async def proxy_api(request: Request, path: str):
 
             if should_log:
                 log_usage(
-                    email, source, api_key_id, f"/api/{path}",
+                    caller.key, source, api_key_id, f"/api/{path}",
                     tokens_total=tokens_total, duration_ms=duration_ms,
                     status_code=upstream_resp.status_code, model=model,
                 )
@@ -1007,7 +1101,7 @@ async def proxy_api(request: Request, path: str):
     except Exception as e:
         log.error(
             f"Proxy error: {type(e).__name__}: {e} "
-            f"[{request.method} /api/{path} user={email}]",
+            f"[{request.method} /api/{path} user={caller.key}]",
             exc_info=True,
         )
         return JSONResponse(status_code=502, content={"error": {"code": "proxy_error", "message": "Backend unavailable."}})
@@ -1020,11 +1114,11 @@ async def proxy_api(request: Request, path: str):
 async def proxy_v1(request: Request, path: str):
     """Proxy /v1/* requests, mapping to /api/* on the cluster."""
     client = backend_client()
-    email, source, api_key_id = resolve_auth(request)
-    if not email:
+    caller, source, api_key_id = await resolve_auth(request)
+    if not caller:
         return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Invalid API key."}})
 
-    track_activity(email, source)
+    track_activity(caller, source)
 
     # GET /v1/models — OpenAI-compatible model list. Clients (Positron,
     # Cursor, the OpenAI SDK) probe this on connect to validate the
@@ -1058,7 +1152,7 @@ async def proxy_v1(request: Request, path: str):
             }],
         })
 
-    rate_error = check_rate_limits(email)
+    rate_error = check_rate_limits(caller)
     if rate_error:
         retry_after = rate_error.pop("retry_after", 30)
         return JSONResponse(status_code=429, content={"error": rate_error}, headers={"Retry-After": str(retry_after)})
@@ -1071,8 +1165,9 @@ async def proxy_v1(request: Request, path: str):
         upstream_path += f"?{request.url.query}"
 
     headers = {
-        "X-Munin-Email": header_safe(email),
-        "X-Munin-Name": header_safe(email.split("@")[0]),
+        "X-Munin-User": header_safe(caller.key),
+        "X-Munin-Email": header_safe(caller.email),
+        "X-Munin-Name": header_safe(caller.name),
         "X-Munin-Ephemeral": "true",  # API requests should not be saved as conversations
     }
     content_type = request.headers.get("Content-Type")
@@ -1109,7 +1204,7 @@ async def proxy_v1(request: Request, path: str):
                                 pass
                     finally:
                         await upstream_resp.aclose()
-                        log_usage(email, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
+                        log_usage(caller.key, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
                                   duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
 
                 return StreamingResponse(stream_v1(), status_code=upstream_resp.status_code,
@@ -1124,7 +1219,7 @@ async def proxy_v1(request: Request, path: str):
                     tokens_total = u.get("total_tokens", 0) or (u.get("prompt_tokens", 0) + u.get("completion_tokens", 0))
                 except Exception:
                     pass
-                log_usage(email, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
+                log_usage(caller.key, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
                           duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
                 return Response(content=resp_body, status_code=upstream_resp.status_code,
                                 headers={k: v for k, v in upstream_resp.headers.items() if k.lower() != "transfer-encoding"})
@@ -1136,13 +1231,13 @@ async def proxy_v1(request: Request, path: str):
                 tokens_total = u.get("total_tokens", 0) or (u.get("prompt_tokens", 0) + u.get("completion_tokens", 0))
             except Exception:
                 pass
-            log_usage(email, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
+            log_usage(caller.key, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
                       duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
             return Response(content=upstream_resp.content, status_code=upstream_resp.status_code, headers=dict(upstream_resp.headers))
     except Exception as e:
         log.error(
             f"V1 proxy error: {type(e).__name__}: {e} "
-            f"[{request.method} /v1/{path} user={email}]",
+            f"[{request.method} /v1/{path} user={caller.key}]",
             exc_info=True,
         )
         return JSONResponse(status_code=502, content={"error": {"code": "proxy_error", "message": "Backend unavailable."}})

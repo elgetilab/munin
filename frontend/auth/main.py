@@ -234,6 +234,10 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_emails_user ON user_emails(user_id)")
+    # The address a user's data was stored under before the numeric key
+    # (see migrate_user_key_v1). Kept as a record; nothing keys on it.
+    if not _column_exists(conn, "users", "identity_email"):
+        conn.execute("ALTER TABLE users ADD COLUMN identity_email TEXT")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             slug TEXT PRIMARY KEY,
@@ -427,24 +431,173 @@ def migrate_group_members_v1() -> dict:
     return summary
 
 
+def migrate_identity_email_v1() -> dict:
+    """Give every user a frozen identity key: users.identity_email.
+
+    Reason: every downstream service (chats, uploads, gateway keys and
+    usage) stores user data under the X-Munin-Email header. That header
+    used to carry whichever address the user typed at login, so signing
+    in with an alias showed an empty account. It now carries
+    identity_email instead: set once from the user's primary address and
+    never changed, so neither logging in with an alias nor changing the
+    primary address moves anyone's data. Adding the address that is
+    another user's identity is refused (see _email_owner).
+
+    This is the step before a numeric user id: identity_email maps one to
+    one onto users.id. Gated by schema_migrations.name = 'identity_email_v1'.
+    """
+    summary = {"already_run": False, "rows_backfilled": 0}
+    conn = get_db()
+    try:
+        if not _column_exists(conn, "users", "identity_email"):
+            conn.execute("ALTER TABLE users ADD COLUMN identity_email TEXT")
+        if _migration_applied(conn, "identity_email_v1"):
+            summary["already_run"] = True
+            conn.commit()
+            return summary
+        rows = conn.execute(
+            "SELECT id FROM users WHERE identity_email IS NULL"
+        ).fetchall()
+        for r in rows:
+            if _ensure_identity(conn, r["id"]):
+                summary["rows_backfilled"] += 1
+        # Profiles saved while signed in with an alias were keyed on the
+        # alias. Move each onto the identity unless the identity already
+        # has its own (which then wins).
+        summary["profiles_moved"] = 0
+        for table in ("user_profiles", "display_names"):
+            alias_rows = conn.execute(
+                f"""
+                SELECT t.email AS alias, u.identity_email AS identity
+                  FROM {table} t
+                  JOIN user_emails ue ON ue.email = t.email
+                  JOIN users u ON u.id = ue.user_id
+                 WHERE u.identity_email IS NOT NULL AND t.email != u.identity_email
+                """
+            ).fetchall()
+            for a in alias_rows:
+                taken = conn.execute(
+                    f"SELECT 1 FROM {table} WHERE email = ?", (a["identity"],)
+                ).fetchone()
+                if taken:
+                    conn.execute(f"DELETE FROM {table} WHERE email = ?", (a["alias"],))
+                else:
+                    conn.execute(
+                        f"UPDATE {table} SET email = ? WHERE email = ?",
+                        (a["identity"], a["alias"]),
+                    )
+                    summary["profiles_moved"] += 1
+        _mark_migration(conn, "identity_email_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
+def user_key(user_id: int) -> str:
+    """The key all of a user's data is stored under, in every service:
+    "u" plus the users.id. Sent downstream as X-Munin-User. It never
+    changes and never names an address, so addresses can be added, removed
+    and handed to someone else without moving or exposing anyone's data."""
+    return f"u{user_id}"
+
+
+_USER_KEY_RE = re.compile(r"^u(\d+)$")
+
+
+def migrate_user_key_v1() -> dict:
+    """Move this service's own per-user rows (user_profiles, display_names)
+    from address keys to user_key(), and drop the uniqueness guard on
+    identity_email: once data is keyed by number, a removed address may go
+    to another user. Other services' data moves with
+    backend/scripts/maintenance/converge_emails.py (plan --to-user-key).
+    Gated by schema_migrations.name = 'user_key_v1'."""
+    summary = {"already_run": False, "profiles_moved": 0, "profiles_dropped": 0}
+    conn = get_db()
+    try:
+        if _migration_applied(conn, "user_key_v1"):
+            summary["already_run"] = True
+            return summary
+        conn.execute("DROP INDEX IF EXISTS idx_users_identity_email")
+        # Every address a user has, plus the identity, maps to the user.
+        rows = conn.execute(
+            """
+            SELECT ue.email AS addr, ue.user_id AS uid FROM user_emails ue
+            UNION
+            SELECT u.identity_email, u.id FROM users u WHERE u.identity_email IS NOT NULL
+            """
+        ).fetchall()
+        for table in ("user_profiles", "display_names"):
+            for r in rows:
+                key = user_key(r["uid"])
+                if not conn.execute(f"SELECT 1 FROM {table} WHERE email = ?", (r["addr"],)).fetchone():
+                    continue
+                if conn.execute(f"SELECT 1 FROM {table} WHERE email = ?", (key,)).fetchone():
+                    conn.execute(f"DELETE FROM {table} WHERE email = ?", (r["addr"],))
+                    summary["profiles_dropped"] += 1
+                else:
+                    conn.execute(f"UPDATE {table} SET email = ? WHERE email = ?", (key, r["addr"]))
+                    summary["profiles_moved"] += 1
+        _mark_migration(conn, "user_key_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
 # ── User lookup + mutation helpers ────────────────────────────────────────
 
+def _ensure_identity(conn: sqlite3.Connection, user_id: int) -> str | None:
+    """Return the user's identity_email, setting it from the primary (else
+    alphabetically first) address when it is still empty."""
+    row = conn.execute(
+        "SELECT identity_email FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    if not row:
+        return None
+    if row["identity_email"]:
+        return row["identity_email"]
+    em = conn.execute(
+        "SELECT email FROM user_emails WHERE user_id = ? "
+        "ORDER BY is_primary DESC, email ASC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    if not em:
+        return None
+    conn.execute(
+        "UPDATE users SET identity_email = ? WHERE id = ? AND identity_email IS NULL",
+        (em["email"], user_id),
+    )
+    return em["email"]
+
+
+def _email_owner(conn: sqlite3.Connection, email: str) -> int | None:
+    """The user an address belongs to as a sign-in address, or None."""
+    row = conn.execute(
+        "SELECT user_id FROM user_emails WHERE email = ?", (email.strip().lower(),)
+    ).fetchone()
+    return row["user_id"] if row else None
+
+
 def lookup_user(email: str) -> dict | None:
-    """Resolve an email (any alias) to its user. Returns None if not found."""
+    """Resolve a sign-in address, or a user key ("u12"), to its user.
+    Returns None if not found."""
     email = email.strip().lower()
     conn = get_db()
-    row = conn.execute(
-        """
-        SELECT u.id, u.first_name, u.last_name, u.role, u.research_group, u.username
-          FROM users u
-          JOIN user_emails ue ON ue.user_id = u.id
-         WHERE ue.email = ?
-        """,
-        (email,),
-    ).fetchone()
+    m = _USER_KEY_RE.match(email)
+    user_id = int(m.group(1)) if m else _email_owner(conn, email)
+    row = None
+    if user_id is not None:
+        row = conn.execute(
+            "SELECT id, first_name, last_name, role, research_group, username "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
     if not row:
         conn.close()
         return None
+    identity = _ensure_identity(conn, row["id"])
+    conn.commit()
     emails = [
         r["email"]
         for r in conn.execute(
@@ -466,7 +619,9 @@ def lookup_user(email: str) -> dict | None:
         "group": row["research_group"],
         "username": row["username"],
         "emails": emails,
-        "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else email),
+        "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else None),
+        "identity_email": identity or email,
+        "key": user_key(row["id"]),
     }
 
 
@@ -513,6 +668,8 @@ def _attach_email(conn: sqlite3.Connection, user_id: int, email: str, is_primary
         "INSERT INTO user_emails (email, user_id, is_primary, added_at) VALUES (?, ?, ?, ?)",
         (email.strip().lower(), user_id, 1 if is_primary else 0, now),
     )
+    if is_primary:
+        _ensure_identity(conn, user_id)
 
 
 def seed_users_from_whitelist() -> dict:
@@ -534,10 +691,7 @@ def seed_users_from_whitelist() -> dict:
                 email = (row.get("email") or "").strip().lower()
                 if not email:
                     continue
-                exists = conn.execute(
-                    "SELECT 1 FROM user_emails WHERE email = ?", (email,)
-                ).fetchone()
-                if exists:
+                if _email_owner(conn, email) is not None:
                     skipped += 1
                     continue
                 first = (row.get("first_name") or "").strip()
@@ -656,11 +810,9 @@ def seed_contributors_from_yaml() -> dict:
             # Find an existing user via any of the entry's emails.
             existing_user_id: int | None = None
             for em in emails:
-                row = conn.execute(
-                    "SELECT user_id FROM user_emails WHERE email = ?", (em,)
-                ).fetchone()
-                if row:
-                    existing_user_id = row["user_id"]
+                owner = _email_owner(conn, em)
+                if owner is not None:
+                    existing_user_id = owner
                     break
 
             if existing_user_id is not None:
@@ -689,10 +841,7 @@ def seed_contributors_from_yaml() -> dict:
 
                 # Attach any of the entry's emails that aren't already on this user.
                 for em in emails:
-                    er = conn.execute(
-                        "SELECT user_id FROM user_emails WHERE email = ?", (em,)
-                    ).fetchone()
-                    if not er:
+                    if _email_owner(conn, em) is None:
                         _attach_email(conn, existing_user_id, em, is_primary=False)
             else:
                 # Brand new user from this YAML entry. The contributors
@@ -880,7 +1029,7 @@ def create_session(email: str, name: str) -> str:
 
 
 def validate_session(signed_token: str) -> dict | None:
-    """Validate a signed session token. Returns {email, name} or None."""
+    """Validate a signed session token. Returns {user, email, login_email, name} or None."""
     try:
         token = signer.unsign(signed_token, max_age=SESSION_MAX_AGE).decode()
     except BadSignature:
@@ -899,7 +1048,16 @@ def validate_session(signed_token: str) -> dict | None:
     if datetime.now(timezone.utc) > expires:
         return None
 
-    return {"email": row["email"], "name": row["name"]}
+    # `user` is the account's key (user_key), the same whichever address
+    # the user signed in with; everything stored per user keys on it.
+    # `email` is the primary address, for display and mail. `login_email`
+    # is the address typed at login. A session whose account is gone is
+    # no session.
+    user = lookup_user(row["email"])
+    if not user:
+        return None
+    return {"user": user["key"], "email": user["primary_email"] or row["email"],
+            "login_email": row["email"], "name": row["name"]}
 
 
 def delete_session(signed_token: str):
@@ -1007,52 +1165,68 @@ def _ascii_domain(domain: str) -> str:
         return "localhost"
 
 
-def build_otp_message(email: str, code: str, name: str) -> MIMEMultipart:
-    """Build the login email: a plain-text part and the HTML template."""
-    expiry_minutes = otp_minutes_left(email)
+# What each kind of code mail says. "alias" confirms an address a signed-in
+# user is adding; its code is stored under a separate key (alias_otp_key) so
+# it can never complete a login, and a login code can never confirm an alias.
+OTP_MAIL_TEXT = {
+    "login": {
+        "title": "Your Munin login code",
+        "subject": "Munin login code: {code}",
+        "intro": "Your login code is:",
+        "instruction": "Enter this code on the Munin sign-in page you just opened.",
+        "plain": "Your Munin login code is: {code}",
+    },
+    "alias": {
+        "title": "Confirm your email address for Munin",
+        "subject": "Munin: confirm this email address: {code}",
+        "intro": "To add this address to your Munin account, enter this code:",
+        "instruction": "Enter it in Munin under Settings, Email addresses. It does not sign you in.",
+        "plain": "To add this address to your Munin account, enter this code: {code}",
+    },
+}
+
+
+def build_otp_message(email: str, code: str, name: str, purpose: str = "login",
+                      otp_key: str | None = None) -> MIMEMultipart:
+    """Build a code email: a plain-text part and the HTML template."""
+    text = OTP_MAIL_TEXT[purpose]
+    expiry_minutes = otp_minutes_left(otp_key or email)
     tmpl = templates.get_template("email_otp.html")
-    html_body = tmpl.render(code=code, name=name, expiry_minutes=expiry_minutes)
+    html_body = tmpl.render(code=code, name=name, expiry_minutes=expiry_minutes,
+                            title=text["title"], intro=text["intro"],
+                            instruction=text["instruction"])
 
     plain_body = (
         f"Hi {name},\n\n"
-        f"Your Munin login code is: {code}\n\n"
-        "Enter this code on the Munin sign-in page you just opened.\n"
+        f"{text['plain'].format(code=code)}\n\n"
+        f"{text['instruction']}\n"
         f"It expires in {expiry_minutes} minutes.\n\n"
         "If you didn't request this code, you can safely ignore this email.\n"
     )
     if SUPPORT_EMAIL:
         plain_body += f"Need help? Write to {SUPPORT_EMAIL}.\n"
 
-    sender_domain = parseaddr(SMTP_SENDER)[1].rpartition("@")[2]
     msg = MIMEMultipart("alternative")
-    msg["From"] = SMTP_SENDER
-    msg["To"] = email
-    msg["Subject"] = f"Munin login code: {code}"
-    msg["Date"] = formatdate(usegmt=True)
-    msg["Message-ID"] = make_msgid(domain=_ascii_domain(sender_domain))
+    _address(msg, email, text["subject"].format(code=code))
     msg.attach(MIMEText(plain_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
     return msg
 
 
-async def send_otp_email(email: str, code: str, name: str):
-    """Send OTP code via SMTP, or log it when AUTH_DEV_ECHO_OTP is set.
+def _address(msg, to: str, subject: str):
+    sender_domain = parseaddr(SMTP_SENDER)[1].rpartition("@")[2]
+    msg["From"] = SMTP_SENDER
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(usegmt=True)
+    msg["Message-ID"] = make_msgid(domain=_ascii_domain(sender_domain))
 
-    The dev branch returns BEFORE any SMTP work, so a host with no mail relay
-    (and no credentials configured) can still complete a login.
-    """
-    if DEV_ECHO_OTP:
-        log.warning(
-            "AUTH_DEV_ECHO_OTP is on: login code for %s is %s "
-            "(not emailed; unset AUTH_DEV_ECHO_OTP for real delivery)",
-            email, code)
-        return
 
-    msg = build_otp_message(email, code, name)
-
-    # Retry transient SMTP failures. Production logs showed 1 slow connect
-    # timeout in about 32 attempts; without a retry that user sees "Failed to
-    # send email" after waiting out SMTP_TIMEOUT.
+async def _smtp_send(msg, what: str):
+    """Send one mail, retrying transient SMTP failures. Production logs showed
+    1 slow connect timeout in about 32 attempts; without a retry that user
+    sees "Failed to send email" after waiting out SMTP_TIMEOUT."""
+    to = msg["To"]
     started = time.monotonic()
     last_exc: Exception | None = None
     for attempt in range(1, SMTP_MAX_ATTEMPTS + 1):
@@ -1066,17 +1240,57 @@ async def send_otp_email(email: str, code: str, name: str):
                 start_tls=True,
                 timeout=SMTP_TIMEOUT,
             )
-            log.info("OTP email to %s sent in %.1fs on attempt %d/%d",
-                     email, time.monotonic() - started, attempt, SMTP_MAX_ATTEMPTS)
+            log.info("%s email to %s sent in %.1fs on attempt %d/%d",
+                     what, to, time.monotonic() - started, attempt, SMTP_MAX_ATTEMPTS)
             return
         except (aiosmtplib.SMTPException, OSError, asyncio.TimeoutError) as e:
             last_exc = e
-            log.warning("OTP email to %s failed (attempt %d/%d): %s: %s",
-                        email, attempt, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
+            log.warning("%s email to %s failed (attempt %d/%d): %s: %s",
+                        what, to, attempt, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
             if attempt < SMTP_MAX_ATTEMPTS:
                 await asyncio.sleep(SMTP_RETRY_BASE_DELAY * attempt)
     assert last_exc is not None
     raise last_exc
+
+
+async def send_otp_email(email: str, code: str, name: str, purpose: str = "login",
+                         otp_key: str | None = None):
+    """Send a code via SMTP, or log it when AUTH_DEV_ECHO_OTP is set.
+
+    The dev branch returns BEFORE any SMTP work, so a host with no mail relay
+    (and no credentials configured) can still complete a login.
+    """
+    if DEV_ECHO_OTP:
+        log.warning(
+            "AUTH_DEV_ECHO_OTP is on: %s code for %s is %s "
+            "(not emailed; unset AUTH_DEV_ECHO_OTP for real delivery)",
+            purpose, email, code)
+        return
+    await _smtp_send(build_otp_message(email, code, name, purpose, otp_key), "OTP")
+
+
+async def send_alias_added_notice(primary: str, name: str, added: str):
+    """Tell the primary address that another address can now sign in to the
+    account, so a session someone else took over cannot add theirs quietly.
+    Best effort: a failure is logged, the address stays added."""
+    body = (
+        f"Hi {name},\n\n"
+        f"The address {added} was added to your Munin account and can now be "
+        "used to sign in.\n\n"
+        "If this was you, there is nothing to do. If it was not, remove it in "
+        "Munin under Settings, Email addresses"
+        + (f", and write to {SUPPORT_EMAIL}." if SUPPORT_EMAIL else ".")
+        + "\n"
+    )
+    if DEV_ECHO_OTP:
+        log.warning("AUTH_DEV_ECHO_OTP is on: alias notice to %s not emailed", primary)
+        return
+    msg = MIMEText(body, "plain")
+    _address(msg, primary, "Munin: an email address was added to your account")
+    try:
+        await _smtp_send(msg, "Alias notice")
+    except Exception as e:  # noqa: BLE001
+        log.error("Alias notice to %s failed: %s: %s", primary, type(e).__name__, e)
 
 
 def start_send_status() -> str:
@@ -1098,12 +1312,13 @@ def read_send_state(send_id: str) -> str:
     return entry["state"] if entry else "unknown"
 
 
-async def deliver_otp(send_id: str, email: str, code: str, name: str):
+async def deliver_otp(send_id: str, email: str, code: str, name: str,
+                      purpose: str = "login", otp_key: str | None = None):
     """Send the login mail after the response has gone out, and record how it
     went for the verify page. The relay takes seconds to accept a mail, and on a
     stalled connection much longer, which used to hold the login page."""
     try:
-        await send_otp_email(email, code, name)
+        await send_otp_email(email, code, name, purpose, otp_key)
     except Exception as e:
         log.error("OTP send ultimately failed for %s after %d attempts: %s: %s",
                   email, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
@@ -1111,7 +1326,7 @@ async def deliver_otp(send_id: str, email: str, code: str, name: str):
         return
     send_status[send_id]["state"] = "sent"
     # The entry can be gone if the code was used while this mail was on its way.
-    entry = otp_store.get(email)
+    entry = otp_store.get(otp_key or email)
     if entry and entry["code"] == code:
         entry["sends"] += 1
 
@@ -1132,6 +1347,8 @@ async def startup():
     init_db()
     migrate_split_name_v1()
     migrate_group_members_v1()
+    migrate_identity_email_v1()
+    migrate_user_key_v1()
     seed_users_from_whitelist()
     seed_contributors_from_yaml()
 
@@ -1282,16 +1499,17 @@ async def auth_check(request: Request):
     if not session:
         return Response(status_code=401)
 
-    profile = get_user_profile(session["email"]) or {}
+    profile = get_user_profile(session["user"]) or {}
     name = (
         profile.get("nickname")
         or profile.get("full_name")
-        or get_display_name(session["email"])
+        or get_display_name(session["user"])
         or session["name"]
     )
     user = lookup_user(session["email"])
     role = user["role"] if user else "user"
     headers = {
+        "X-Munin-User": session["user"],
         "X-Munin-Email": _header_safe(session["email"]),
         "X-Munin-Name": _header_safe(name),
         "X-Munin-Role": _header_safe(role),
@@ -1311,16 +1529,18 @@ async def auth_me(request: Request):
     if not session:
         return JSONResponse({"error": "invalid session"}, status_code=401)
 
-    profile = get_user_profile(session["email"]) or {}
+    profile = get_user_profile(session["user"]) or {}
     # Greeting name priority: nickname > full_name > display_name (legacy) > whitelist name
     greeting_name = (
         profile.get("nickname")
         or profile.get("full_name")
-        or get_display_name(session["email"])
+        or get_display_name(session["user"])
         or session["name"]
     )
     return JSONResponse({
         "email": session["email"],
+        "login_email": session["login_email"],
+        "user": session["user"],
         "name": greeting_name,
         "full_name": profile.get("full_name") or session["name"],
         "nickname": profile.get("nickname") or "",
@@ -1355,18 +1575,20 @@ async def auth_me_update(request: Request):
     if avatar is not None and len(avatar) > 200_000:
         return JSONResponse({"error": "avatar too large"}, status_code=400)
 
-    set_user_profile(session["email"], full_name, nickname, avatar)
+    set_user_profile(session["user"], full_name, nickname, avatar)
 
     # Return updated profile
-    profile = get_user_profile(session["email"]) or {}
+    profile = get_user_profile(session["user"]) or {}
     greeting_name = (
         profile.get("nickname")
         or profile.get("full_name")
-        or get_display_name(session["email"])
+        or get_display_name(session["user"])
         or session["name"]
     )
     return JSONResponse({
         "email": session["email"],
+        "login_email": session["login_email"],
+        "user": session["user"],
         "name": greeting_name,
         "full_name": profile.get("full_name") or session["name"],
         "nickname": profile.get("nickname") or "",
@@ -1387,6 +1609,198 @@ async def logout(request: Request):
 
 # ── Support Contact ──────────────────────────────────────────────────────
 
+# ── Self-service email addresses ────────────────────────────────────────────
+#
+# A signed-in user can add addresses to sign in with. The new address must
+# prove itself with a code mailed to it. That code lives under
+# alias_otp_key(), never under the bare address a login code uses, so it
+# cannot complete a login, and a login code cannot confirm an address. The
+# key also carries the user id, so a code only ever attaches the address to
+# the account that asked for it. The primary address is told once one is
+# added.
+
+ALIAS_REQUEST_LIMIT = 3  # code requests per user per 15 minutes
+
+
+def alias_otp_key(user_id: int, email: str) -> str:
+    return f"alias:{user_id}:{email}"
+
+
+def _session_account(request: Request):
+    """(session, user) for the cookie, or (None, error response)."""
+    cookie = request.cookies.get("munin_session")
+    session = validate_session(cookie) if cookie else None
+    if not session:
+        return None, JSONResponse({"error": "not authenticated"}, status_code=401)
+    user = lookup_user(session["email"])
+    if not user:
+        return None, JSONResponse({"error": "account not found"}, status_code=401)
+    return (session, user), None
+
+
+def _my_emails(user_id: int, login_email: str) -> dict:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT email, is_primary FROM user_emails WHERE user_id = ? "
+            "ORDER BY is_primary DESC, email ASC",
+            (user_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "emails": [
+            {"email": r["email"], "primary": bool(r["is_primary"]),
+             "current": r["email"] == login_email}
+            for r in rows
+        ],
+        "max": MAX_EMAILS_PER_USER,
+    }
+
+
+def _clean_new_address(raw) -> str | None:
+    email = (raw or "").strip().lower()
+    local, _, domain = email.partition("@")
+    if not local or "." not in domain or len(email) > 254 or any(c.isspace() for c in email):
+        return None
+    return email
+
+
+def _alias_refusal(conn: sqlite3.Connection, user_id: int, email: str) -> tuple[int, str] | None:
+    owner = _email_owner(conn, email)
+    if owner == user_id:
+        return 409, "This address is already on your account."
+    if owner is not None:
+        return 409, "This address cannot be added. If it is yours, contact support."
+    n = conn.execute(
+        "SELECT COUNT(*) AS n FROM user_emails WHERE user_id = ?", (user_id,)
+    ).fetchone()["n"]
+    if n >= MAX_EMAILS_PER_USER:
+        return 409, f"An account can have at most {MAX_EMAILS_PER_USER} addresses."
+    return None
+
+
+@app.get("/auth/me/emails")
+async def my_emails(request: Request):
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
+@app.post("/auth/me/emails")
+async def my_emails_request(request: Request, background_tasks: BackgroundTasks):
+    """Mail a confirmation code to an address the user wants to add."""
+    acct, err = _session_account(request)
+    if err:
+        return err
+    _, user = acct
+    body = await request.json()
+    email = _clean_new_address(body.get("email"))
+    if not email:
+        return JSONResponse({"error": "Enter a valid email address."}, status_code=400)
+    conn = get_db()
+    try:
+        refused = _alias_refusal(conn, user["id"], email)
+    finally:
+        conn.close()
+    if refused:
+        return JSONResponse({"error": refused[1]}, status_code=refused[0])
+
+    per_user = f"alias-request:{user['id']}"
+    if not check_rate(rate_send, per_user, limit=ALIAS_REQUEST_LIMIT):
+        return JSONResponse({"error": "Too many code requests. Please wait 15 minutes."},
+                            status_code=429)
+    key = alias_otp_key(user["id"], email)
+    code = generate_otp(key)
+    record_rate(rate_send, per_user)
+    send_id = start_send_status()
+    background_tasks.add_task(deliver_otp, send_id, email, code, user["name"],
+                              "alias", key)
+    return JSONResponse({"email": email, "send": send_id,
+                         "expiry_minutes": otp_minutes_left(key)}, status_code=202)
+
+
+@app.post("/auth/me/emails/verify")
+async def my_emails_verify(request: Request, background_tasks: BackgroundTasks):
+    """Attach the address once its code checks out."""
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    body = await request.json()
+    email = _clean_new_address(body.get("email"))
+    code = re.sub(r"[^0-9]", "", str(body.get("code") or ""))
+    if not email or not code:
+        return JSONResponse({"error": "Enter the code from the email."}, status_code=400)
+
+    key = alias_otp_key(user["id"], email)
+    if not check_rate(rate_verify, key, limit=VERIFY_ATTEMPT_LIMIT):
+        return JSONResponse({"error": LOCKOUT_MESSAGE}, status_code=429)
+    ok, msg = verify_otp(key, code)
+    if not ok:
+        record_rate(rate_verify, key)
+        return JSONResponse({"error": msg}, status_code=400)
+    rate_verify.pop(key, None)
+
+    conn = get_db()
+    try:
+        # Checked again: the address may have been taken, or the cap
+        # reached, while the code was in the mail.
+        refused = _alias_refusal(conn, user["id"], email)
+        if refused:
+            return JSONResponse({"error": refused[1]}, status_code=refused[0])
+        _attach_email(conn, user["id"], email, is_primary=False)
+        _touch_user(conn, user["id"])
+        conn.commit()
+    finally:
+        conn.close()
+    log.info("user %s added a sign-in address", user["id"])
+    background_tasks.add_task(send_alias_added_notice, user["primary_email"],
+                              user["name"], email)
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
+@app.delete("/auth/me/emails/{email}")
+async def my_emails_remove(email: str, request: Request):
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    email = email.strip().lower()
+    if email == session["login_email"]:
+        return JSONResponse(
+            {"error": "You are signed in with this address. Sign in with another one to remove it."},
+            status_code=409)
+    conn = get_db()
+    try:
+        failed = _remove_email(conn, user["id"], email)
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
+        conn.commit()
+    finally:
+        conn.close()
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
+@app.put("/auth/me/emails/{email}/primary")
+async def my_emails_primary(email: str, request: Request):
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    conn = get_db()
+    try:
+        failed = _make_primary(conn, user["id"], email.strip().lower())
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
+        conn.commit()
+    finally:
+        conn.close()
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
 SUPPORT_RATE_LIMIT = 3  # max 3 support messages per hour
 
 @app.post("/support/contact")
@@ -1399,7 +1813,8 @@ async def support_contact(request: Request):
     if not session:
         return JSONResponse({"error": "Invalid session"}, status_code=401)
 
-    sender_email = session["email"]
+    # Replies go to the address the user signed in with.
+    sender_email = session["login_email"]
     sender_name = session["name"]
 
     # Rate limit: 3 per hour
@@ -1497,6 +1912,8 @@ def _user_row_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "username": row["username"],
         "emails": emails,
         "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else None),
+        # The account key all user data is stored under; fixed for good.
+        "identity_email": row["identity_email"] if "identity_email" in row.keys() else None,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -1532,7 +1949,7 @@ def _group_members(conn: sqlite3.Connection, slug: str) -> list[dict]:
 
 _USERS_SELECT_COLUMNS = (
     "id, first_name, last_name, role, research_group, username, "
-    "created_at, updated_at"
+    "identity_email, created_at, updated_at"
 )
 
 
@@ -1580,10 +1997,7 @@ async def admin_create_user(request: Request):
 
     conn = get_db()
     try:
-        existing = conn.execute(
-            "SELECT user_id FROM user_emails WHERE email = ?", (email,)
-        ).fetchone()
-        if existing:
+        if _email_owner(conn, email) is not None:
             return JSONResponse({"error": "email already in use"}, status_code=409)
 
         if group is not None:
@@ -1734,6 +2148,52 @@ async def admin_delete_user(user_id: int, request: Request):
     return Response(status_code=204)
 
 
+# ── Email address changes (shared by admin and self-service) ────────────────
+
+MAX_EMAILS_PER_USER = 5
+
+
+def _remove_email(conn: sqlite3.Connection, user_id: int, email: str) -> tuple[int, str] | None:
+    """Detach an address from a user. Returns (status, error) or None on
+    success. Signs that address's sessions out; removing the primary
+    promotes the next address (alphabetical). The account key
+    (identity_email) is untouched, so no data moves."""
+    row = conn.execute(
+        "SELECT is_primary FROM user_emails WHERE user_id = ? AND email = ?",
+        (user_id, email),
+    ).fetchone()
+    if not row:
+        return 404, "email not found for user"
+    n = conn.execute(
+        "SELECT COUNT(*) AS n FROM user_emails WHERE user_id = ?", (user_id,)
+    ).fetchone()["n"]
+    if n <= 1:
+        return 409, "cannot remove the last email of a user"
+    conn.execute("DELETE FROM user_emails WHERE email = ?", (email,))
+    conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
+    if row["is_primary"]:
+        nxt = conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        conn.execute("UPDATE user_emails SET is_primary = 1 WHERE email = ?", (nxt["email"],))
+    _touch_user(conn, user_id)
+    return None
+
+
+def _make_primary(conn: sqlite3.Connection, user_id: int, email: str) -> tuple[int, str] | None:
+    """Make an address the user's primary (display and mail only)."""
+    row = conn.execute(
+        "SELECT 1 FROM user_emails WHERE user_id = ? AND email = ?", (user_id, email)
+    ).fetchone()
+    if not row:
+        return 404, "email not found for user"
+    conn.execute("UPDATE user_emails SET is_primary = 0 WHERE user_id = ?", (user_id,))
+    conn.execute("UPDATE user_emails SET is_primary = 1 WHERE email = ?", (email,))
+    _touch_user(conn, user_id)
+    return None
+
+
 # ── Admin: user emails ───────────────────────────────────────────────────────
 
 @app.post("/admin/users/{user_id}/emails")
@@ -1752,10 +2212,7 @@ async def admin_add_email(user_id: int, request: Request):
         user_row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user_row:
             return JSONResponse({"error": "user not found"}, status_code=404)
-        existing = conn.execute(
-            "SELECT user_id FROM user_emails WHERE email = ?", (email,)
-        ).fetchone()
-        if existing:
+        if _email_owner(conn, email) is not None:
             return JSONResponse({"error": "email already in use"}, status_code=409)
 
         _attach_email(conn, user_id, email, is_primary=False)
@@ -1781,40 +2238,10 @@ async def admin_remove_email(user_id: int, email: str, request: Request):
     email = email.strip().lower()
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT email, is_primary FROM user_emails WHERE user_id = ? AND email = ?",
-            (user_id, email),
-        ).fetchone()
-        if not row:
-            return JSONResponse({"error": "email not found for user"}, status_code=404)
-
-        all_emails = conn.execute(
-            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC",
-            (user_id,),
-        ).fetchall()
-        if len(all_emails) <= 1:
-            return JSONResponse(
-                {"error": "cannot remove the last email of a user"}, status_code=409
-            )
-
-        was_primary = bool(row["is_primary"])
-        conn.execute("DELETE FROM user_emails WHERE email = ?", (email,))
-        conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
-
-        if was_primary:
-            # Promote next remaining email (alphabetical) to primary.
-            next_email = conn.execute(
-                "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC LIMIT 1",
-                (user_id,),
-            ).fetchone()
-            if next_email:
-                conn.execute(
-                    "UPDATE user_emails SET is_primary = 1 WHERE email = ?",
-                    (next_email["email"],),
-                )
-        _touch_user(conn, user_id)
+        failed = _remove_email(conn, user_id, email)
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
         conn.commit()
-
         urow = conn.execute(
             f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
@@ -1834,20 +2261,9 @@ async def admin_set_primary_email(user_id: int, email: str, request: Request):
     email = email.strip().lower()
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT email FROM user_emails WHERE user_id = ? AND email = ?",
-            (user_id, email),
-        ).fetchone()
-        if not row:
-            return JSONResponse({"error": "email not found for user"}, status_code=404)
-
-        conn.execute(
-            "UPDATE user_emails SET is_primary = 0 WHERE user_id = ?", (user_id,)
-        )
-        conn.execute(
-            "UPDATE user_emails SET is_primary = 1 WHERE email = ?", (email,)
-        )
-        _touch_user(conn, user_id)
+        failed = _make_primary(conn, user_id, email)
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
         conn.commit()
 
         urow = conn.execute(
@@ -2106,7 +2522,9 @@ async def admin_check_role(request: Request, email: str = ""):
     """Internal role lookup used by the tusd hook-service KB gate.
 
     Auth: bearer token matching KB_GATE_TOKEN OR an admin session
-    cookie. Returns role + allowed_kb_contribution boolean.
+    cookie. `email` may be a sign-in address or a user key ("u12"; the
+    gateway resolves API-key owners this way). Returns the user key,
+    primary address, name, role + allowed_kb_contribution boolean.
     """
     auth_header = request.headers.get("Authorization", "")
     token_ok = (
@@ -2140,7 +2558,9 @@ async def admin_check_role(request: Request, email: str = ""):
         user["role"] == "group_leader" and bool(user["group"])
     )
     return JSONResponse({
+        "user": user["key"],
         "email": user["primary_email"],
+        "name": user["name"],
         "role": user["role"],
         "group": user["group"],
         "allowed_kb_contribution": allowed,

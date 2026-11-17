@@ -9,7 +9,7 @@ the delivered artifact id), `jobs` lists the caller's runs. The SSE-streaming
 half (live progress bridged onto the chat stream + stream_registry resume) is the
 remaining chat_service integration.
 
-Auth follows the app convention: X-Munin-Email (set by Caddy forward-auth);
+Auth follows the app convention: X-Munin-User, else X-Munin-Email (set by forward-auth and the gateway);
 errors use the uniform {"error": {"message": ...}} envelope.
 """
 
@@ -18,6 +18,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 
 import deep_research_manager as manager
+from user_key import request_user_key
 from maintenance import read_maintenance
 
 # Prefix MUST start with /api/: the frontend Caddy only forwards /api/* and
@@ -27,11 +28,12 @@ router = APIRouter(prefix="/api/research", tags=["deep-research-agent"])
 
 
 def _require_email(request: Request) -> str:
-    email = (request.headers.get("X-Munin-Email") or "").strip()
-    if not email:
+    """The caller's storage key (user_key.request_user_key)."""
+    key = request_user_key(request.headers)
+    if not key:
         raise HTTPException(status_code=401,
-                            detail={"error": {"message": "Missing X-Munin-Email header"}})
-    return email
+                            detail={"error": {"message": "Missing X-Munin-User header"}})
+    return key
 
 
 @router.post("/start")

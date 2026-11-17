@@ -44,15 +44,16 @@ deployment binds loopback and arrives over the SSH tunnel).
 
 | Header | Purpose | Required |
 |---|---|---|
-| `X-Munin-Email` | user identity | Yes |
+| `X-Munin-User` | user key (`u` + the account id): every per-user row, upload and index entry is stored under it | Yes, or `X-Munin-Email` |
+| `X-Munin-Email` | the user's primary address; the storage key only when `X-Munin-User` is absent (scripts, benchmarks) | Yes, unless `X-Munin-User` is sent |
 | `X-Munin-Name` | display name, ASCII-only (see below) | No, not consumed by backend today |
 | `X-Munin-Role` / `X-Munin-Group` | role and research group, copied from forward-auth alongside the email | No |
 | `X-Munin-Ephemeral` | when `true`, forces ephemeral chat (no persistence); VPS gateway stamps this on every `/v1/*` API-key request | No |
 | `X-Munin-Gateway-Token` | shared secret proving the identity headers came from the gateway/Caddy; see below | Only when `MUNIN_GATEWAY_TOKEN` is set |
 
 **Optional gateway token.** When the retrieval service runs with
-`MUNIN_GATEWAY_TOKEN` set, any request that carries `X-Munin-Email`,
-`X-Munin-Role`, `X-Munin-Group` or `X-Munin-Name` must also carry
+`MUNIN_GATEWAY_TOKEN` set, any request that carries `X-Munin-User`,
+`X-Munin-Email`, `X-Munin-Role`, `X-Munin-Group` or `X-Munin-Name` must also carry
 `X-Munin-Gateway-Token` with the same value, or it is refused with
 **401** `{"error": {"message": "gateway token required"}}` before
 routing (`retrieval/gateway_token_guard.py`). Requests with no identity
@@ -62,7 +63,7 @@ port. Once it is set, cluster-side scripts that call the API directly
 with an identity header (benchmarks, smoke tests, `deploy.sh` verify)
 must send the token too.
 
-Routes that do **not** check `X-Munin-Email`:
+Routes that do **not** check identity:
 
 - `GET /api/status`
 - `GET /api/models`
@@ -73,10 +74,13 @@ Routes that do **not** check `X-Munin-Email`:
 - `GET /api/embedding_map`
 - `POST /api/admin/ingest` (token auth instead, see §1)
 
-Every other `/api/*` route requires `X-Munin-Email`; missing gives
-**401** with the error envelope (§3) and the message
-`"Missing authentication header"` (`"Missing X-Munin-Email header"` on
-the `/api/research/*` routes). The two admin metrics routes (§4.22)
+Every other `/api/*` route requires `X-Munin-User` or `X-Munin-Email`
+(`retrieval/user_key.py`: the user key wins, the address stands in for
+callers that predate user keys; a key has no `@`, so the two never
+collide). Missing gives **401** with the error envelope (§3) and the
+message `"Missing authentication header"` (`"Missing X-Munin-User header"`
+on the `/api/research/*` routes). Where this document says a route checks
+`X-Munin-Email` or ownership by email, read: by that key. The two admin metrics routes (§4.22)
 additionally require the admin role.
 
 **These header values are stripped to ASCII** by munin-auth
@@ -87,7 +91,7 @@ A user with a name like "Erika Mösermann" therefore 502'd on every authenticate
 `/api/*` call until 2026-08. So `X-Munin-Name` may arrive with accents
 missing, or empty for a wholly non-Latin name. Don't use it for display
 or identity; the real spelling is served as UTF-8 JSON by `/auth/me`,
-and identity belongs to `X-Munin-Email`. If the backend ever starts
+and identity belongs to `X-Munin-User`. If the backend ever starts
 consuming the name header, change the transport (RFC 8187, or move the
 name into the JSON body) rather than removing the strip.
 

@@ -581,7 +581,7 @@ def test_old_send_statuses_are_dropped(auth_env):
 
 
 def test_code_used_while_the_mail_was_on_its_way(auth_env, user, client, monkeypatch):
-    async def _used_meanwhile(email, code, name):
+    async def _used_meanwhile(email, code, name, *_):
         assert auth_env.verify_otp(email, code) == (True, "")
 
     monkeypatch.setattr(auth_env, "send_otp_email", _used_meanwhile)

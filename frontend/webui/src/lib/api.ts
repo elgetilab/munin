@@ -112,6 +112,60 @@ export async function updateProfile(data: { full_name?: string; nickname?: strin
   return res.json();
 }
 
+// ── Sign-in addresses ──────────────────────────────────────────────────────
+
+export interface MyEmail {
+  email: string;
+  primary: boolean;
+  // The address this session signed in with.
+  current: boolean;
+}
+
+export interface MyEmails {
+  emails: MyEmail[];
+  max: number;
+}
+
+// The auth service answers {error: "..."} in words meant for the user.
+async function authJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(`${AUTH_BASE}${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || 'Something went wrong. Please try again.');
+  return body as T;
+}
+
+export function fetchMyEmails(): Promise<MyEmails> {
+  return authJson('/auth/me/emails');
+}
+
+// Mails a confirmation code to `email`. `send` reports on that mail through
+// fetchCodeMailState.
+export function requestEmailCode(email: string): Promise<{ email: string; send: string; expiry_minutes: number }> {
+  return authJson('/auth/me/emails', { method: 'POST', body: JSON.stringify({ email }) });
+}
+
+export function confirmEmailCode(email: string, code: string): Promise<MyEmails> {
+  return authJson('/auth/me/emails/verify', { method: 'POST', body: JSON.stringify({ email, code }) });
+}
+
+export function removeMyEmail(email: string): Promise<MyEmails> {
+  return authJson(`/auth/me/emails/${encodeURIComponent(email)}`, { method: 'DELETE' });
+}
+
+export function makeMyEmailPrimary(email: string): Promise<MyEmails> {
+  return authJson(`/auth/me/emails/${encodeURIComponent(email)}/primary`, { method: 'PUT' });
+}
+
+export async function fetchCodeMailState(send: string): Promise<'sending' | 'sent' | 'failed' | 'unknown'> {
+  const res = await fetch(`${AUTH_BASE}/verify/status?send=${encodeURIComponent(send)}`, { credentials: 'include' });
+  if (!res.ok) return 'unknown';
+  return (await res.json()).state;
+}
+
 // ── Munin Profile ──────────────────────────────────────────────────────────
 
 // Resolves to null when there is no profile. Every other failure rejects, so a
@@ -208,7 +262,10 @@ export async function fetchUsageStats(): Promise<UsageStats> {
 // ── Admin ────────────────────────────────────────────────────────────────
 
 export interface AdminActivityUser {
+  // The last address seen for this user, for display.
   email: string;
+  // The user key ("u12") rows are stored under; absent from older gateways.
+  user?: string;
   last_seen_at: string;
   source: string;
 }
@@ -222,6 +279,7 @@ export interface AdminActivity {
 
 export interface AdminUsageUser {
   email: string;
+  user?: string;
   tokens: number;
   requests: number;
   by_source: Record<string, { tokens: number; requests: number }>;
@@ -271,6 +329,9 @@ export interface AdminUser {
   group: string | null;
   username: string | null;
   primary_email: string;
+  // Account key all of the user's data is stored under. Set once, never
+  // changed: logging in with any address, or changing the primary, keeps it.
+  identity_email?: string | null;
   emails: string[];
   created_at: string;
   updated_at: string;

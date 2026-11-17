@@ -47,3 +47,9 @@ def test_wrong_token_is_refused_and_right_token_passes():
 
 def test_requests_without_identity_are_untouched():
     assert _call("s3cret", {}) == 200
+
+
+def test_user_key_header_needs_the_token_too():
+    """X-Munin-User is what data is stored under; a forged one must not pass."""
+    assert _call("s3cret", {"X-Munin-User": "u1"}) == 401
+    assert _call("s3cret", {"X-Munin-User": "u1", "X-Munin-Gateway-Token": "s3cret"}) == 200
