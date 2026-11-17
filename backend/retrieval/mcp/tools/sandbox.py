@@ -273,7 +273,9 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
     # per conversation and hint, never after the conversation used labkit.
     hint = _labkit_hints.hint_for(conv_id, code)
     if hint:
-        payload["labkit_hint"] = hint
+        payload["labkit_hint"] = hint[1]
+        # One line per hint so an eval can count them (LABKIT-011-PLAN.md).
+        logger.info("labkit_hint kind=%s conv=%s", hint[0], conv_id)
     return payload
 
 

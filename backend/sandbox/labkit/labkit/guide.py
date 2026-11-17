@@ -25,8 +25,11 @@ r = fit(model, x, y, *, p0=None, replicates="all", weights=None, fixed=None, bou
          or any f(x, a, b, ...) with p0.
   y: 1D, or 2D with ONE COLUMN PER REPLICATE (NaN = missing). replicates="all" fits
      every replicate as a point (Prism's default); "mean" fits the means.
-  dose response (3pl/4pl/5pl): x_scale is REQUIRED: "log" if x is log10(conc),
-     "linear" if x is the concentration (zero doses raise: drop them and say so).
+  dose response (3pl/4pl/5pl): x_scale is REQUIRED and says what x IS, not the axis:
+     "linear" if you pass the concentrations (labkit takes the log; zero doses raise:
+     drop them and say so), "log" only if x is ALREADY log10(conc). A dilution series
+     passed with "log" raises.
+  5pl: report LogEC50 (derived, halfway between Bottom and Top), not LogXb.
   weights: None | "1/y^2" (relative) | "1/y" | array of SDs.
   fixed={"Bottom": 0}; bounds={"HillSlope": (0, None)}; morrison needs constants={"Et": ...}.
   competitive_inhibition: x=(S, I) two arrays, y 1D.

@@ -1,6 +1,14 @@
 # labkit 0.1.1 and pointers, round 3: plan
 
-Status: PLAN 2026-11-17, waiting for "proceed". Parent: `LAB-ANALYSIS-PLAN.md`
+Status: IMPLEMENTED 2026-11-17 ("proceed": Q1 raise, Q2 yes, Q3 no), not
+yet deployed. labkit 0.1.1: `_check_log_x` in `fit`/`fit_global` (and `rout`
+through `fit`); on all 24 S1 dose-response fixtures raw concentrations raise
+and their log10 passes with no warning. Hints replayed on every run-2
+script: relaxation 3/3 -> relaxation_fit, HSQC 6/6 -> kd_fit, standard
+curve 24/24 -> interpolate; first drafts misfired (R2 meaning R-squared read
+as relaxation; "standard error" read as a standard curve) and were
+tightened. Tests: labkit 28/28 (sandbox CI image, with sandbox live 54/54,
+figure hook 20/20), retrieval hermetic 116/116 (`test_labkit_hints` 9). Parent: `LAB-ANALYSIS-PLAN.md`
 (Phase 4 run 2), `LAB-ADOPTION-PLAN.md`.
 
 ## What run 2 left (checked in the bundles)

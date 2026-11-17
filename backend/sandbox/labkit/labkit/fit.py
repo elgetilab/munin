@@ -167,7 +167,7 @@ def _d_ec50(p):
 def _d_5pl(p):
     s, h = p["S"], p["HillSlope"]
     logec50 = p["LogXb"] + (1.0 / h) * math.log10(2 ** (1.0 / s) - 1) if s > 0 and h != 0 else float("nan")
-    out = [_Derived("LogEC50", "log10 of the X giving a response halfway between Bottom and Top", logec50,
+    out = [_Derived("LogEC50", "log10 of the X giving a response halfway between Bottom and Top: report THIS as logEC50", logec50,
                     grad=_num_grad(lambda q: q["LogXb"] + (1.0 / q["HillSlope"]) * math.log10(2 ** (1.0 / q["S"]) - 1), p))]
     out.append(_Derived("EC50", "10^LogEC50", _pow10(logec50) if np.isfinite(logec50) else float("nan"),
                         grad=_num_grad(lambda q: _pow10(q["LogXb"] + (1.0 / q["HillSlope"]) * math.log10(2 ** (1.0 / q["S"]) - 1)), p)))
@@ -249,7 +249,7 @@ _reg(Model("4pl", _f_4pl, ["Bottom", "Top", "LogEC50", "HillSlope"],
 _reg(Model("5pl", _f_5pl, ["Bottom", "Top", "LogXb", "HillSlope", "S"],
            "Y = Bottom + (Top-Bottom)/(1+10^((LogXb-X)*HillSlope))^S; X = log10(concentration)",
            {**{k: DEFS_SIGMOID[k] for k in ("Bottom", "Top", "HillSlope")},
-            "LogXb": "log10 of the inflection-related X (not the EC50 unless S = 1)",
+            "LogXb": "log10 of the inflection-related X; NOT the EC50 unless S = 1: report LogEC50 as logEC50",
             "S": "asymmetry factor (1 = symmetric 4PL)"},
            _g_5pl, _d_5pl, dose_response=True, bounds={"S": (1e-6, None)}))
 _reg(Model("michaelis_menten", _f_mm, ["Vmax", "Km"], "Y = Vmax*X/(Km + X)",
@@ -306,6 +306,37 @@ _reg(Model("morrison", lambda x, v0, kiapp, Et: _f_morrison(x, v0, kiapp, Et), [
 # ==============================================================================
 # Data shaping
 # ==============================================================================
+
+
+def _check_log_x(x) -> Optional[str]:
+    """Guard x_scale='log' against raw concentrations (LABKIT-011-PLAN.md).
+
+    In Phase 4 the model read x_scale='log' as "fit on a log axis" and passed
+    concentrations; the fit then returned confident nonsense. A dilution
+    series (constant ratio >= 1.5 between successive distinct values, not
+    also evenly spaced) is concentrations: raise. All positive and spanning
+    more than 3 decades: return a warning for r.warnings. Else None.
+    """
+    if isinstance(x, tuple):
+        return None
+    xa = np.asarray(x, float).ravel()
+    u = np.unique(xa[np.isfinite(xa)])
+    if u.size < 4 or np.any(u <= 0):
+        return None
+    ratios = u[1:] / u[:-1]
+    diffs = np.diff(u)
+    geometric = ratios.min() >= 1.5 and (ratios.max() - ratios.min()) / ratios.mean() < 0.1
+    arithmetic = (diffs.max() - diffs.min()) / diffs.mean() < 0.1
+    if geometric and not arithmetic:
+        raise ValueError(
+            f"x looks like concentrations (a {ratios.mean():.3g}x dilution series from {u[0]:.4g} to "
+            f"{u[-1]:.4g}), but x_scale='log' means x is ALREADY log10(concentration). Pass "
+            "x_scale='linear' with the concentrations (labkit takes the log), or pass np.log10(x) "
+            "with x_scale='log'.")
+    if u[-1] / u[0] > 1e3:
+        return ("x_scale='log' but x is all positive and spans more than 3 decades: check that x is "
+                "log10(concentration), not the concentration (then use x_scale='linear').")
+    return None
 
 def _as_xy(x, y, replicates: str):
     """Return flat (x, y) for fitting, and the per-x means for reporting."""
@@ -426,7 +457,14 @@ class FitResult:
         lines = [f"{self.model}: {self.equation}",
                  f"n={self.n} dof={self.dof} R2={self.r2:.5g} Sy.x={self.sy_x:.5g} "
                  f"({self.ci_method} {int(self.level * 100)}% CI)"]
-        for k, v in self.params.items():
+        keys = list(self.params)
+        if "LogXb" in keys and "LogEC50" in keys:
+            # 5PL: the reportable midpoint sits next to LogXb, which it is
+            # easily mistaken for (Phase 4 run 2 reported LogXb twice).
+            keys.remove("LogEC50")
+            keys.insert(keys.index("LogXb") + 1, "LogEC50")
+        for k in keys:
+            v = self.params[k]
             se = self.se.get(k)
             ci = self.ci.get(k)
             dep = self.dependency.get(k)
@@ -542,6 +580,7 @@ def fit(model, x, y, *, p0=None, replicates: str = "all", weights=None,
     ci        'wald' (Prism default, asymptotic) or 'profile' (likelihood).
     """
     m = _resolve_model(model, p0)
+    x_warning = None
     if m.dose_response:
         if x_scale not in ("log", "linear"):
             raise ValueError(
@@ -553,6 +592,8 @@ def fit(model, x, y, *, p0=None, replicates: str = "all", weights=None,
                 raise ValueError("x_scale='linear' but some concentrations are <= 0: their log is undefined. "
                                  "Drop the zero-dose rows (or fit them as a separate baseline) and say so.")
             x = np.log10(xa)
+        else:
+            x_warning = _check_log_x(x)
     consts = dict(constants or {})
     missing = [c for c in m.constants if c not in consts]
     if missing:
@@ -600,7 +641,10 @@ def fit(model, x, y, *, p0=None, replicates: str = "all", weights=None,
     theta0 = np.array([start[k] for k in free], float)
     sol = _solve(resid, theta0, lo, hi, n_starts, _seed, loss=loss, f_scale=f_scale)
     theta = sol.x
-    return _finish(m, names, free, fixed, theta, resid, f, xx, yy, sigma_fn, sig, ci, level, lo, hi, consts)
+    res = _finish(m, names, free, fixed, theta, resid, f, xx, yy, sigma_fn, sig, ci, level, lo, hi, consts)
+    if x_warning:
+        res.warnings.insert(0, x_warning)
+    return res
 
 
 def _resolve_model(model, p0) -> Model:
@@ -804,6 +848,8 @@ def fit_global(model, datasets: Sequence[tuple], *, shared: Sequence[str], p0=No
                 raise ValueError("dose-response model: give x_scale='log' or 'linear'")
             if x_scale == "linear":
                 x = np.log10(np.asarray(x, float))
+            else:
+                _check_log_x(x)
         data.append(_as_xy(x, y, "all"))
     flat_names, index = [], []
     for nm in names:

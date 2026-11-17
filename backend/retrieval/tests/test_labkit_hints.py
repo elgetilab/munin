@@ -74,6 +74,63 @@ dic, data = ng.bruker.read('inputs/bruker_1h/1')
 data = ng.bruker.remove_digital_filter(dic, data)
 '''
 
+# Round 3 (LABKIT-011-PLAN.md): the model's own Phase 4 run 2 scripts, trimmed.
+# s6_relaxation#1 run 2: curve_fit per residue, no labkit (S6 used labkit 0/15).
+RELAX_RUN2 = '''import numpy as np
+import pandas as pd
+from scipy.optimize import curve_fit
+
+def mono_exp(t, I0, R):
+    return I0 * np.exp(-R * t)
+
+r1 = pd.read_csv('inputs/R1_intensities.csv')
+r1_cols = [c for c in r1.columns if c != 'residue']
+t1 = np.array([float(c.replace('ms',''))/1000.0 for c in r1_cols])  # seconds
+noe = pd.read_csv('inputs/hetNOE.csv')
+R1_vals = np.full(len(r1), np.nan)
+for i, row in r1.iterrows():
+    popt, pcov = curve_fit(mono_exp, t1, row[r1_cols].to_numpy(float), p0=[row[r1_cols[0]], 1.5])
+    R1_vals[i] = popt[1]
+'''
+# s6_hsqc_titration_s1#1 run 7: a hand global Kd with least_squares.
+HSQC_RUN2 = '''import json, numpy as np
+from scipy.optimize import least_squares
+with open("csp_data.json") as fh:
+    D = json.load(fh)
+pts = D["pts"]                # ligand concentrations in uM
+csp = D["csp"]
+P_tot = 100.0
+def frac_bound(Ltot, Kd):
+    disc = (P_tot + Ltot + Kd)**2 - 4*P_tot*Ltot
+    PL = 0.5 * (P_tot + Ltot + Kd - np.sqrt(disc))
+    return PL / P_tot
+res = least_squares(lambda p: resid(p), x0=[50.0])
+'''
+# fresh s1_standard_s6#3 run 3: linregress on the means, hand interpolation.
+STANDARD_RUN2 = '''import pandas as pd
+import numpy as np
+from scipy import stats
+df = pd.read_csv('inputs/bradford_6.csv')
+std = df[df['sample'] == 'std'].copy()
+unk = df[df['sample'].str.startswith('U')].copy()
+std_mean = std.groupby('conc_ug_per_mL')['absorbance'].mean()
+slope, intercept, r_value, p_value, std_err = stats.linregress(std_mean.index.values, std_mean.values)
+for _, row in unk.iterrows():
+    print(row['sample'], (row['absorbance'] - intercept) / slope)
+'''
+# A generic decay with a variable named t1: not NMR, gets the decay hint.
+GENERIC_T1 = '''import numpy as np
+from scipy.optimize import curve_fit
+t1 = np.linspace(0, 10, 20)
+popt, _ = curve_fit(lambda t, a, k, c: a * np.exp(-k * t) + c, t1, y)
+R2 = 1 - ss_res / ss_tot  # R-squared
+'''
+# A line fit that is not a standard curve.
+TREND = '''import numpy as np
+slope, icpt = np.polyfit(years, temperature, 1)
+print(slope)
+'''
+
 # Not lab fits: general optimisation, an arbitrary curve, plotting.
 ROSENBROCK = '''from scipy.optimize import minimize
 def rosen(x):
@@ -125,6 +182,24 @@ def test_general_code_gets_nothing():
     return _check("optimisation, a non-labkit model, plotting and labkit code get no hint",
                   all(v is None for v in got.values()), repr(got))
 
+
+def test_round3_nmr_and_standard_curve_hints():
+    rel, kd, std = fit_hint(RELAX_RUN2), fit_hint(HSQC_RUN2), fit_hint(STANDARD_RUN2)
+    gen, trend = fit_hint(GENERIC_T1), fit_hint(TREND)
+    ok = (rel is not None and rel[0] == "relaxation" and "relaxation_fit" in rel[1]
+          and kd is not None and kd[0] == "kd" and "kd_fit" in kd[1]
+          and std is not None and std[0] == "standard_curve" and "labkit.interpolate" in std[1]
+          and gen is not None and gen[0] == "exponential"
+          and trend is None)
+    return _check("run-2 relaxation, HSQC Kd and standard-curve scripts get labkit.nmr / interpolate "
+                  "hints; a t1 variable or an R2 (R-squared) is not NMR; a plain trend line gets nothing",
+                  ok, repr([rel and rel[0], kd and kd[0], std and std[0], gen and gen[0], trend]))
+
+
+def test_dose_response_hint_explains_x_scale():
+    got = fit_hint(FOUR_PL)
+    return _check("the dose-response hint says x_scale describes x, 'linear' for concentrations",
+                  got is not None and '"linear" for concentrations' in got[1], repr(got))
 
 def test_once_per_conversation_and_silent_after_labkit():
     st = HintState()
@@ -215,6 +290,8 @@ TESTS = [
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
     test_general_code_gets_nothing,
+    test_round3_nmr_and_standard_curve_hints,
+    test_dose_response_hint_explains_x_scale,
     test_once_per_conversation_and_silent_after_labkit,
     test_state_is_bounded,
     test_upload_notes,

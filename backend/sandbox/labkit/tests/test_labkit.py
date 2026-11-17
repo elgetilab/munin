@@ -148,6 +148,56 @@ def test_dose_response_requires_x_scale():
     check("4pl: x_scale required; linear/log agree; EC50 = 10^LogEC50 with transformed CI; zero dose raises", ok)
 
 
+def test_x_scale_guard():
+    """x_scale='log' with raw concentrations raises (LABKIT-011-PLAN.md): in
+    Phase 4 run 2 the model read 'log' as "fit on a log axis" and got Hill
+    -3.1 and Bottom -49419 without an error."""
+    def raises(f):
+        try:
+            f()
+        except ValueError as e:
+            return "x_scale='linear'" in str(e)
+        return False
+
+    def y_of(logx):
+        return 5 + 95 / (1 + 10 ** ((-1 - logx) * 1.2))
+    three = 100 / 3.0 ** np.arange(10)                       # 3x dilution, uM
+    halflog = 10 ** np.arange(-9, -4.4, 0.5)                 # half-log series, M
+    two_reps = np.repeat(50 / 2.0 ** np.arange(8), 3)        # 2x dilution in triplicate
+    pos_log = np.linspace(0.1, 2.0, 9)                       # log10 values, all positive
+    neg_log = np.log10(three)
+    ok_raise = (raises(lambda: fit("4pl", three, y_of(np.log10(three)), x_scale="log"))
+                and raises(lambda: fit("3pl", halflog, y_of(np.log10(halflog) + 6), x_scale="log"))
+                and raises(lambda: fit("5pl", two_reps, y_of(np.log10(two_reps)), x_scale="log"))
+                and raises(lambda: rout("4pl", three, y_of(np.log10(three)), x_scale="log"))
+                and raises(lambda: fit_global("4pl", [(three, y_of(np.log10(three)))] * 2,
+                                              shared=["HillSlope"], x_scale="log")))
+    a = fit("4pl", pos_log, y_of(pos_log), x_scale="log")
+    b = fit("4pl", neg_log, y_of(neg_log), x_scale="log")
+    c = fit("4pl", three, y_of(np.log10(three)), x_scale="linear")
+    rng = np.random.default_rng(3)
+    spread = np.sort(10 ** rng.uniform(-1, 3.5, 12))         # positive, 4.5 decades, no series
+    w = fit("4pl", spread, y_of(np.log10(spread)), x_scale="log")
+    ok = (ok_raise and not any("x_scale" in m for m in a.warnings + b.warnings + c.warnings)
+          and close(c.params["LogEC50"], -1, 1e-5)
+          and any("3 decades" in m for m in w.warnings))
+    check("x_scale='log' on a dilution series raises (fit, rout, fit_global); log10 input and "
+          "x_scale='linear' pass; an unclear wide positive range only warns", ok)
+
+
+def test_5pl_reports_logec50_next_to_logxb():
+    x = np.linspace(-3, 3, 13)
+    y = 2 + 90 / (1 + 10 ** ((0.2 - x) * 1.1)) ** 0.5
+    r = fit("5pl", x, y, x_scale="log")
+    rows = [ln.split()[0] for ln in str(r).splitlines()[2:] if ln.startswith("  ") and not ln.startswith("  WARNING")]
+    i = rows.index("LogXb")
+    text = str(r)
+    expect = 0.2 + (1 / 1.1) * math.log10(2 ** (1 / 0.5) - 1)
+    check("5pl: print(r) shows LogEC50 right after LogXb, marked as the value to report",
+          rows[i + 1] == "LogEC50" and "report THIS as logEC50" in text
+          and close(r.params["LogEC50"], expect, 1e-5), rows)
+
+
 def test_ambiguous_fit_warns():
     x = np.linspace(-9, -7.5, 8)           # only the bottom of the curve
     y = 10 + 90 / (1 + 10 ** ((-5 - x) * 1.0)) + RNG.normal(0, 0.5, 8)
