@@ -1,6 +1,6 @@
 # Account identity: self-service aliases, then a numeric user id
 
-Status: PLAN, awaiting "proceed". Follows df2c2c5 (frozen `users.identity_email`).
+Status: Part A BUILT (approved 2026-11-17, defaults accepted); Part B approved, after Part A. Follows df2c2c5 (frozen `users.identity_email`, deployed 2026-11-17).
 
 ## Where we are
 

@@ -1127,52 +1127,68 @@ def _ascii_domain(domain: str) -> str:
         return "localhost"
 
 
-def build_otp_message(email: str, code: str, name: str) -> MIMEMultipart:
-    """Build the login email: a plain-text part and the HTML template."""
-    expiry_minutes = otp_minutes_left(email)
+# What each kind of code mail says. "alias" confirms an address a signed-in
+# user is adding; its code is stored under a separate key (alias_otp_key) so
+# it can never complete a login, and a login code can never confirm an alias.
+OTP_MAIL_TEXT = {
+    "login": {
+        "title": "Your Munin login code",
+        "subject": "Munin login code: {code}",
+        "intro": "Your login code is:",
+        "instruction": "Enter this code on the Munin sign-in page you just opened.",
+        "plain": "Your Munin login code is: {code}",
+    },
+    "alias": {
+        "title": "Confirm your email address for Munin",
+        "subject": "Munin: confirm this email address: {code}",
+        "intro": "To add this address to your Munin account, enter this code:",
+        "instruction": "Enter it in Munin under Settings, Email addresses. It does not sign you in.",
+        "plain": "To add this address to your Munin account, enter this code: {code}",
+    },
+}
+
+
+def build_otp_message(email: str, code: str, name: str, purpose: str = "login",
+                      otp_key: str | None = None) -> MIMEMultipart:
+    """Build a code email: a plain-text part and the HTML template."""
+    text = OTP_MAIL_TEXT[purpose]
+    expiry_minutes = otp_minutes_left(otp_key or email)
     tmpl = templates.get_template("email_otp.html")
-    html_body = tmpl.render(code=code, name=name, expiry_minutes=expiry_minutes)
+    html_body = tmpl.render(code=code, name=name, expiry_minutes=expiry_minutes,
+                            title=text["title"], intro=text["intro"],
+                            instruction=text["instruction"])
 
     plain_body = (
         f"Hi {name},\n\n"
-        f"Your Munin login code is: {code}\n\n"
-        "Enter this code on the Munin sign-in page you just opened.\n"
+        f"{text['plain'].format(code=code)}\n\n"
+        f"{text['instruction']}\n"
         f"It expires in {expiry_minutes} minutes.\n\n"
         "If you didn't request this code, you can safely ignore this email.\n"
     )
     if SUPPORT_EMAIL:
         plain_body += f"Need help? Write to {SUPPORT_EMAIL}.\n"
 
-    sender_domain = parseaddr(SMTP_SENDER)[1].rpartition("@")[2]
     msg = MIMEMultipart("alternative")
-    msg["From"] = SMTP_SENDER
-    msg["To"] = email
-    msg["Subject"] = f"Munin login code: {code}"
-    msg["Date"] = formatdate(usegmt=True)
-    msg["Message-ID"] = make_msgid(domain=_ascii_domain(sender_domain))
+    _address(msg, email, text["subject"].format(code=code))
     msg.attach(MIMEText(plain_body, "plain"))
     msg.attach(MIMEText(html_body, "html"))
     return msg
 
 
-async def send_otp_email(email: str, code: str, name: str):
-    """Send OTP code via SMTP, or log it when AUTH_DEV_ECHO_OTP is set.
+def _address(msg, to: str, subject: str):
+    sender_domain = parseaddr(SMTP_SENDER)[1].rpartition("@")[2]
+    msg["From"] = SMTP_SENDER
+    msg["To"] = to
+    msg["Subject"] = subject
+    msg["Date"] = formatdate(usegmt=True)
+    msg["Message-ID"] = make_msgid(domain=_ascii_domain(sender_domain))
 
-    The dev branch returns BEFORE any SMTP work, so a host with no mail relay
-    (and no credentials configured) can still complete a login.
-    """
-    if DEV_ECHO_OTP:
-        log.warning(
-            "AUTH_DEV_ECHO_OTP is on: login code for %s is %s "
-            "(not emailed; unset AUTH_DEV_ECHO_OTP for real delivery)",
-            email, code)
-        return
 
-    msg = build_otp_message(email, code, name)
-
-    # Retry transient SMTP failures. Production logs showed 1 slow connect
-    # timeout in about 32 attempts; without a retry that user sees "Failed to
-    # send email" after waiting out SMTP_TIMEOUT.
+async def _smtp_send(msg, what: str):
+    """Send one mail, retrying transient SMTP failures. Production logs showed
+    1 slow connect timeout in about 32 attempts; without a retry that user
+    sees "Failed to send email" after waiting out SMTP_TIMEOUT."""
+    to = msg["To"]
     started = time.monotonic()
     last_exc: Exception | None = None
     for attempt in range(1, SMTP_MAX_ATTEMPTS + 1):
@@ -1186,17 +1202,57 @@ async def send_otp_email(email: str, code: str, name: str):
                 start_tls=True,
                 timeout=SMTP_TIMEOUT,
             )
-            log.info("OTP email to %s sent in %.1fs on attempt %d/%d",
-                     email, time.monotonic() - started, attempt, SMTP_MAX_ATTEMPTS)
+            log.info("%s email to %s sent in %.1fs on attempt %d/%d",
+                     what, to, time.monotonic() - started, attempt, SMTP_MAX_ATTEMPTS)
             return
         except (aiosmtplib.SMTPException, OSError, asyncio.TimeoutError) as e:
             last_exc = e
-            log.warning("OTP email to %s failed (attempt %d/%d): %s: %s",
-                        email, attempt, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
+            log.warning("%s email to %s failed (attempt %d/%d): %s: %s",
+                        what, to, attempt, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
             if attempt < SMTP_MAX_ATTEMPTS:
                 await asyncio.sleep(SMTP_RETRY_BASE_DELAY * attempt)
     assert last_exc is not None
     raise last_exc
+
+
+async def send_otp_email(email: str, code: str, name: str, purpose: str = "login",
+                         otp_key: str | None = None):
+    """Send a code via SMTP, or log it when AUTH_DEV_ECHO_OTP is set.
+
+    The dev branch returns BEFORE any SMTP work, so a host with no mail relay
+    (and no credentials configured) can still complete a login.
+    """
+    if DEV_ECHO_OTP:
+        log.warning(
+            "AUTH_DEV_ECHO_OTP is on: %s code for %s is %s "
+            "(not emailed; unset AUTH_DEV_ECHO_OTP for real delivery)",
+            purpose, email, code)
+        return
+    await _smtp_send(build_otp_message(email, code, name, purpose, otp_key), "OTP")
+
+
+async def send_alias_added_notice(primary: str, name: str, added: str):
+    """Tell the primary address that another address can now sign in to the
+    account, so a session someone else took over cannot add theirs quietly.
+    Best effort: a failure is logged, the address stays added."""
+    body = (
+        f"Hi {name},\n\n"
+        f"The address {added} was added to your Munin account and can now be "
+        "used to sign in.\n\n"
+        "If this was you, there is nothing to do. If it was not, remove it in "
+        "Munin under Settings, Email addresses"
+        + (f", and write to {SUPPORT_EMAIL}." if SUPPORT_EMAIL else ".")
+        + "\n"
+    )
+    if DEV_ECHO_OTP:
+        log.warning("AUTH_DEV_ECHO_OTP is on: alias notice to %s not emailed", primary)
+        return
+    msg = MIMEText(body, "plain")
+    _address(msg, primary, "Munin: an email address was added to your account")
+    try:
+        await _smtp_send(msg, "Alias notice")
+    except Exception as e:  # noqa: BLE001
+        log.error("Alias notice to %s failed: %s: %s", primary, type(e).__name__, e)
 
 
 def start_send_status() -> str:
@@ -1218,12 +1274,13 @@ def read_send_state(send_id: str) -> str:
     return entry["state"] if entry else "unknown"
 
 
-async def deliver_otp(send_id: str, email: str, code: str, name: str):
+async def deliver_otp(send_id: str, email: str, code: str, name: str,
+                      purpose: str = "login", otp_key: str | None = None):
     """Send the login mail after the response has gone out, and record how it
     went for the verify page. The relay takes seconds to accept a mail, and on a
     stalled connection much longer, which used to hold the login page."""
     try:
-        await send_otp_email(email, code, name)
+        await send_otp_email(email, code, name, purpose, otp_key)
     except Exception as e:
         log.error("OTP send ultimately failed for %s after %d attempts: %s: %s",
                   email, SMTP_MAX_ATTEMPTS, type(e).__name__, e)
@@ -1231,7 +1288,7 @@ async def deliver_otp(send_id: str, email: str, code: str, name: str):
         return
     send_status[send_id]["state"] = "sent"
     # The entry can be gone if the code was used while this mail was on its way.
-    entry = otp_store.get(email)
+    entry = otp_store.get(otp_key or email)
     if entry and entry["code"] == code:
         entry["sends"] += 1
 
@@ -1509,6 +1566,198 @@ async def logout(request: Request):
 
 
 # ── Support Contact ──────────────────────────────────────────────────────
+
+# ── Self-service email addresses ────────────────────────────────────────────
+#
+# A signed-in user can add addresses to sign in with. The new address must
+# prove itself with a code mailed to it. That code lives under
+# alias_otp_key(), never under the bare address a login code uses, so it
+# cannot complete a login, and a login code cannot confirm an address. The
+# key also carries the user id, so a code only ever attaches the address to
+# the account that asked for it. The primary address is told once one is
+# added.
+
+ALIAS_REQUEST_LIMIT = 3  # code requests per user per 15 minutes
+
+
+def alias_otp_key(user_id: int, email: str) -> str:
+    return f"alias:{user_id}:{email}"
+
+
+def _session_account(request: Request):
+    """(session, user) for the cookie, or (None, error response)."""
+    cookie = request.cookies.get("munin_session")
+    session = validate_session(cookie) if cookie else None
+    if not session:
+        return None, JSONResponse({"error": "not authenticated"}, status_code=401)
+    user = lookup_user(session["email"])
+    if not user:
+        return None, JSONResponse({"error": "account not found"}, status_code=401)
+    return (session, user), None
+
+
+def _my_emails(user_id: int, login_email: str) -> dict:
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT email, is_primary FROM user_emails WHERE user_id = ? "
+            "ORDER BY is_primary DESC, email ASC",
+            (user_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    return {
+        "emails": [
+            {"email": r["email"], "primary": bool(r["is_primary"]),
+             "current": r["email"] == login_email}
+            for r in rows
+        ],
+        "max": MAX_EMAILS_PER_USER,
+    }
+
+
+def _clean_new_address(raw) -> str | None:
+    email = (raw or "").strip().lower()
+    local, _, domain = email.partition("@")
+    if not local or "." not in domain or len(email) > 254 or any(c.isspace() for c in email):
+        return None
+    return email
+
+
+def _alias_refusal(conn: sqlite3.Connection, user_id: int, email: str) -> tuple[int, str] | None:
+    owner = _email_owner(conn, email)
+    if owner == user_id:
+        return 409, "This address is already on your account."
+    if owner is not None:
+        return 409, "This address cannot be added. If it is yours, contact support."
+    n = conn.execute(
+        "SELECT COUNT(*) AS n FROM user_emails WHERE user_id = ?", (user_id,)
+    ).fetchone()["n"]
+    if n >= MAX_EMAILS_PER_USER:
+        return 409, f"An account can have at most {MAX_EMAILS_PER_USER} addresses."
+    return None
+
+
+@app.get("/auth/me/emails")
+async def my_emails(request: Request):
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
+@app.post("/auth/me/emails")
+async def my_emails_request(request: Request, background_tasks: BackgroundTasks):
+    """Mail a confirmation code to an address the user wants to add."""
+    acct, err = _session_account(request)
+    if err:
+        return err
+    _, user = acct
+    body = await request.json()
+    email = _clean_new_address(body.get("email"))
+    if not email:
+        return JSONResponse({"error": "Enter a valid email address."}, status_code=400)
+    conn = get_db()
+    try:
+        refused = _alias_refusal(conn, user["id"], email)
+    finally:
+        conn.close()
+    if refused:
+        return JSONResponse({"error": refused[1]}, status_code=refused[0])
+
+    per_user = f"alias-request:{user['id']}"
+    if not check_rate(rate_send, per_user, limit=ALIAS_REQUEST_LIMIT):
+        return JSONResponse({"error": "Too many code requests. Please wait 15 minutes."},
+                            status_code=429)
+    key = alias_otp_key(user["id"], email)
+    code = generate_otp(key)
+    record_rate(rate_send, per_user)
+    send_id = start_send_status()
+    background_tasks.add_task(deliver_otp, send_id, email, code, user["name"],
+                              "alias", key)
+    return JSONResponse({"email": email, "send": send_id,
+                         "expiry_minutes": otp_minutes_left(key)}, status_code=202)
+
+
+@app.post("/auth/me/emails/verify")
+async def my_emails_verify(request: Request, background_tasks: BackgroundTasks):
+    """Attach the address once its code checks out."""
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    body = await request.json()
+    email = _clean_new_address(body.get("email"))
+    code = re.sub(r"[^0-9]", "", str(body.get("code") or ""))
+    if not email or not code:
+        return JSONResponse({"error": "Enter the code from the email."}, status_code=400)
+
+    key = alias_otp_key(user["id"], email)
+    if not check_rate(rate_verify, key, limit=VERIFY_ATTEMPT_LIMIT):
+        return JSONResponse({"error": LOCKOUT_MESSAGE}, status_code=429)
+    ok, msg = verify_otp(key, code)
+    if not ok:
+        record_rate(rate_verify, key)
+        return JSONResponse({"error": msg}, status_code=400)
+    rate_verify.pop(key, None)
+
+    conn = get_db()
+    try:
+        # Checked again: the address may have been taken, or the cap
+        # reached, while the code was in the mail.
+        refused = _alias_refusal(conn, user["id"], email)
+        if refused:
+            return JSONResponse({"error": refused[1]}, status_code=refused[0])
+        _attach_email(conn, user["id"], email, is_primary=False)
+        _touch_user(conn, user["id"])
+        conn.commit()
+    finally:
+        conn.close()
+    log.info("user %s added a sign-in address", user["id"])
+    background_tasks.add_task(send_alias_added_notice, user["primary_email"],
+                              user["name"], email)
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
+@app.delete("/auth/me/emails/{email}")
+async def my_emails_remove(email: str, request: Request):
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    email = email.strip().lower()
+    if email == session["login_email"]:
+        return JSONResponse(
+            {"error": "You are signed in with this address. Sign in with another one to remove it."},
+            status_code=409)
+    conn = get_db()
+    try:
+        failed = _remove_email(conn, user["id"], email)
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
+        conn.commit()
+    finally:
+        conn.close()
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
+
+@app.put("/auth/me/emails/{email}/primary")
+async def my_emails_primary(email: str, request: Request):
+    acct, err = _session_account(request)
+    if err:
+        return err
+    session, user = acct
+    conn = get_db()
+    try:
+        failed = _make_primary(conn, user["id"], email.strip().lower())
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
+        conn.commit()
+    finally:
+        conn.close()
+    return JSONResponse(_my_emails(user["id"], session["login_email"]))
+
 
 SUPPORT_RATE_LIMIT = 3  # max 3 support messages per hour
 
@@ -1857,6 +2106,52 @@ async def admin_delete_user(user_id: int, request: Request):
     return Response(status_code=204)
 
 
+# ── Email address changes (shared by admin and self-service) ────────────────
+
+MAX_EMAILS_PER_USER = 5
+
+
+def _remove_email(conn: sqlite3.Connection, user_id: int, email: str) -> tuple[int, str] | None:
+    """Detach an address from a user. Returns (status, error) or None on
+    success. Signs that address's sessions out; removing the primary
+    promotes the next address (alphabetical). The account key
+    (identity_email) is untouched, so no data moves."""
+    row = conn.execute(
+        "SELECT is_primary FROM user_emails WHERE user_id = ? AND email = ?",
+        (user_id, email),
+    ).fetchone()
+    if not row:
+        return 404, "email not found for user"
+    n = conn.execute(
+        "SELECT COUNT(*) AS n FROM user_emails WHERE user_id = ?", (user_id,)
+    ).fetchone()["n"]
+    if n <= 1:
+        return 409, "cannot remove the last email of a user"
+    conn.execute("DELETE FROM user_emails WHERE email = ?", (email,))
+    conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
+    if row["is_primary"]:
+        nxt = conn.execute(
+            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC LIMIT 1",
+            (user_id,),
+        ).fetchone()
+        conn.execute("UPDATE user_emails SET is_primary = 1 WHERE email = ?", (nxt["email"],))
+    _touch_user(conn, user_id)
+    return None
+
+
+def _make_primary(conn: sqlite3.Connection, user_id: int, email: str) -> tuple[int, str] | None:
+    """Make an address the user's primary (display and mail only)."""
+    row = conn.execute(
+        "SELECT 1 FROM user_emails WHERE user_id = ? AND email = ?", (user_id, email)
+    ).fetchone()
+    if not row:
+        return 404, "email not found for user"
+    conn.execute("UPDATE user_emails SET is_primary = 0 WHERE user_id = ?", (user_id,))
+    conn.execute("UPDATE user_emails SET is_primary = 1 WHERE email = ?", (email,))
+    _touch_user(conn, user_id)
+    return None
+
+
 # ── Admin: user emails ───────────────────────────────────────────────────────
 
 @app.post("/admin/users/{user_id}/emails")
@@ -1901,40 +2196,10 @@ async def admin_remove_email(user_id: int, email: str, request: Request):
     email = email.strip().lower()
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT email, is_primary FROM user_emails WHERE user_id = ? AND email = ?",
-            (user_id, email),
-        ).fetchone()
-        if not row:
-            return JSONResponse({"error": "email not found for user"}, status_code=404)
-
-        all_emails = conn.execute(
-            "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC",
-            (user_id,),
-        ).fetchall()
-        if len(all_emails) <= 1:
-            return JSONResponse(
-                {"error": "cannot remove the last email of a user"}, status_code=409
-            )
-
-        was_primary = bool(row["is_primary"])
-        conn.execute("DELETE FROM user_emails WHERE email = ?", (email,))
-        conn.execute("DELETE FROM sessions WHERE email = ?", (email,))
-
-        if was_primary:
-            # Promote next remaining email (alphabetical) to primary.
-            next_email = conn.execute(
-                "SELECT email FROM user_emails WHERE user_id = ? ORDER BY email ASC LIMIT 1",
-                (user_id,),
-            ).fetchone()
-            if next_email:
-                conn.execute(
-                    "UPDATE user_emails SET is_primary = 1 WHERE email = ?",
-                    (next_email["email"],),
-                )
-        _touch_user(conn, user_id)
+        failed = _remove_email(conn, user_id, email)
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
         conn.commit()
-
         urow = conn.execute(
             f"SELECT {_USERS_SELECT_COLUMNS} FROM users WHERE id = ?",
             (user_id,),
@@ -1954,20 +2219,9 @@ async def admin_set_primary_email(user_id: int, email: str, request: Request):
     email = email.strip().lower()
     conn = get_db()
     try:
-        row = conn.execute(
-            "SELECT email FROM user_emails WHERE user_id = ? AND email = ?",
-            (user_id, email),
-        ).fetchone()
-        if not row:
-            return JSONResponse({"error": "email not found for user"}, status_code=404)
-
-        conn.execute(
-            "UPDATE user_emails SET is_primary = 0 WHERE user_id = ?", (user_id,)
-        )
-        conn.execute(
-            "UPDATE user_emails SET is_primary = 1 WHERE email = ?", (email,)
-        )
-        _touch_user(conn, user_id)
+        failed = _make_primary(conn, user_id, email)
+        if failed:
+            return JSONResponse({"error": failed[1]}, status_code=failed[0])
         conn.commit()
 
         urow = conn.execute(

@@ -7,6 +7,7 @@ import { useUiStore } from '../stores/uiStore';
 import { API_PUBLIC_URL } from '../lib/urls';
 import { copyText } from '../lib/copyText';
 import { ErrorNotice } from './ui/ErrorNotice';
+import { EmailAddresses } from './EmailAddresses';
 import { ThemePicker } from './ThemePicker';
 import { PageHeader } from './ui/PageHeader';
 
@@ -410,13 +411,7 @@ print(response.choices[0].message.content)`;
           </p>
         </div>
 
-        {/* Email (read-only) */}
-        <div className="mb-8">
-          <p className="text-sm text-text-secondary mb-2">Email</p>
-          <div className="px-3 py-2 bg-bg-tertiary border border-border rounded-lg text-sm text-text-secondary">
-            {profile.email}
-          </div>
-        </div>
+        <EmailAddresses fallbackEmail={profile.email} />
 
 
         {/* ── Divider ── */}
