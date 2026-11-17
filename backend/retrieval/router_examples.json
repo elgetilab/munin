@@ -7,8 +7,8 @@
     ],
     "note": "Committed queries only; router embeds with BGE at load. DISJOINT from the routing-eval test items (no train/test leak); seed items are NOT a source.",
     "counts": {
-      "total": 244,
-      "code": 83,
+      "total": 264,
+      "code": 103,
       "research": 91,
       "chat": 70
     }
@@ -396,6 +396,106 @@
     },
     {
       "query": "tabulate and plot the buildup rates per catalyst",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "this zip is a raw NMR experiment, process the FID and report the peak positions in ppm",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "apodise, Fourier transform, phase and baseline correct the uploaded FID",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "calibrate the ppm axis so the internal standard sits at zero, then integrate the multiplets",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "convert the raw 13C free induction decay I uploaded into a spectrum and pick the peaks",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "the uploaded file holds a calibration series, fit the standard curve and report the unknown concentrations",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "this file has a ligand titration, fit a one-site binding model and report Kd with a confidence interval",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "the attached data are initial rates at several substrate concentrations, fit the kinetics and report Km and Vmax",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "this is a plate reader export, report the value of every well",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "load this instrument export with decimal commas into pandas and tabulate each sample",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "read the qPCR run file I attached and give me the Cq of each well",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "the archive has one peak list per titration point, compute the shift perturbations and fit them",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "fit the peak intensity versus delay curve for every residue in the uploaded table",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "fit a two-phase exponential to the uploaded decay and report both rate constants",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "these exports have one column per sample, average the replicates and report mean and SD",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "save the fitted parameters as a JSON file in the working directory",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "write the final numbers to a results file with Python",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "remove the control group from the figure and replot",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "save the same plot again as an SVG too",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "switch the error bars to standard error and re-save the figure",
+      "profile": "code",
+      "source": "curated"
+    },
+    {
+      "query": "put the y axis on a log scale and export the figure again",
       "profile": "code",
       "source": "curated"
     },

@@ -53,6 +53,8 @@ from usage_tracker import (
 )
 from metrics import observe_citation_claims, observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
+from answer_tags import AnswerTagStreamFilter, clean_reply, cut_loop, has_repeats, strip_answer_tags, tail_is_looping
+import turn_results
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 import hooks as hooks_module
@@ -230,11 +232,14 @@ async def _attach_to_sandbox(user_email: str, conversation_id: str, ephemeral: b
         logger.warning("attaching %s to sandbox failed: %s", doc_id, res["error"])
         return f"It could not be copied to the code sandbox ({res['error']})."
     paths = res.get("paths") or []
+    import labkit_hints
+    reader = labkit_hints.upload_hint(filename or os.path.basename(path), data, paths)
+    reader = f" {reader}" if reader else ""
     if len(paths) == 1:
-        return f"Code can read it at {paths[0]!r} (read-only)."
+        return f"Code can read it at {paths[0]!r} (read-only).{reader}"
     shown = ", ".join(repr(p) for p in paths[:20])
     more = f" and {len(paths) - 20} more" if len(paths) > 20 else ""
-    return f"It was unpacked for code under inputs/ (read-only): {shown}{more}."
+    return f"It was unpacked for code under inputs/ (read-only): {shown}{more}.{reader}"
 
 
 async def _resolve_user_content_images(
@@ -634,6 +639,13 @@ _PROSE_ACTION_OPENERS = (
     "let me now ",
 )
 
+# Word-boundary match so an opener after a newline, a tag or punctuation
+# counts, not only at the very start or after a space.
+_PROSE_ACTION_OPENER_RE = _re.compile(
+    r"(?<![\w'])(?:" + "|".join(_re.escape(o.strip()) for o in _PROSE_ACTION_OPENERS) + r")\b"
+)
+_LEADING_MARKUP_RE = _re.compile(r"^(?:[\s>#*_`~-]+|\d+[.)]\s+)+")
+
 # Action verbs that imply a tool call should follow. Deliberately narrow:
 # verbs like "explain", "describe", "show you", "walk through" are pure
 # prose and must NOT trigger recovery.
@@ -693,14 +705,17 @@ def _looks_like_prose_action_promise(content: str) -> bool:
     """
     if not content:
         return False
-    stripped = content.strip()
+    # Drop stray <answer> tags and collapse looped copies first (s3_bars
+    # turn 7: "<answer>\nI'll remove KO2 ..." three times), then leading
+    # markup (headings, quotes, bullets, emphasis) so the opener is seen.
+    stripped = _LEADING_MARKUP_RE.sub("", strip_answer_tags(content).strip())
     # Length window. Lower bound rejects empty/near-empty content; upper
     # bound rejects long answers that legitimately discuss future work
     # alongside their main response.
     if len(stripped) > 600 or len(stripped) < 20:
         return False
-    low = stripped.lower()
-    has_opener = any(low.startswith(o) or f" {o}" in low[:200] for o in _PROSE_ACTION_OPENERS)
+    low = stripped.lower().replace("\u2019", "'")
+    has_opener = bool(_PROSE_ACTION_OPENER_RE.search(low[:200]))
     if not has_opener:
         return False
     has_verb = any(v in low for v in _PROSE_ACTION_VERBS)
@@ -720,6 +735,7 @@ async def _force_clarification_retry(
     sampling: dict,
     persona: Optional[dict] = None,
     max_attempts: int = 3,
+    history_end: Optional[int] = None,
 ) -> Optional[dict]:
     """
     Non-streaming vLLM call with ``tool_choice`` forced to
@@ -738,12 +754,20 @@ async def _force_clarification_retry(
     validation the chat_service intercept uses so we never bubble a bad
     payload up to the SSE event.
     """
+    tools_payload = _openai_tools_schema(persona)
+    fitted = _fit_prompt_for_call(
+        messages, chat_context.tools_schema_tokens(tools_payload),
+        history_end=history_end, purpose="forced_clarification",
+    )
+    if fitted is None:
+        return None
+    messages = fitted
     for attempt in range(max_attempts):
         body: dict[str, Any] = {
             "model": VLLM_MODEL_NAME,
             "messages": messages,
             "stream": False,
-            "tools": _openai_tools_schema(persona),
+            "tools": tools_payload,
             "tool_choice": {
                 "type": "function",
                 "function": {"name": "ask_clarification"},
@@ -807,12 +831,73 @@ async def _force_clarification_retry(
     return None
 
 
+def _clean_final_content(text: str) -> str:
+    """``answer_tags.clean_reply`` with a log line when it changed anything."""
+    cleaned, n_tags, n_rep = clean_reply(text)
+    if n_tags or n_rep:
+        logger.info(
+            "answer tags: stripped %d tag(s), collapsed %d repeated "
+            "paragraph block(s) in the saved reply", n_tags, n_rep,
+        )
+    return cleaned
+
+
+async def _wrap_up_repeat_retry(
+    wrap_up_messages: list[dict], sampling: dict
+) -> Optional[str]:
+    """One non-streaming wrap-up retry with a frequency penalty.
+
+    Returns the new reply text, or None when the call fails, comes back
+    empty, or repeats itself again (the caller then keeps the collapsed
+    first try).
+    """
+    fitted = _fit_prompt_for_call(wrap_up_messages, 0, purpose="chat_wrap_up_retry")
+    if fitted is None:
+        return None
+    wrap_up_messages = fitted
+    body: dict[str, Any] = {
+        "model": VLLM_MODEL_NAME,
+        "messages": wrap_up_messages,
+        "stream": False,
+        "max_tokens": chat_context.DEFAULT_MAX_OUTPUT_TOKENS,
+    }
+    body.update(sampling)
+    body["frequency_penalty"] = 0.5
+    for _key, _value in reasoning_effort_fields().items():
+        _existing = body.get(_key)
+        if isinstance(_existing, dict) and isinstance(_value, dict):
+            _existing.update(_value)
+        else:
+            body[_key] = _value
+    body["max_tokens"] = chat_context.fit_max_tokens(
+        wrap_up_messages, body.get("max_tokens")
+    )
+    body.update(thinking_budget_fields(max_tokens=body.get("max_tokens")))
+    try:
+        d = await vllm_post_json(body, timeout=120.0, purpose="chat_wrap_up_retry")
+    except VLLMRequestError as e:
+        logger.warning("wrap-up repeat retry failed: %s", e)
+        return None
+    except Exception as e:  # never let the retry break the turn
+        logger.warning("wrap-up repeat retry failed: %s", e)
+        return None
+    record_usage("wrap_up_retry", d.get("usage"))
+    msg = (d.get("choices") or [{}])[0].get("message") or {}
+    content = msg.get("content") or ""
+    if not content.strip() or has_repeats(content):
+        logger.info("wrap-up repeat retry did not help; keeping the collapsed reply")
+        return None
+    logger.info("wrap-up repeated itself; replaced with a frequency-penalty retry")
+    return content
+
+
 async def _force_required_tool_retry(
     messages: list[dict],
     sampling: dict,
     nudge_text: str,
     persona: Optional[dict] = None,
     max_attempts: int = 2,
+    history_end: Optional[int] = None,
 ) -> Optional[list[dict]]:
     """
     Non-streaming vLLM call with ``tool_choice="required"`` so the model
@@ -838,12 +923,21 @@ async def _force_required_tool_retry(
       compile_latex).
     """
     nudged_messages = list(messages) + [{"role": "user", "content": nudge_text}]
+    tools_payload = _openai_tools_schema(persona)
+    schema_tokens = chat_context.tools_schema_tokens(tools_payload)
+    fitted = _fit_prompt_for_call(
+        nudged_messages, schema_tokens,
+        history_end=history_end, purpose="forced_required",
+    )
+    if fitted is None:
+        return None
+    nudged_messages = fitted
     for attempt in range(max_attempts):
         body: dict[str, Any] = {
             "model": VLLM_MODEL_NAME,
             "messages": nudged_messages,
             "stream": False,
-            "tools": _openai_tools_schema(persona),
+            "tools": tools_payload,
             "tool_choice": "required",
             # Cap generation. A forced tool call should resolve in well
             # under this; without a cap, an off-the-rails generation on
@@ -854,6 +948,9 @@ async def _force_required_tool_retry(
             "max_tokens": 8000,
         }
         body.update(sampling)
+        body["max_tokens"] = chat_context.fit_max_tokens(
+            nudged_messages, 8000, extra_tokens=schema_tokens
+        )
         try:
             d = await vllm_post_json(
                 body, timeout=60.0, purpose="forced_required"
@@ -950,6 +1047,79 @@ def repair_tool_name(name: str) -> str:
     return fixed
 
 
+def _fit_prompt_for_call(
+    messages: list[dict],
+    schema_tokens: int,
+    *,
+    history_end: Optional[int] = None,
+    purpose: str = "chat_turn",
+) -> Optional[list[dict]]:
+    """The copy of ``messages`` to send to vLLM, shrunk to fit the window, or
+    None when it cannot fit (the caller must not send it).
+
+    Shared by the streaming call and every non-streaming retry (forced tool
+    call, clarification, wrap-up retry): those used to send the turn's full,
+    unbudgeted list and were rejected with a raw 400 exactly when the turn
+    was already near the window (LAB-BUGFIX-PLAN.md F10).
+    """
+    # Tier 2: under heavy fan-out, elide OLD tool results (from prior loop
+    # iterations the model has already reasoned past) out of the prompt copy
+    # sent to vLLM so the output budget fit below isn't starved. No-op until
+    # results accumulate; never touches the pending batch or the persisted
+    # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
+    messages, _elided = chat_context.budget_loop_messages(
+        messages, extra_tokens=schema_tokens
+    )
+    if _elided["results"] or _elided["pending"]:
+        logger.info(
+            "budgeted %d earlier tool result(s) out of the prompt to fit the "
+            "context window", _elided["results"] + _elided["pending"],
+        )
+    if _elided["args"]:
+        logger.info(
+            "budgeted the arguments of %d earlier tool call(s) out of the "
+            "prompt to fit the context window", _elided["args"],
+        )
+
+    # Step 3 of CONTEXT-OVERFLOW-PLAN.md: never send a request we already
+    # know vLLM will reject. When the turn's own messages cannot shrink
+    # further, leave the oldest earlier-turn messages out of this copy; if
+    # even that cannot make room, return None so the caller reports
+    # context_full (and wraps up from a minimal prompt) instead of storing a
+    # raw 400.
+    _room = (chat_context.MAX_MODEL_LEN - chat_context.prompt_tokens(messages)
+             - schema_tokens - chat_context.CTX_MARGIN)
+    if _room < chat_context.MIN_USEFUL_OUTPUT_TOKENS:
+        logger.warning(
+            "prompt near the context window (room=%d, purpose=%s); composition %s",
+            _room, purpose,
+            chat_context.prompt_composition(
+                messages, extra_tokens=schema_tokens, history_end=history_end),
+        )
+        if history_end is not None:
+            messages, _n_dropped = chat_context.drop_history_to_fit(
+                messages, history_end,
+                chat_context.MAX_MODEL_LEN - chat_context.CTX_MARGIN
+                - chat_context.MIN_USEFUL_OUTPUT_TOKENS,
+                extra_tokens=schema_tokens,
+            )
+            if _n_dropped:
+                logger.warning(
+                    "left %d earlier-turn message(s) out of the prompt to fit "
+                    "the context window", _n_dropped,
+                )
+            _room = (chat_context.MAX_MODEL_LEN
+                     - chat_context.prompt_tokens(messages)
+                     - schema_tokens - chat_context.CTX_MARGIN)
+        if _room < chat_context.MIN_OUTPUT_TOKENS:
+            logger.warning(
+                "context full (room=%d); not calling vLLM (purpose=%s)",
+                _room, purpose,
+            )
+            return None
+    return messages
+
+
 async def _stream_vllm_once(
     messages: list[dict],
     sampling: dict,
@@ -975,62 +1145,13 @@ async def _stream_vllm_once(
     tools_payload = _openai_tools_schema(persona) if enable_tools else None
     schema_tokens = chat_context.tools_schema_tokens(tools_payload)
 
-    # Tier 2: under heavy fan-out, elide OLD tool results (from prior loop
-    # iterations the model has already reasoned past) out of the prompt copy
-    # sent to vLLM so the output budget fit below isn't starved. No-op until
-    # results accumulate; never touches the pending batch or the persisted
-    # conversation. (docs/paper-track/done/CONTEXT-BUDGET-FIX-SCOPE.md, Tier 2.)
-    messages, _elided = chat_context.budget_loop_messages(
-        messages, extra_tokens=schema_tokens
+    messages = _fit_prompt_for_call(
+        messages, schema_tokens, history_end=history_end, purpose=purpose
     )
-    if _elided["results"] or _elided["pending"]:
-        logger.info(
-            "budgeted %d earlier tool result(s) out of the prompt to fit the "
-            "context window", _elided["results"] + _elided["pending"],
-        )
-    if _elided["args"]:
-        logger.info(
-            "budgeted the arguments of %d earlier tool call(s) out of the "
-            "prompt to fit the context window", _elided["args"],
-        )
-
-    # Step 3 of CONTEXT-OVERFLOW-PLAN.md: never send a request we already
-    # know vLLM will reject. When the turn's own messages cannot shrink
-    # further, leave the oldest earlier-turn messages out of this copy; if
-    # even that cannot make room, report context_full so the caller wraps up
-    # from a minimal prompt instead of storing a raw 400.
-    _room = (chat_context.MAX_MODEL_LEN - chat_context.prompt_tokens(messages)
-             - schema_tokens - chat_context.CTX_MARGIN)
-    if _room < chat_context.MIN_USEFUL_OUTPUT_TOKENS:
-        logger.warning(
-            "prompt near the context window (room=%d); composition %s",
-            _room,
-            chat_context.prompt_composition(
-                messages, extra_tokens=schema_tokens, history_end=history_end),
-        )
-        if history_end is not None:
-            messages, _n_dropped = chat_context.drop_history_to_fit(
-                messages, history_end,
-                chat_context.MAX_MODEL_LEN - chat_context.CTX_MARGIN
-                - chat_context.MIN_USEFUL_OUTPUT_TOKENS,
-                extra_tokens=schema_tokens,
-            )
-            if _n_dropped:
-                logger.warning(
-                    "left %d earlier-turn message(s) out of the prompt to fit "
-                    "the context window", _n_dropped,
-                )
-            _room = (chat_context.MAX_MODEL_LEN
-                     - chat_context.prompt_tokens(messages)
-                     - schema_tokens - chat_context.CTX_MARGIN)
-        if _room < chat_context.MIN_OUTPUT_TOKENS:
-            logger.warning(
-                "context full (room=%d); not calling vLLM (purpose=%s)",
-                _room, purpose,
-            )
-            yield ("error", {"message": chat_context.CONTEXT_FULL_MESSAGE,
-                             "reason": chat_context.CONTEXT_FULL_REASON}, acc)
-            return
+    if messages is None:
+        yield ("error", {"message": chat_context.CONTEXT_FULL_MESSAGE,
+                         "reason": chat_context.CONTEXT_FULL_REASON}, acc)
+        return
 
     body: dict[str, Any] = {
         "model": VLLM_MODEL_NAME,
@@ -1089,6 +1210,9 @@ async def _stream_vllm_once(
         try:
             async with vllm_post_stream(body, purpose=purpose) as line_iter:
                 emitted_tool_ids: set[int] = set()
+                tag_filter = AnswerTagStreamFilter()
+                content_chars = 0
+                next_loop_check = 2000
 
                 async for line in line_iter:
                     if not line or not line.startswith("data:"):
@@ -1121,7 +1245,28 @@ async def _stream_vllm_once(
                     content = delta.get("content")
                     if content:
                         acc.content_parts.append(content)
-                        yield ("token", {"content": content}, acc)
+                        # The raw text stays in acc (cleaned at persistence);
+                        # the client gets it without <answer> tags.
+                        shown = tag_filter.feed(content)
+                        if shown:
+                            yield ("token", {"content": shown}, acc)
+                        content_chars += len(content)
+                        if content_chars >= next_loop_check:
+                            next_loop_check = content_chars + 1000
+                            if tail_is_looping(acc.content):
+                                # Stop the generation (leaving the stream
+                                # closes the request in vLLM) and keep one
+                                # copy, so the loop neither runs to max_tokens
+                                # nor goes back into the turn (F9).
+                                cut = cut_loop(acc.content)
+                                logger.warning(
+                                    "stream looping; stopped it after %d "
+                                    "characters, kept %d (purpose=%s)",
+                                    content_chars, len(cut), purpose,
+                                )
+                                acc.content_parts[:] = [cut]
+                                acc.finish_reason = "repetition"
+                                break
 
                     for delta_tc in (delta.get("tool_calls") or []):
                         idx = delta_tc.get("index", 0)
@@ -1139,6 +1284,16 @@ async def _stream_vllm_once(
                     finish = choice.get("finish_reason")
                     if finish:
                         acc.finish_reason = finish
+
+                # A trailing "<ans" that never became a tag is plain text.
+                _tail = tag_filter.flush()
+                if _tail:
+                    yield ("token", {"content": _tail}, acc)
+                if tag_filter.stripped:
+                    logger.info(
+                        "answer tags: dropped %d from the live stream (purpose=%s)",
+                        tag_filter.stripped, purpose,
+                    )
 
                 # Emit a tool_call SSE for each finalized tool call — we
                 # delay this until the stream ends so arguments are complete.
@@ -1248,11 +1403,87 @@ def _duplicate_create_artifact_ids(tool_calls: list[dict]) -> set[str]:
     return skip
 
 
+# Sandbox calls the model may not rerun verbatim. The lab Bruker case
+# (2026-11-15) ran one script six times in a row, got the same wrong output
+# each time, and spent the turn's whole budget without an answer.
+REPEAT_GUARDED_TOOLS = SANDBOX_ARTIFACT_TOOLS
+# The second blocked repeat in one message ends the tool loop (wrap-up).
+MAX_BLOCKED_REPEATS = 2
+
+
+def _call_key(tc: dict) -> Optional[str]:
+    """Identity of a guarded call: tool name plus canonical arguments."""
+    if tc.get("name") not in REPEAT_GUARDED_TOOLS:
+        return None
+    try:
+        args = json.dumps(tc.get("arguments") or {}, sort_keys=True, default=str)
+    except Exception:
+        return None
+    return f"{tc.get('name')}:{args}"
+
+
+def _rerun_is_legit(result) -> bool:
+    """A timeout or an infrastructure failure may well pass on a rerun.
+
+    ``None`` is a call earlier in the same response whose result is not in
+    yet: a verbatim copy of it in one response is never worth running.
+    """
+    if result is None:
+        return False
+    if not isinstance(result, dict):
+        return True
+    if result.get("timed_out"):
+        return True
+    err = str(result.get("error") or "")
+    return err.startswith("tool execution failed") or "restart" in err.lower()
+
+
+def _repeated_call_skips(
+    tool_calls: list[dict],
+    last_call: Optional[tuple],
+    call_number: int,
+) -> tuple[dict[str, dict], Optional[tuple]]:
+    """Find calls that repeat the call made just before them, unchanged.
+
+    ``last_call`` is ``(key, result, number)`` for the most recent executed
+    call of this message (``None`` at the start). A guarded call whose key
+    equals the previous call's key, with nothing else run in between, gets
+    a synthetic result instead of running again; rerunning after another
+    call is allowed because files may have changed. Returns the skips by
+    tool-call id and the new ``last_call`` (its result is filled in by the
+    caller once the step has run; a skipped call keeps the earlier one).
+    """
+    skips: dict[str, dict] = {}
+    prev = last_call
+    for i, tc in enumerate(tool_calls):
+        key = _call_key(tc)
+        number = call_number + i + 1
+        if (key is not None and prev is not None and prev[0] == key
+                and not _rerun_is_legit(prev[1])):
+            skips[tc["id"]] = {
+                "skipped": True,
+                "repeated_call": True,
+                "reason": (
+                    f"Not run: this is exactly the {tc.get('name')} call you "
+                    f"made in call {prev[2]}, with nothing run since, so it "
+                    f"would give the same result shown there. Change the "
+                    f"code, or answer with what you have."
+                ),
+            }
+            continue
+        prev = (key, None, number)
+    return skips, prev
+
+
 async def _run_tool_calls(
     tool_calls: list[dict],
     persona_id: Optional[str] = None,
+    skip_results: Optional[dict[str, dict]] = None,
 ) -> list[dict]:
     """Execute all tool calls for a turn, preserving declared order.
+
+    ``skip_results`` maps tool-call ids to a synthetic result returned
+    instead of running the call (verbatim reruns, see _repeated_call_skips).
 
     Concurrency-safe tools (paper_search, web_search, calculate, ...)
     fan out via asyncio.gather. Unsafe tools (``is_concurrency_safe:
@@ -1277,6 +1508,9 @@ async def _run_tool_calls(
 
     async def one(tc: dict) -> dict:
         name = tc.get("name") or ""
+        if skip_results and tc.get("id") in skip_results:
+            return {"id": tc["id"], "name": name,
+                    "result": skip_results[tc["id"]], "duration_ms": 0}
         # Duplicate create_artifact (same title, same response): skip the
         # actual creation but still return a result so the model gets
         # feedback and the tool_call_id is satisfied.
@@ -1557,13 +1791,14 @@ def apply_stream_error_marker(final_content: str, error_message: str) -> str:
 
 
 def audit_artifact_urls_in_content(
-    content: str, tool_calls: Optional[list]
+    content: str, tool_calls: Optional[list], known_urls: Optional[set] = None
 ) -> tuple:
     """Return (content, phantom_urls).
 
     `phantom_urls` lists every `/api/artifacts/...` URL that appears
     in `content` but does NOT appear in any of `tool_calls`' result
-    payloads from this turn. When non-empty, the returned content
+    payloads from this turn, nor in ``known_urls`` (artifact URLs from
+    tool results of earlier turns, see ``_conversation_artifact_urls``). When non-empty, the returned content
     is prepended with a [backend warning] marker so the saved
     message carries the audit trail through to chat_store and
     future replays.
@@ -1575,7 +1810,7 @@ def audit_artifact_urls_in_content(
     found = set(_ARTIFACT_URL_RE.findall(content))
     if not found:
         return content, []
-    legit: set = set()
+    legit: set = set(known_urls or ())
     for tc in tool_calls or []:
         if isinstance(tc, dict):
             legit.update(_collect_artifact_urls(tc.get("result")))
@@ -1592,6 +1827,19 @@ def audit_artifact_urls_in_content(
         notice_lines.append(f"- `{u}`")
     notice_lines.extend(["", "---", ""])
     return "\n".join(notice_lines) + "\n" + content, phantoms
+
+
+def _conversation_artifact_urls(messages: Optional[list]) -> set:
+    """Artifact URLs that tool results of earlier turns produced. Linking a
+    figure made in an earlier turn is legitimate, not a phantom."""
+    found: set = set()
+    for m in messages or []:
+        if not isinstance(m, dict):
+            continue
+        for tc in m.get("tool_calls") or []:
+            if isinstance(tc, dict):
+                found.update(_collect_artifact_urls(tc.get("result")))
+    return found
 
 
 # --- Phantom-paper-URL audit (regression guard for chat a42384f0) ---
@@ -2150,8 +2398,18 @@ async def stream_chat_completion(
     # to route on, so skip the embed call entirely and stay on the pin.
     if ROUTER_ENABLED and typed_text:
         try:
+            # Attached file names let a data upload route to code even when
+            # the wording reads like a literature question (bruker_1h.zip went
+            # to research, LAB-BUGFIX-PLAN.md F11).
+            _raw = user_message.get("content", "")
+            _attached = [
+                b.get("filename") for b in _raw
+                if isinstance(b, dict) and b.get("type") == "document"
+                and isinstance(b.get("filename"), str)
+            ] if isinstance(_raw, list) else []
             _d = router_module.route(
-                typed_text, pin_id, _get_router_index(), _bge_embed
+                typed_text, pin_id, _get_router_index(), _bge_embed,
+                attachments=_attached,
             )
             _routed = persona_module.get_persona(_d.profile)
             if _routed is not None:
@@ -2444,6 +2702,8 @@ async def stream_chat_completion(
         persisted_text,
         current_search_urls.get(),
     )
+    # Artifact URLs earlier turns' tools produced, for the phantom-URL audits.
+    prior_artifact_urls = _conversation_artifact_urls(conversation.get("messages"))
 
     # --- Save-always wrapper (chat 3951063c, 2026-05-08) ---
     # Persist the assistant turn no matter how this function exits:
@@ -2527,6 +2787,15 @@ async def stream_chat_completion(
         # Cumulative tool calls across this message's agentic loop; the
         # MAX_TOOL_CALLS_PER_MESSAGE backstop trips the wrap-up when exceeded.
         total_tool_calls = 0
+        # Verbatim-rerun guard (_repeated_call_skips): the last executed call
+        # as (key, result, number) and the count of blocked reruns.
+        last_call: Optional[tuple] = None
+        blocked_repeats = 0
+        # The answer: text of the final step (no tool calls) plus the wrap-up.
+        # Text of steps that called tools is narration, kept on the step's
+        # first tool call as step_text (TURN-RESULTS-PLAN.md).
+        answer_raw = ""
+        narration_in_log = False
         hit_turn_cap = True  # assume exhaustion unless we break cleanly below
         # Set by the loop body when a vLLM stream error or empty response forces
         # us to abandon the current turn. Triggers the partial-state persistence
@@ -2674,7 +2943,7 @@ async def stream_chat_completion(
                 and _looks_like_prose_clarification(acc.content)
             ):
                 forced = await _force_clarification_retry(
-                    messages, sampling, persona=persona
+                    messages, sampling, persona=persona, history_end=history_end
                 )
                 if forced is not None:
                     tool_calls = [forced]
@@ -2699,14 +2968,28 @@ async def stream_chat_completion(
             # the failure can appear on follow-up modify-and-recompile
             # turns, not just turn 0. Single recovery attempt per turn.
             if not tool_calls and not recovery_used_this_turn:
+                # Links to files made earlier in this turn (final_tool_calls)
+                # or in earlier turns are real. Checking against [] made every
+                # final answer that linked its own figure a "phantom", forced
+                # another tool call and looped until the turn cap (lab
+                # bug-fix live check, 2026-11-15: 84 forced retries in about
+                # 10 turns of s3_bars).
                 _, _phantoms_inline = audit_artifact_urls_in_content(
-                    acc.content, []
+                    acc.content, final_tool_calls, prior_artifact_urls
                 )
                 phantom_trigger = bool(_phantoms_inline)
                 prose_trigger = _looks_like_prose_action_promise(acc.content)
-                if phantom_trigger or prose_trigger:
+                # A reply that loops (the same paragraph or block twice or
+                # more in a row) with no tool call is a failed step, not an
+                # answer (s3_bars turn 7). One forced retry, then keep the
+                # collapsed text (LAB-BUGFIX-PLAN.md Q4).
+                repeat_trigger = (has_repeats(acc.content)
+                                  or acc.finish_reason == "repetition")
+                if phantom_trigger or prose_trigger or repeat_trigger:
                     trigger_label = (
-                        "phantom_url" if phantom_trigger else "prose_action_promise"
+                        "phantom_url" if phantom_trigger
+                        else "prose_action_promise" if prose_trigger
+                        else "repeated_reply"
                     )
                     logger.info(
                         "prose-action recovery firing "
@@ -2720,6 +3003,12 @@ async def stream_chat_completion(
                         "Do not write prose explaining your plan — emit the "
                         "tool call directly."
                     )
+                    if repeat_trigger and not prose_trigger:
+                        nudge = (
+                            "Your previous response repeated the same text "
+                            "and called no tool. Call the appropriate tool "
+                            "now to fulfil the user's request."
+                        )
                     if phantom_trigger:
                         nudge += (
                             " Note: any /api/artifacts/... URLs in your "
@@ -2728,7 +3017,8 @@ async def stream_chat_completion(
                             "until a tool actually creates them."
                         )
                     recovered = await _force_required_tool_retry(
-                        messages, sampling, nudge, persona=persona
+                        messages, sampling, nudge, persona=persona,
+                        history_end=history_end,
                     )
                     recovery_used_this_turn = True
                     if recovered:
@@ -2755,6 +3045,7 @@ async def stream_chat_completion(
 
             if not tool_calls:
                 hit_turn_cap = False
+                answer_raw = acc.content
                 break
 
             # --- §14 ask_clarification intercept ---
@@ -2789,7 +3080,8 @@ async def stream_chat_completion(
                         err,
                     )
                     forced = await _force_clarification_retry(
-                        messages, sampling, persona=persona
+                        messages, sampling, persona=persona,
+                        history_end=history_end,
                     )
                     if forced is None:
                         # Forced retry also failed. Don't break the turn — just
@@ -2850,6 +3142,7 @@ async def stream_chat_completion(
                 })
 
                 if not ephemeral:
+                    final_content = _clean_final_content(final_content)
                     _saved_clar = await chat_store.add_message(
                         conversation_id=conversation["id"],
                         role="assistant",
@@ -2920,11 +3213,21 @@ async def stream_chat_completion(
 
             current_sse_emitter.set(_push)
 
+            repeat_skips, next_last_call = _repeated_call_skips(
+                tool_calls, last_call, total_tool_calls)
+            if repeat_skips:
+                blocked_repeats += len(repeat_skips)
+                logger.info(
+                    "blocked %d verbatim rerun(s) of the previous sandbox call "
+                    "(%d this message)", len(repeat_skips), blocked_repeats,
+                )
+
             async def _runner() -> list[dict]:
                 try:
                     return await _run_tool_calls(
                         tool_calls,
                         persona_id=persona_id,
+                        skip_results=repeat_skips,
                     )
                 finally:
                     # put_nowait is sync — safe to call after CancelledError
@@ -2970,6 +3273,7 @@ async def stream_chat_completion(
                         await run_task
                 current_sse_emitter.set(None)
 
+            step_start = len(final_tool_calls)
             for res in results:
                 final_tool_calls.append({
                     "id": res["id"],
@@ -3068,6 +3372,14 @@ async def stream_chat_completion(
                             },
                         )
 
+            # This step's text was written before its tool calls: narration,
+            # not the answer. Results replaced by these calls collapse.
+            if len(final_tool_calls) > step_start and (acc.content or "").strip():
+                final_tool_calls[step_start]["step_text"] = acc.content
+            for _sup in turn_results.supersede(final_tool_calls, step_start):
+                logger.info("result %s superseded by %s", _sup["artifact_id"], _sup["superseded_by"])
+                yield _sse("artifact_superseded", _sup)
+
             # Append the assistant turn (with tool_calls) and each tool result to
             # the message list so vLLM can continue generating.
             messages.append({
@@ -3134,7 +3446,25 @@ async def stream_chat_completion(
             # tool calls, so the no-tool-calls path that clears it did not run),
             # so breaking routes into the wrap-up synthesis below: the model is
             # told to answer with what it has. The user can Continue for more.
+            if next_last_call is not None:
+                # Attach the result of the call that last_call now names, so a
+                # rerun after a timeout or infrastructure error is allowed.
+                if next_last_call[1] is None:
+                    idx = next_last_call[2] - total_tool_calls - 1
+                    res_by_id = {r["id"]: r["result"] for r in results}
+                    if 0 <= idx < len(tool_calls):
+                        next_last_call = (
+                            next_last_call[0],
+                            res_by_id.get(tool_calls[idx]["id"]),
+                            next_last_call[2],
+                        )
+                last_call = next_last_call
             total_tool_calls += len(tool_calls)
+            if blocked_repeats >= MAX_BLOCKED_REPEATS:
+                logger.info(
+                    "%d verbatim reruns blocked - forcing wrap-up", blocked_repeats,
+                )
+                break
             if total_tool_calls >= MAX_TOOL_CALLS_PER_MESSAGE:
                 logger.info(
                     "tool-call budget reached (%d >= %d, persona=%s) - forcing wrap-up",
@@ -3177,6 +3507,7 @@ async def stream_chat_completion(
             if wrap_acc is not None:
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_acc.content
+                answer_raw += wrap_acc.content
                 record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
             if not final_content.strip():
@@ -3190,7 +3521,8 @@ async def stream_chat_completion(
                         "tool results you have gathered so far, write your "
                         "final answer to the user now. Do not call any more "
                         "tools. Be specific and cite sources (DOIs, URLs) from "
-                        "the tool results where possible."
+                        "the tool results where possible. Reply in plain "
+                        "Markdown, no XML tags."
                     ),
                 }
             ]
@@ -3211,10 +3543,44 @@ async def stream_chat_completion(
                 yield _sse(event_name, payload)
 
             if wrap_acc is not None:
+                wrap_content = wrap_acc.content
+                if has_repeats(wrap_content) or wrap_acc.finish_reason == "repetition":
+                    # The wrap-up looped (s3_bars turn 5: five copies of one
+                    # block). Retry once with a frequency penalty; keep the
+                    # collapsed text if the retry fails or loops too. The
+                    # client already streamed the first try, so the fix shows
+                    # on reload (the persisted copy is authoritative).
+                    retried = await _wrap_up_repeat_retry(wrap_up_messages, sampling)
+                    if retried:
+                        wrap_content = retried
                 final_thinking += wrap_acc.thinking
-                final_content += wrap_acc.content
+                final_content += wrap_content
+                answer_raw += wrap_content
                 record_usage("wrap_up", wrap_acc.usage)
                 finish_reason = wrap_acc.finish_reason or finish_reason
+
+        # Drop stray <answer> tags and collapse looped paragraphs before the
+        # audits and the save (LAB-BUGFIX-PLAN.md F5).
+        final_content = _clean_final_content(final_content)
+
+        # Narration to the work log, the answer stays the message
+        # (TURN-RESULTS-PLAN.md). Not on a stream error: that save shows
+        # everything up to the break, as before.
+        narration_in_log, _ = turn_results.answer_and_narration(
+            [(e.get("id"), e.get("step_text") or "") for e in final_tool_calls], answer_raw)
+        if had_stream_error or _cancelled():
+            narration_in_log = False
+        if narration_in_log:
+            final_content = _clean_final_content(answer_raw)
+            for _e in final_tool_calls:
+                if _e.get("step_text"):
+                    _t = _clean_final_content(_e["step_text"])
+                    _t, _ = audit_artifact_urls_in_content(_t, final_tool_calls, prior_artifact_urls)
+                    _t, _ = audit_paper_urls_in_content(_t, final_tool_calls)
+                    _e["step_text"] = _t
+        else:
+            for _e in final_tool_calls:
+                _e.pop("step_text", None)
 
         # --- 6. Persist assistant message ---
         # Stream-error marker. When the loop bailed because vLLM yielded an
@@ -3230,7 +3596,7 @@ async def stream_chat_completion(
         # CORE RULES forbid this; the audit is a backstop so the saved
         # transcript carries an audit trail when the rule slips.
         final_content, _phantom_urls = audit_artifact_urls_in_content(
-            final_content, final_tool_calls
+            final_content, final_tool_calls, prior_artifact_urls
         )
         if _phantom_urls:
             logger.warning(
@@ -3368,6 +3734,10 @@ async def stream_chat_completion(
                 "terminal_reason": terminal_reason,
                 # Saved ids of this turn's two messages; empty when ephemeral.
                 "message_ids": saved_ids,
+                # True: the text written before tool calls is in the work log
+                # (tool_calls[].step_text) and the message holds the answer.
+                # False: the message holds all of the turn's text, as before.
+                "narration_in_log": narration_in_log,
             },
         )
 
@@ -3444,7 +3814,7 @@ async def stream_chat_completion(
                 else:
                     _marker_reason = "server error during stream"
                 marker_content = apply_stream_error_marker(
-                    final_content,
+                    _clean_final_content(final_content),
                     _marker_reason,
                 )
                 # `conversation` is guaranteed defined here: the early
@@ -3457,6 +3827,9 @@ async def stream_chat_completion(
                 # disconnect) would otherwise truncate the write mid-row.
                 # The shield lets add_message run to completion in the
                 # background even if our await is cancelled.
+                # The interrupted save keeps all of the text in the message.
+                for _e in final_tool_calls:
+                    _e.pop("step_text", None)
                 await asyncio.shield(
                     chat_store.add_message(
                         conversation_id=conversation["id"],

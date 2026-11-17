@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import os
 import sys
 from datetime import date
@@ -69,6 +71,57 @@ def summarize(graded: list[dict], system: str) -> dict:
     return tasks
 
 
+def _run_jobs(jobs, args, out_dir: Path, rec_path: Path, client_cls) -> list[dict]:
+    """Run (case, rep) jobs, up to ``args.concurrency`` at once.
+
+    One LabClient per worker thread (each run is its own conversation and
+    sandbox session). Records are appended as runs finish, under a lock, so
+    an interrupted run can be finished with --resume.
+    """
+    lock = threading.Lock()
+    local = threading.local()
+    clients: list = []
+    graded: list[dict] = []
+
+    def client():
+        if not hasattr(local, "c"):
+            local.c = client_cls(base=args.base, persona=args.persona)
+            with lock:
+                clients.append(local.c)
+        return local.c
+
+    def one(job):
+        case, rep = job
+        rec, bundle = client().run_case(case, rep, keep=args.keep,
+                                        sandbox_image=args.sandbox_image)
+        g = grade_record(case, rec)
+        fails = [f"{c['name']}: {c['detail']}" for c in g["checks"] if not c["passed"]]
+        with lock:
+            fh.write(json.dumps(rec.to_json()) + "\n")
+            fh.flush()
+            if bundle:
+                (out_dir / f"{case.id}#{rep}.zip").write_bytes(bundle)
+            graded.append(g)
+            print(f"{'PASS' if g['pass'] else 'FAIL'} {case.id}#{rep} "
+                  f"score={g['score']:.2f} {g['error'] or ''}", flush=True)
+            for f in fails:
+                print(f"    - {f[:200]}", flush=True)
+
+    try:
+        with open(rec_path, "a") as fh:
+            if args.concurrency <= 1:
+                for job in jobs:
+                    one(job)
+            else:
+                with ThreadPoolExecutor(max_workers=args.concurrency) as pool:
+                    for fut in [pool.submit(one, j) for j in jobs]:
+                        fut.result()
+    finally:
+        for c in clients:
+            c.close()
+    return graded
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--suite", action="append", help="S1..S7, repeatable")
@@ -88,6 +141,12 @@ def main(argv=None) -> int:
     ap.add_argument("--regrade", type=Path, help="re-grade a records.jsonl without the model")
     ap.add_argument("--sandbox-image", default="munin-sandbox:latest")
     ap.add_argument("--list", action="store_true", help="list the selected cases and exit")
+    ap.add_argument("--concurrency", type=int, default=1,
+                    help="runs in flight at once; keep it at or below the vLLM max-num-seqs "
+                         "of the stack behind --base (production allows 2: use an eval instance)")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip (case, rep) pairs already in this tag's records.jsonl and grade "
+                         "the whole file, so an interrupted run finishes as one result")
     args = ap.parse_args(argv)
 
     roots = [args.fixtures] + ([args.heldout] if args.heldout else [])
@@ -109,27 +168,24 @@ def main(argv=None) -> int:
             print("no cases selected", file=sys.stderr)
             return 2
         from .client import LabClient
-        client = LabClient(base=args.base, persona=args.persona)
-        graded, rec_path = [], out_dir / "records.jsonl"
-        try:
-            with open(rec_path, "a") as fh:
-                for case in cases:
-                    for rep in range(1, args.reps + 1):
-                        rec, bundle = client.run_case(case, rep, keep=args.keep,
-                                                      sandbox_image=args.sandbox_image)
-                        fh.write(json.dumps(rec.to_json()) + "\n")
-                        fh.flush()
-                        if bundle:
-                            (out_dir / f"{case.id}#{rep}.zip").write_bytes(bundle)
-                        g = grade_record(case, rec)
-                        graded.append(g)
-                        fails = [f"{c['name']}: {c['detail']}" for c in g["checks"] if not c["passed"]]
-                        print(f"{'PASS' if g['pass'] else 'FAIL'} {case.id}#{rep} "
-                              f"score={g['score']:.2f} {g['error'] or ''}", flush=True)
-                        for f in fails:
-                            print(f"    - {f[:200]}", flush=True)
-        finally:
-            client.close()
+        rec_path = out_dir / "records.jsonl"
+        done: set[tuple[str, int]] = set()
+        if args.resume and rec_path.exists():
+            for line in rec_path.read_text().splitlines():
+                if line:
+                    r = json.loads(line)
+                    done.add((r["case_id"], int(r["rep"])))
+        jobs = [(case, rep) for case in cases for rep in range(1, args.reps + 1)
+                if (case.id, rep) not in done]
+        if done:
+            print(f"resume: {len(done)} run(s) already recorded, {len(jobs)} to go", flush=True)
+        graded = _run_jobs(jobs, args, out_dir, rec_path, LabClient)
+        if args.resume:
+            selected = {c.id for c in cases}
+            records = [RunRecord.from_json(json.loads(line))
+                       for line in rec_path.read_text().splitlines() if line]
+            graded = [grade_record(by_id[r.case_id], r) for r in records
+                      if r.case_id in selected and r.rep <= args.reps]
 
     with open(out_dir / "graded.json", "w") as fh:
         json.dump(graded, fh, indent=1)
@@ -142,6 +198,7 @@ def main(argv=None) -> int:
         meta = make_run_header(tag=args.tag, encoder="n/a", extra={
             "suite": "lab-analysis", "arm": args.arm, "persona": args.persona,
             "reps": args.reps, "heldout": bool(args.heldout),
+            "base": args.base, "concurrency": args.concurrency, "resumed": bool(args.resume),
             "cases": sorted({g["case"] for g in graded}), "vision_judge": None,
         })
         system = f"{meta.get('model', 'unknown')}/{args.arm}"

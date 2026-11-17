@@ -1,0 +1,1366 @@
+{
+  "meta": {
+    "tag": "phase4-labkit",
+    "generated_at": "2026-11-16T20:09:08.615607+00:00",
+    "git_sha": "b4bcae3",
+    "encoder": "n/a",
+    "seed": 42,
+    "packages": {
+      "numpy": "1.26.4",
+      "scipy": "1.13.1",
+      "sentence_transformers": "n/a",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "suite": "lab-analysis",
+    "arm": "labkit",
+    "persona": "munin",
+    "reps": 3,
+    "heldout": false,
+    "base": "http://127.0.0.1:8082",
+    "concurrency": 4,
+    "resumed": true,
+    "cases": [
+      "s1_3pl_s1",
+      "s1_3pl_s2",
+      "s1_3pl_s3",
+      "s1_3pl_s4",
+      "s1_3pl_s5",
+      "s1_4pl_s1",
+      "s1_4pl_s2",
+      "s1_4pl_s3",
+      "s1_4pl_s4",
+      "s1_4pl_s5",
+      "s1_5pl_s1",
+      "s1_5pl_s2",
+      "s1_5pl_s3",
+      "s1_5pl_s4",
+      "s1_5pl_s5",
+      "s1_competitive_s1",
+      "s1_competitive_s2",
+      "s1_competitive_s3",
+      "s1_competitive_s4",
+      "s1_competitive_s5",
+      "s1_decay1_s1",
+      "s1_decay1_s2",
+      "s1_decay1_s3",
+      "s1_decay1_s4",
+      "s1_decay1_s5",
+      "s1_decay2_s1",
+      "s1_decay2_s2",
+      "s1_decay2_s3",
+      "s1_decay2_s4",
+      "s1_decay2_s5",
+      "s1_mm_s1",
+      "s1_mm_s2",
+      "s1_mm_s3",
+      "s1_mm_s4",
+      "s1_mm_s5",
+      "s1_morrison_s1",
+      "s1_morrison_s2",
+      "s1_morrison_s3",
+      "s1_morrison_s4",
+      "s1_morrison_s5",
+      "s1_nist_bennett5",
+      "s1_nist_boxbod",
+      "s1_nist_chwirut1",
+      "s1_nist_chwirut2",
+      "s1_nist_danwood",
+      "s1_nist_eckerle4",
+      "s1_nist_enso",
+      "s1_nist_gauss1",
+      "s1_nist_gauss2",
+      "s1_nist_gauss3",
+      "s1_nist_hahn1",
+      "s1_nist_kirby2",
+      "s1_nist_lanczos1",
+      "s1_nist_lanczos2",
+      "s1_nist_lanczos3",
+      "s1_nist_mgh09",
+      "s1_nist_mgh10",
+      "s1_nist_mgh17",
+      "s1_nist_misra1a",
+      "s1_nist_misra1b",
+      "s1_nist_misra1c",
+      "s1_nist_misra1d",
+      "s1_nist_nelson",
+      "s1_nist_rat42",
+      "s1_nist_rat43",
+      "s1_nist_roszman1",
+      "s1_nist_thurber",
+      "s1_standard_s1",
+      "s1_standard_s2",
+      "s1_standard_s3",
+      "s1_standard_s4",
+      "s1_standard_s5",
+      "s1_trap_outlier",
+      "s1_trap_replicates",
+      "s1_trap_unidentifiable",
+      "s1_trap_weighting",
+      "s2_binary_pcrd",
+      "s2_binary_sda",
+      "s2_bmg_table",
+      "s2_bruker_1d",
+      "s2_gen5_kinetic",
+      "s2_jasco_cd",
+      "s2_nanodrop_dede",
+      "s2_nanodrop_utf16",
+      "s2_nanodrop_utf8",
+      "s2_tecan_xlsx",
+      "s3_bars",
+      "s3_dose",
+      "s5_anova",
+      "s5_fit",
+      "s6_hsqc_titration_s1",
+      "s6_hsqc_titration_s2",
+      "s6_noesy_buildup",
+      "s6_order_2h",
+      "s6_relaxation"
+    ],
+    "vision_judge": null
+  },
+  "tasks": {
+    "lab-S1": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.9566207184628237,
+            "ci_low": 0.9353814223057645,
+            "ci_high": 0.9758782372598162,
+            "n": 228
+          },
+          "case_pass": {
+            "mean": 0.8947368421052632,
+            "ci_low": 0.8508771929824561,
+            "ci_high": 0.9298245614035088,
+            "n": 228
+          }
+        },
+        "per_query": {
+          "s1_3pl_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s3#3": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s1_3pl_s5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_3pl_s5#2": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s1_4pl_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s5#1": {
+            "case_score": 0.6666666666666666,
+            "case_pass": 0.0
+          },
+          "s1_5pl_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_4pl_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s4#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_5pl_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_5pl_s5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s1#3": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s1_competitive_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s2#1": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s1#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s2#3": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s3#1": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s3#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s3#3": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s4#1": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s5#1": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay1_s5#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s4#2": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay1_s5#3": {
+            "case_score": 0.8,
+            "case_pass": 0.0
+          },
+          "s1_decay2_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_decay2_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s4#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s1_mm_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_mm_s5#2": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s1_morrison_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s5#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s1_nist_bennett5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_morrison_s5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_bennett5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_bennett5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_boxbod#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_boxbod#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_chwirut1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_chwirut1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_chwirut1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_chwirut2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_chwirut2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_danwood#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_danwood#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_chwirut2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_eckerle4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_eckerle4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_danwood#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_enso#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_boxbod#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_eckerle4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_enso#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_enso#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_hahn1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_hahn1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_gauss3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_hahn1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_kirby2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_kirby2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_kirby2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos2#1": {
+            "case_score": 0.14285714285714285,
+            "case_pass": 0.0
+          },
+          "s1_nist_lanczos1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos2#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s1_nist_lanczos3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh09#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh09#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_lanczos3#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s1_nist_mgh10#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh09#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh17#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh17#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh10#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1a#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1a#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1b#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh17#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1b#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1b#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1a#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1c#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1c#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1d#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1d#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1c#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_mgh10#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_nelson#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_rat42#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_misra1d#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_rat42#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_rat42#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_nelson#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_rat43#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_nelson#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_rat43#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_roszman1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_roszman1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_rat43#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_roszman1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_thurber#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_thurber#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s2#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_nist_thurber#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s3#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s3#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s4#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s3#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s5#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s4#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s4#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s5#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_standard_s5#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_outlier#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_outlier#2": {
+            "case_score": 0.3333333333333333,
+            "case_pass": 0.0
+          },
+          "s1_trap_outlier#3": {
+            "case_score": 0.6666666666666666,
+            "case_pass": 0.0
+          },
+          "s1_trap_replicates#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_replicates#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_unidentifiable#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_replicates#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_weighting#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_unidentifiable#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_weighting#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_weighting#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_trap_unidentifiable#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    },
+    "lab-S2": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.8833333333333333,
+            "ci_low": 0.7666666666666667,
+            "ci_high": 0.975,
+            "n": 30
+          },
+          "case_pass": {
+            "mean": 0.8333333333333334,
+            "ci_low": 0.7,
+            "ci_high": 0.9666666666666667,
+            "n": 30
+          }
+        },
+        "per_query": {
+          "s2_binary_pcrd#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_binary_sda#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_binary_pcrd#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_bmg_table#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_binary_pcrd#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_bmg_table#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_bmg_table#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_binary_sda#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_binary_sda#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_gen5_kinetic#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_gen5_kinetic#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_bruker_1d#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s2_bruker_1d#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s2_gen5_kinetic#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_jasco_cd#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_dede#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_dede#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_dede#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_utf16#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_utf16#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_utf16#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_utf8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_utf8#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_nanodrop_utf8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_tecan_xlsx#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_tecan_xlsx#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_tecan_xlsx#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s2_jasco_cd#1": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s2_jasco_cd#3": {
+            "case_score": 0.75,
+            "case_pass": 0.0
+          },
+          "s2_bruker_1d#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          }
+        }
+      }
+    },
+    "lab-S3": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.9444444444444445,
+            "ci_low": 0.851851851851852,
+            "ci_high": 1.0,
+            "n": 6
+          },
+          "case_pass": {
+            "mean": 0.6666666666666666,
+            "ci_low": 0.3333333333333333,
+            "ci_high": 1.0,
+            "n": 6
+          }
+        },
+        "per_query": {
+          "s3_bars#3": {
+            "case_score": 0.7222222222222222,
+            "case_pass": 0.0
+          },
+          "s3_dose#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s3_dose#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s3_bars#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s3_dose#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s3_bars#2": {
+            "case_score": 0.9444444444444444,
+            "case_pass": 0.0
+          }
+        }
+      }
+    },
+    "lab-S5": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.9166666666666666,
+            "ci_low": 0.75,
+            "ci_high": 1.0,
+            "n": 6
+          },
+          "case_pass": {
+            "mean": 0.8333333333333334,
+            "ci_low": 0.5,
+            "ci_high": 1.0,
+            "n": 6
+          }
+        },
+        "per_query": {
+          "s5_anova#1": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s5_anova#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s5_fit#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s5_anova#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s5_fit#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s5_fit#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    },
+    "lab-S6": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.7833333333333333,
+            "ci_low": 0.5995833333333337,
+            "ci_high": 0.95,
+            "n": 15
+          },
+          "case_pass": {
+            "mean": 0.7333333333333333,
+            "ci_low": 0.5333333333333333,
+            "ci_high": 0.9333333333333333,
+            "n": 15
+          }
+        },
+        "per_query": {
+          "s6_hsqc_titration_s1#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_hsqc_titration_s1#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_hsqc_titration_s1#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_hsqc_titration_s2#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_hsqc_titration_s2#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s6_hsqc_titration_s2#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_order_2h#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_order_2h#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_order_2h#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_relaxation#1": {
+            "case_score": 0.25,
+            "case_pass": 0.0
+          },
+          "s6_relaxation#2": {
+            "case_score": 0.25,
+            "case_pass": 0.0
+          },
+          "s6_noesy_buildup#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_relaxation#3": {
+            "case_score": 0.25,
+            "case_pass": 0.0
+          },
+          "s6_noesy_buildup#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s6_noesy_buildup#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          }
+        }
+      }
+    }
+  }
+}

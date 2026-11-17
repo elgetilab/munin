@@ -54,6 +54,8 @@ ALLOWED_IMPORTS = {
     # statsmodels was allowed and recommended here but not installed.
     "lmfit", "pingouin", "scikit_posthocs", "lifelines", "nmrglue", "pynmrstar",
     "xlrd", "openpyxl", "tifffile", "gemmi", "Bio", "freesasa", "brokenaxes",
+    # labkit: Munin's vetted lab-analysis helpers (backend/sandbox/labkit).
+    "labkit",
     "math", "cmath", "statistics", "random", "itertools", "functools", "collections",
     "json", "csv", "io", "re", "datetime", "decimal", "fractions", "string",
 }

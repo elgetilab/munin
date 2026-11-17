@@ -21,6 +21,7 @@ from typing import Optional
 
 import httpx
 
+import labkit_hints
 from text_edits import apply_edits as _apply_edits, near_misses
 
 from ..context import current_user_email, current_conversation_id
@@ -94,6 +95,9 @@ def _require_persistent_conversation() -> tuple[Optional[str], Optional[dict]]:
 _last_source: dict[str, str] = {}
 _LAST_SOURCE_MAX = 512
 
+# Which labkit pointers each conversation has had (labkit_hints.py).
+_labkit_hints = labkit_hints.HintState()
+
 
 def _remember_source(conv_id: str, code: str) -> None:
     if not conv_id or not isinstance(code, str):
@@ -109,6 +113,48 @@ def forget_source(conv_id: str) -> None:
     """Drop the cached base source. Called on sandbox_reset: the kernel state
     it was written against is gone, so patching it would be misleading."""
     _last_source.pop(conv_id, None)
+    _file_sources.pop(conv_id, None)
+
+
+# Source that last wrote each output file, per conversation, so edit_python
+# can patch the plot script rather than whatever ran last (often a small size
+# check). In-process for the current turn; earlier turns come from the
+# persisted transcript via script_index (LAB-BUGFIX-PLAN.md F1).
+_file_sources: dict[str, dict[str, str]] = {}
+
+
+def _remember_file_sources(conv_id: str, code: str, payload: dict) -> None:
+    if not conv_id or not isinstance(code, str) or payload.get("error") or payload.get("timed_out"):
+        return
+    names = [a.get("filename") for a in payload.get("artifacts") or [] if isinstance(a, dict)]
+    names = [n for n in names if isinstance(n, str) and n]
+    if not names:
+        return
+    if conv_id not in _file_sources and len(_file_sources) >= _LAST_SOURCE_MAX:
+        _file_sources.pop(next(iter(_file_sources)), None)
+    per = _file_sources.setdefault(conv_id, {})
+    for n in names:
+        per.pop(n, None)
+        per[n] = code
+
+
+async def _file_source(conv_id: str, filename: str) -> Optional[str]:
+    """Source of the last successful run that wrote ``filename``."""
+    per = _file_sources.get(conv_id) or {}
+    if filename in per:
+        return per[filename]
+    base = filename.rsplit("/", 1)[-1]
+    for name in reversed(list(per)):
+        if name.rsplit("/", 1)[-1] == base:
+            return per[name]
+    try:
+        import chat_store  # lazy: avoids a circular import at module init
+        from script_index import script_for_file
+        messages = await chat_store.get_messages_after_index(conv_id, -1)
+    except Exception as e:
+        logger.warning("edit_python: transcript fallback failed: %s", e)
+        return None
+    return script_for_file(messages, filename)
 
 
 async def _base_source(conv_id: str) -> Optional[str]:
@@ -213,14 +259,23 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
     payload["conversation_id"] = conv_id
     _slim_artifacts(payload)
     _remember_source(conv_id, code)
+    _remember_file_sources(conv_id, code, payload)
     # Adoption hint. The equivalent affordance for artifacts (update_artifact's
     # is_diff mode) sits unused at 2% because nothing points at it when the
     # model is deciding what to do next. This is that pointer, and it is the
     # cheapest part of the whole change.
     payload["edit_hint"] = (
         "To change part of this code, call edit_python with the lines to "
-        "replace. Do not re-send the whole script; the kernel state persists."
+        "replace. Do not re-send the whole script; the kernel state persists. "
+        "To change a file made by an earlier run, pass file=<its name>."
     )
+    # A hand-rolled fit of a model labkit has (LAB-ADOPTION-PLAN.md), once
+    # per conversation and hint, never after the conversation used labkit.
+    hint = _labkit_hints.hint_for(conv_id, code)
+    if hint:
+        payload["labkit_hint"] = hint[1]
+        # One line per hint so an eval can count them (LABKIT-011-PLAN.md).
+        logger.info("labkit_hint kind=%s conv=%s", hint[0], conv_id)
     return payload
 
 
@@ -275,14 +330,26 @@ async def put_input(conversation_id: str, filename: str, data: bytes) -> dict:
     return {"paths": [f"inputs/{a['path']}" for a in added if isinstance(a, dict)]}
 
 
-async def edit_python(edits: list, timeout_s: int = 30) -> dict:
-    """Patch the last executed source and run the result in the same kernel."""
+async def edit_python(edits: list, timeout_s: int = 30, file: Optional[str] = None) -> dict:
+    """Patch the last executed source, or with ``file`` the source that last
+    wrote that output file, and run the result in the same kernel."""
     user_email, conv_id, refusal = _require_persistent_user_and_conv()
     if refusal is not None:
         return refusal
     assert user_email is not None and conv_id is not None
 
-    source = await _base_source(conv_id)
+    if isinstance(file, str) and file.strip():
+        source = await _file_source(conv_id, file.strip())
+        if not source:
+            return {
+                "error": (
+                    f"no successful run in this conversation wrote {file.strip()!r}. "
+                    "Check the file name, or call edit_python without file to "
+                    "patch the code you last ran."
+                )
+            }
+    else:
+        source = await _base_source(conv_id)
     if not source:
         return {
             "error": (

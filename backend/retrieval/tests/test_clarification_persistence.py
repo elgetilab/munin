@@ -199,7 +199,7 @@ def _drive_stream_chat(capture: dict) -> list[dict]:
         patch.object(
             chat_service,
             "audit_artifact_urls_in_content",
-            lambda content, tcs: (content, []),
+            lambda content, tcs, known=None: (content, []),
         ),
     ):
         gen = stream_chat_completion(

@@ -21,6 +21,7 @@
 #   run with `python -m pytest` when pytest is importable. Without pytest
 #   (the production image) it runs under plain python and SKIPs what it can't.
 #
+test_answer_tags.py                      hermetic
 test_api_contract.py                     hermetic
 test_artifact_dedup.py                   hermetic
 test_background_streams.py               hermetic
@@ -29,6 +30,7 @@ test_browse_tools.py                     hermetic
 test_build_full_system_prompt.py         hermetic
 test_calculator.py                       hermetic
 test_chat_context_fit.py                 hermetic
+test_chatdb_txn.py                       hermetic
 test_citation_audit.py                   hermetic
 test_clarification_persistence.py        hermetic
 test_compaction.py                       hermetic
@@ -44,6 +46,7 @@ test_docx_extraction.py                  hermetic
 test_dr_decompose.py                     hermetic        pytest
 test_dr_report.py                        hermetic        pytest
 test_edit_python.py                      hermetic
+test_script_index.py                     hermetic
 test_executor_outcome_classification.py  hermetic
 test_fts_query_escape.py                 hermetic
 test_gateway_token_guard.py              hermetic
@@ -91,6 +94,7 @@ test_raw_mode.py                         hermetic
 test_replace_from.py                     hermetic
 test_research_resume.py                  hermetic
 test_resume_endpoint.py                  hermetic
+test_repeat_calls.py                     hermetic
 test_router.py                           hermetic
 test_sampling_profile.py                 hermetic        pytest
 test_sandbox_peer_guard.py               hermetic
@@ -118,6 +122,8 @@ test_tool_concurrency.py                 hermetic
 test_tool_result.py                      hermetic
 test_tool_search.py                      hermetic
 test_tool_validation.py                  hermetic
+test_turn_results.py                     hermetic
+test_labkit_hints.py                     hermetic
 test_upload_cancel.py                    hermetic
 test_upload_doi_hint.py                  hermetic
 test_url_guard.py                        hermetic

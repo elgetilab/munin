@@ -23,7 +23,7 @@ from __future__ import annotations
 import uuid
 from typing import Optional
 
-from chat_store import _iso_now, get_db
+from chat_store import _iso_now, get_db, write_txn
 
 
 # ---------------------------------------------------------------------------
@@ -97,50 +97,48 @@ async def create_proposal(
     (including the assigned id)."""
     proposal_id = str(uuid.uuid4())
     now = _iso_now()
-    db = await get_db()
+    async with write_txn() as db:
 
-    # FIFO cap. Same shape as the LRU eviction in memory_store.remember.
-    cur = await db.execute(
-        "SELECT COUNT(*) AS n FROM proposed_memories WHERE user_email = ?",
-        (user_email,),
-    )
-    row = await cur.fetchone()
-    if row and int(row["n"]) >= MAX_PENDING:
-        # Drop oldest by proposed_at ASC.
-        await db.execute(
-            "DELETE FROM proposed_memories WHERE id = ("
-            "  SELECT id FROM proposed_memories "
-            "  WHERE user_email = ? ORDER BY proposed_at ASC LIMIT 1"
-            ")",
+        # FIFO cap. Same shape as the LRU eviction in memory_store.remember.
+        cur = await db.execute(
+            "SELECT COUNT(*) AS n FROM proposed_memories WHERE user_email = ?",
             (user_email,),
         )
+        row = await cur.fetchone()
+        if row and int(row["n"]) >= MAX_PENDING:
+            # Drop oldest by proposed_at ASC.
+            await db.execute(
+                "DELETE FROM proposed_memories WHERE id = ("
+                "  SELECT id FROM proposed_memories "
+                "  WHERE user_email = ? ORDER BY proposed_at ASC LIMIT 1"
+                ")",
+                (user_email,),
+            )
 
-    await db.execute(
-        "INSERT INTO proposed_memories "
-        "(id, user_email, conversation_id, key, value, reason, proposed_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (proposal_id, user_email, conversation_id, key, value, reason, now),
-    )
-    await db.commit()
-    return {
-        "id": proposal_id,
-        "key": key,
-        "value": value,
-        "reason": reason,
-        "conversation_id": conversation_id,
-        "proposed_at": now,
-    }
+        await db.execute(
+            "INSERT INTO proposed_memories "
+            "(id, user_email, conversation_id, key, value, reason, proposed_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (proposal_id, user_email, conversation_id, key, value, reason, now),
+        )
+        return {
+            "id": proposal_id,
+            "key": key,
+            "value": value,
+            "reason": reason,
+            "conversation_id": conversation_id,
+            "proposed_at": now,
+        }
 
 
 async def delete_proposal(proposal_id: str, user_email: str) -> bool:
     """Returns True if a row was removed."""
-    db = await get_db()
-    cur = await db.execute(
-        "DELETE FROM proposed_memories WHERE id = ? AND user_email = ?",
-        (proposal_id, user_email),
-    )
-    await db.commit()
-    return (cur.rowcount or 0) > 0
+    async with write_txn() as db:
+        cur = await db.execute(
+            "DELETE FROM proposed_memories WHERE id = ? AND user_email = ?",
+            (proposal_id, user_email),
+        )
+        return (cur.rowcount or 0) > 0
 
 
 # ---------------------------------------------------------------------------
@@ -164,30 +162,29 @@ async def add_rejection(user_email: str, key: str) -> None:
     if not key:
         return
     now = _iso_now()
-    db = await get_db()
+    async with write_txn() as db:
 
-    # UPSERT via INSERT OR REPLACE keeps the row primary-key-unique.
-    await db.execute(
-        "INSERT OR REPLACE INTO rejected_memory_keys "
-        "(user_email, key, rejected_at) VALUES (?, ?, ?)",
-        (user_email, key, now),
-    )
-
-    cur = await db.execute(
-        "SELECT COUNT(*) AS n FROM rejected_memory_keys WHERE user_email = ?",
-        (user_email,),
-    )
-    row = await cur.fetchone()
-    overflow = int(row["n"]) - MAX_REJECTIONS if row else 0
-    if overflow > 0:
+        # UPSERT via INSERT OR REPLACE keeps the row primary-key-unique.
         await db.execute(
-            "DELETE FROM rejected_memory_keys WHERE user_email = ? AND key IN ("
-            "  SELECT key FROM rejected_memory_keys "
-            "  WHERE user_email = ? ORDER BY rejected_at ASC LIMIT ?"
-            ")",
-            (user_email, user_email, overflow),
+            "INSERT OR REPLACE INTO rejected_memory_keys "
+            "(user_email, key, rejected_at) VALUES (?, ?, ?)",
+            (user_email, key, now),
         )
-    await db.commit()
+
+        cur = await db.execute(
+            "SELECT COUNT(*) AS n FROM rejected_memory_keys WHERE user_email = ?",
+            (user_email,),
+        )
+        row = await cur.fetchone()
+        overflow = int(row["n"]) - MAX_REJECTIONS if row else 0
+        if overflow > 0:
+            await db.execute(
+                "DELETE FROM rejected_memory_keys WHERE user_email = ? AND key IN ("
+                "  SELECT key FROM rejected_memory_keys "
+                "  WHERE user_email = ? ORDER BY rejected_at ASC LIMIT ?"
+                ")",
+                (user_email, user_email, overflow),
+            )
 
 
 # ---------------------------------------------------------------------------

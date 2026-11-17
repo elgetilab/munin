@@ -3,6 +3,9 @@ import type { ToolCall, RagContext } from '../lib/types';
 import { doiUrl } from '../lib/doi';
 import { BookIcon, ChevronRightIcon, FolderIcon, PageIcon, SearchIcon } from './ui/icons';
 import { activityLine } from '../lib/activity';
+import { artifactRefsOfCall } from '../lib/artifactDisplay';
+import { mayOpenArtifact } from '../lib/artifactDraft';
+import { useUiStore } from '../stores/uiStore';
 
 // ── SVG Icons (14x14, stroke-based, no emojis) ─────────────────────────────
 
@@ -237,7 +240,9 @@ interface TaskLogProps {
  * arguments and result, the reasoning, and the retrieved documents.
  */
 export function TaskLog({ thinking, toolCalls, ragContext, thinkingDuration, isStreaming }: TaskLogProps) {
-  const [open, setOpen] = useState(false);
+  // Open while the turn streams, so narration that moves out of the answer
+  // when a tool starts stays in view; a finished reply starts collapsed.
+  const [open, setOpen] = useState(!!isStreaming);
   const panelId = useId();
   const hasContent = thinking || (toolCalls && toolCalls.length > 0) || ragContext;
   if (!hasContent) return null;
@@ -287,7 +292,10 @@ function TaskLogRows({ id, thinking, toolCalls, ragContext, thinkingDuration, is
         />
       )}
       {toolCalls?.map((tc, i) => (
-        <ToolCallRow key={tc.id || i} call={tc} isActive={isStreaming && i === toolCalls.length - 1 && !tc.result} />
+        <div key={tc.id || i}>
+          {tc.step_text && <StepTextRow text={tc.step_text} />}
+          <ToolCallRow call={tc} isActive={isStreaming && i === toolCalls.length - 1 && !tc.result} startCollapsed={isStreaming} />
+        </div>
       ))}
     </div>
   );
@@ -320,8 +328,50 @@ function ThinkingRow({ content, duration, isActive }: { content: string; duratio
   );
 }
 
-function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+// What the model wrote before this step's tool calls. Shown here, not in the
+// answer: a self-correcting turn's abandoned claims ("PDB 6JFQ") live in the
+// log (TURN-RESULTS-PLAN.md).
+function StepTextRow({ text }: { text: string }) {
+  return (
+    <div data-testid="step-text" className="py-1.5 font-sans text-[12px] text-text-secondary whitespace-pre-wrap wrap-anywhere">
+      {text.trim()}
+    </div>
+  );
+}
+
+// Results of this call that a later call replaced: listed as an earlier
+// attempt, still openable, never shown inline as a result.
+function SupersededNote({ call }: { call: ToolCall }) {
+  const setSelectedArtifactId = useUiStore(st => st.setSelectedArtifactId);
+  const setArtifactPanelOpen = useUiStore(st => st.setArtifactPanelOpen);
+  const setKnowledgePanelOpen = useUiStore(st => st.setKnowledgePanelOpen);
+  const replaced = artifactRefsOfCall(call).filter(ref => call.superseded_by?.[ref.id]);
+  if (replaced.length === 0) return null;
+  return (
+    <div data-testid="superseded-note" className="ml-6 mt-1 space-y-0.5 font-sans text-[11px] text-text-secondary">
+      {replaced.map(ref => (
+        <div key={ref.id} className="flex items-center gap-2">
+          <span>Earlier attempt (replaced): {ref.title}</span>
+          <button
+            type="button"
+            className="text-accent hover:underline cursor-pointer"
+            onClick={() => {
+              if (!mayOpenArtifact(ref.id)) return;
+              setKnowledgePanelOpen(false);
+              setSelectedArtifactId(ref.id);
+              setArtifactPanelOpen(true);
+            }}
+          >
+            open
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToolCallRow({ call, isActive, startCollapsed }: { call: ToolCall; isActive?: boolean; startCollapsed?: boolean }) {
+  const [expanded, setExpanded] = useState(!startCollapsed);
   const icon = getIcon(call.name);
   const resultSummary = call.result ? formatResult(call.result) : null;
 
@@ -354,6 +404,7 @@ function ToolCallRow({ call, isActive }: { call: ToolCall; isActive?: boolean })
         )}
         <span className="text-text-secondary">{expanded ? '\u25BE' : '\u25B8'}</span>
       </button>
+      <SupersededNote call={call} />
       {expanded && (
         <div className="mt-2 ml-6 space-y-2">
           <div className="p-3 bg-bg-tertiary rounded-lg text-[11px] max-h-48 overflow-y-auto">

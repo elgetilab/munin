@@ -133,6 +133,33 @@ _CURATED: dict[str, list[str]] = {
         "draw the calibration curve and report R squared",
         "compute and plot the autocorrelation of the signal",
         "tabulate and plot the buildup rates per catalyst",
+        # process an uploaded data / instrument file and report numbers from
+        # it. Added 2026-11-15: a lab request that names a file and asks to
+        # "report" shifts or integrals sat closer to research's "what is the
+        # reported X" examples than to anything here (6 of 8 neighbours were
+        # research), so it routed to research and ran out of tool budget.
+        # Generalised phrasings, not the lab-analysis case prompts.
+        "this zip is a raw NMR experiment, process the FID and report the peak positions in ppm",
+        "apodise, Fourier transform, phase and baseline correct the uploaded FID",
+        "calibrate the ppm axis so the internal standard sits at zero, then integrate the multiplets",
+        "convert the raw 13C free induction decay I uploaded into a spectrum and pick the peaks",
+        "the uploaded file holds a calibration series, fit the standard curve and report the unknown concentrations",
+        "this file has a ligand titration, fit a one-site binding model and report Kd with a confidence interval",
+        "the attached data are initial rates at several substrate concentrations, fit the kinetics and report Km and Vmax",
+        "this is a plate reader export, report the value of every well",
+        "load this instrument export with decimal commas into pandas and tabulate each sample",
+        "read the qPCR run file I attached and give me the Cq of each well",
+        "the archive has one peak list per titration point, compute the shift perturbations and fit them",
+        "fit the peak intensity versus delay curve for every residue in the uploaded table",
+        "fit a two-phase exponential to the uploaded decay and report both rate constants",
+        "these exports have one column per sample, average the replicates and report mean and SD",
+        "save the fitted parameters as a JSON file in the working directory",
+        "write the final numbers to a results file with Python",
+        # figure follow-ups on an earlier plot
+        "remove the control group from the figure and replot",
+        "save the same plot again as an SVG too",
+        "switch the error bars to standard error and re-save the figure",
+        "put the y axis on a log scale and export the figure again",
     ],
     # -------------------------------------------------------------------
     "research": [

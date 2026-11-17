@@ -1,0 +1,272 @@
+# Lab analysis bug fixes: plan
+
+Status: DONE 2026-11-16. F1-F12 fixed, deployed and live-checked (four
+checks, sections at the end). Commits: `84ed114` graders, `4505dd9` answer
+tags, `660daf6` current scripts and prompt rules, `b6d5d25` kernel race,
+`f15c96b` figure hook, `f905745` phantom links, `b754797` NFKC, `d3e1811`
+loops and fitted retries, `9b59d37` data-file routing, `3fa37a7` rerun guard.
+Retrieval hermetic 113/113 (CI runner), sandbox live 54/54, figure hook 20/20,
+lab 125/125. Next: the Phase 2 baseline. Was: PLAN, waiting for "proceed". Bugs first, then the Phase 2
+baseline (deferred work: [`LAB-DEFERRED.md`](LAB-DEFERRED.md)). Found by the
+Phase 1 smoke run and the overflow check (`CONTEXT-OVERFLOW-PLAN.md`), then
+investigated by four read-only agents on 2026-11-15. Key code claims below were
+re-checked against the source.
+
+## Findings
+
+### F1. The model cannot see its earlier code (product, the main plot cause)
+
+`assemble_context` replays earlier turns as `{role, content}` only
+(`backend/retrieval/chat_context.py:903-911`); the assistant `tool_calls` that
+hold the code are dropped (also noted at `chat_service.py:1744`). So each turn
+rewrites the figure from memory: guessed column names (`activity` for
+`activity_U_per_mg`), lost title and xlabel, figsize 8x5 to 8x6 to 10x6, bar
+order changed, output file renamed. Over the six overflow-check S3 sessions
+the model called `run_python` 464 times and `edit_python` 46 times;
+`edit_python` patches the last source that ran (`mcp/tools/sandbox.py:94-140`),
+often a small PIL size probe, and the model edits it blind.
+
+### F2. The figure hook gives false layout warnings (product)
+
+- Clipped text: every tick label is checked, including ticks outside the axis
+  limits that matplotlib never draws (`backend/sandbox/app/fighook.py:290-306`).
+  Flagged '90' with ylim 87.7, '100', log-axis labels.
+- Overlapping text: boxes are measured at `fig.dpi`, not the saved dpi
+  (`fighook.py:326-335`); `savefig(dpi=150)` on a 100 dpi figure reproduces the
+  turn-1 warnings exactly.
+- The model chases these for up to 20 tool calls per turn (s3_bars#1: figure
+  grew from 203 to 355 mm, byte-identical reruns).
+
+### F3. Sizes (product plus model)
+
+- 85 mm requested, 94.7 mm PDF: correct `figsize`, but `bbox_inches='tight'`
+  grew the page. 156.7 mm: tight bbox after the size was lost (F1).
+- `describe()` (`fighook.py:337-347`) reports `fig.get_size_inches()`, not the
+  saved file's size, so the model was told 85 mm about a 94.7 mm file.
+- Nothing in the code persona or tool descriptions covers keeping unchanged
+  properties, sizes in mm, or tight bbox with a fixed size.
+
+### F4. Seaborn error bars are invisible to the figure hook (product)
+
+Only `ax.containers` yield bar/errorbar series. Seaborn draws error bars as
+plain 2-point `Line2D`s (no gid, no tag), and lineplot bands as a
+`PolyCollection` without bounds. So the manifest has no `yerr` and `s3_bars`
+turn 1 cannot pass when the model uses seaborn. A draft patch (stem detection
+matched to bar centres and tips; pointplot; bands; empty legend proxies
+skipped) was reproduced in `munin-sandbox:latest` (matplotlib 3.9.2, seaborn
+0.13.2): SD values match `truth.json`, `plt.bar(yerr=)` unchanged, `axvline`
+at a bar centre stays a line. There are no `fighook` unit tests today.
+
+### F5. Stray `<answer>` tag (model habit, our missing guard)
+
+No prompt or chat template asks for it; Sage-A1.5 emits it and nothing strips
+it. Chain in s3_bars: turn 5 hit the tool cap, the wrap-up reply was five
+copies of an `<answer>` block, it was stored as is, turn 6 copied it, turn 7
+wrote three `<answer>` "I'll remove KO2..." blocks in 2.1 s. The prose-action
+recovery missed it because `_looks_like_prose_action_promise`
+(`chat_service.py:703`) only matches "i'll" at the start or after a space,
+not after `<answer>\n`. Repetition is the model looping, not our code. In
+production: 1 of 58 Sage-era assistant replies; 4 of 18 smoke turns.
+
+### F6. Next run silently empty after a timeout (product race)
+
+On timeout the kernel gets SIGINT, then `_flush_remaining` returns after 0.2 s
+of silence (`kernel.py:380-386`) without waiting for the old request's idle.
+If the interrupt takes longer (slow BLAS call, `finally` cleanup, loaded host),
+the next `execute_request` is queued, ipykernel aborts it because the previous
+one errored (`stop_on_error`), and `_drain_iopub` reads its idle as success:
+stdout "", error None. Reproduced in throwaway containers: 4/4 under
+`--cpus 0.25`, 5/5 with a slow `except KeyboardInterrupt`, 3/3 with a large
+matmul; 0/6 on an idle host. The flaky live check is this bug, not a bad test.
+Users can hit it: the model then reasons from "no output".
+
+### F7. Grader false positives (harness)
+
+- KO2 removal: correct figure, but bars drawn one series each, and
+  `approx_set` wants both values in one series (`graders.py:309-315`).
+- `s3_dose` turn 2 requires the x axis to become log; two reps already used
+  log in turn 1.
+- Float noise counts as a change (exact equality, `graders.py:400`).
+- A renamed output file reads as "no new figure" instead of a clear failure.
+- Asymmetric error copies (`yerr_low/high`) are not deduped by `_canon_series`.
+
+The title, legend and size changes are real misses, not grader errors.
+
+## Fix
+
+Ordered by deploy unit. Each step has its own tests and commit.
+
+**Step 1: sandbox kernel race (F6).** In `kernel.py`: send
+`stop_on_error=False` in `execute`; read the shell `execute_reply` and turn a
+status `aborted` into an error (or one resend) instead of an empty success;
+make `_flush_remaining` wait for the interrupted msg_id's idle (deadline about
+10 s), else restart the kernel and say in the error that state was lost.
+Test: a deterministic case in `test_artifacts_live.py` (slow
+`except KeyboardInterrupt`, `timeout_s=2`, then `print(1+1)` gives "2" with
+`error is None`), run 10 times under `--cpus 0.25`.
+
+**Step 2: figure hook (F2, F3, F4).** In `fighook.py`: skip tick labels
+outside the view limits; measure text at the saved dpi and against the saved
+bbox when `bbox_inches='tight'`; report the saved file's real size and dpi
+(`size_mm_saved`, and flag when it differs from the figure's size); seaborn
+error bars, pointplot and bands as in F4. New `backend/sandbox/tests/test_fighook.py`
+(the agent's list: sd/se/ci bars, hue, horizontal, capsize, `errorbar=None`,
+pointplot, band, unrelated fill, `axvline`, `plt.bar(yerr=)` regression, the
+false clipped/overlap cases, tight-bbox size). Steps 1-2 ship as one sandbox
+deploy.
+
+**Step 3: `<answer>` and looping replies (F5).** In `chat_service.py`:
+`strip_answer_tags` (outside code fences; also collapses consecutive identical
+paragraphs) on `final_content` before saving, on the wrap-up path, and on the
+live stream (hold back a `<`-prefixed partial token); apply it to stored
+assistant history in `assemble_context`. Prose-action detector: strip tags and
+leading markup, word-boundary opener match. A reply with repeated paragraphs
+and no tool call counts as a failed step: retry once with tools required
+(loop) or with a frequency penalty (wrap-up). Wrap-up prompt: "Reply in plain
+Markdown, no XML tags". Count stripped tags in the log. Tests with the exact
+turn-5 and turn-7 strings and a code-fence negative.
+
+**Step 4: keep the current script across turns (F1).** The sandbox already
+records which run produced which artifact. Expose per conversation the latest
+successful source for each output file (the run that last wrote it). At turn
+start, when the conversation has a sandbox session, `assemble_context` adds a
+short block after the system prompt: "Current script for activity.png (run 37):
+<source>", newest output files first, capped (Q3), counted in the turn budget.
+`edit_python` gets an optional `file=` that targets that script instead of the
+last run. Tests: block present and capped, budget respected, `edit_python
+file=` patches the right source.
+
+**Step 5: prompt rules (F1, F3).** Code persona (`shared/personas/code.json`)
+and the `run_python` / `edit_python` descriptions: change only what was asked;
+keep file name, title, colours, order and size unless asked; start from the
+current script; sizes in mm via `figsize` with `constrained_layout`, never
+`bbox_inches='tight'` when a size is fixed; check the saved size reported by
+the hook; at most two layout fix attempts.
+
+**Step 6: grader fixes (F7).** Bar values matched across series by xtick
+label; floats compared with rtol in `manifest_diff`; `must_change` satisfied
+when the value already matches the request; explicit "output file renamed"
+failure; `_canon_series` dedupes asymmetric copies. Tests in
+`test_labanalysis.py` with the observed manifests.
+
+**Step 7: verify.** Hermetic retrieval suite, sandbox live suite (10 runs of
+the timeout check under CPU limit), lab unit tests. Then you deploy sandbox and
+retrieval, and I run `s3_bars` and `s3_dose` x3 plus the smoke set and compare
+with the overflow-check numbers (mean 0.676). Expect: no `<answer>` in any
+reply, no false layout warnings, sizes within 1 mm, far fewer unrequested
+edits. Then the Phase 2 baseline.
+
+## Found in the Step 7 live check: phantom-URL recovery loop (F8)
+
+The first post-deploy run (`s3_bars#1`, score 1.00) logged 84 forced tool
+retries in about 10 turns, all `trigger=phantom_url`. The inline recovery
+check (`chat_service.py`, prose-action recovery) called
+`audit_artifact_urls_in_content(acc.content, [])`: it never saw this turn's
+tool results, so a final answer that linked the figure the model had just
+made counted as a fabricated link, forced another tool call (typically an
+`os.path.exists('activity.png')` probe), and looped until the turn cap. This
+dates from the May merge and is a large part of the "20 tool calls per turn"
+seen in every S3 run. The save-time audit had the milder form: it only knew
+this turn's results, so a link to an earlier turn's figure got a "[backend
+warning]" prepended (2 of 39 overflow-check turns). Fix: both checks get this
+turn's tool calls plus `_conversation_artifact_urls` (artifact URLs in earlier
+turns' stored tool results). The run was stopped and restarts after the fix
+is deployed.
+
+## Second live check (after F8): results and three more fixes (F9-F11)
+
+Run 2026-11-15 12:00-12:42 UTC, production with Steps 1-6 and F8 deployed.
+S3 (`s3_bars`, `s3_dose`, 3 reps each): mean 0.972, 4/6 pass (was 0.676, 0/6,
+on the same cases before the fixes), and 0.981, 5/6 after an NFKC fix to
+the graders (`b754797`: "µM" typed with a Greek mu). The remaining miss is a
+y=0 reference line the model moved to y=1 for the log axis, a reasonable
+follow-on of the request that the strict diff counts; left as is. Smoke set
+(10 other cases): 9/10; the 6 S3 runs took 32 min instead of about 2 h.
+The 4 artifact links still flagged as phantoms were real fabrications (the
+id exists nowhere in the sandbox), so F8 kept the audit's value.
+
+- **F9. A generation can loop for tens of thousands of characters.**
+  `s3_bars#3` turn 8: one step streamed 80,496 characters of the same
+  paragraphs with no tool call; the saved copy was collapsed (2128 repeats)
+  but the user would have watched it and the loop text took 41.6K tokens of
+  the turn's context. Fix (`d3e1811`): `_stream_vllm_once` stops the stream
+  once the last 300 characters occur three times in the last 6,000
+  (`answer_tags.tail_is_looping`), keeps one copy, sets finish_reason
+  "repetition", and the step counts as failed (one forced retry; a looping
+  wrap-up gets the frequency-penalty retry).
+- **F10. Retries were sent unbudgeted.** The forced tool retry after that loop
+  sent the turn's full message list and got vLLM's raw 400 twice. Fix
+  (`d3e1811`): the main path's fitting is now `_fit_prompt_for_call`, used by
+  the stream and by the forced tool, clarification and wrap-up retries; a
+  call that cannot fit is not sent.
+- **F11. Data-file turns routed to research.** "Process bruker_1h.zip ...
+  report their chemical shifts" went to research (KNN vote: its nearest
+  examples were "what is the reported X of this protein"), hit the 30-call cap
+  and never wrote results.json. 39 of 106 lab-case turns routed away from
+  code. Fix (`9b59d37`): a turn that attaches or names a data file
+  (tabular, archive, instrument, array formats; not pdf/docx/md) routes to
+  code, `/research` still overrides; plain-text files turn a research vote
+  into code; attached file names now reach the router; 20 lab examples
+  added. Lab turns on code 106/106, offline routing eval unchanged 143/163.
+  Trade-off: "find papers on the compounds in hits.csv" now goes to code
+  unless the user types `/research`.
+
+## Third live check (after F9-F11): results and F12
+
+2026-11-15 16:39-17:19 UTC, tags `bugfix3-s3` and `bugfix3-smoke`.
+
+- S3: mean 0.981, 4/6 pass, 17 min for 6 runs (32 before, about 2 h before
+  the fixes). Both misses are unrequested model edits, not bugs: `s3_bars#3`
+  turn 3 moved the y=0 line on the log axis again, `s3_bars#1` turn 5
+  shortened the title when the figure was resized to 85 mm. Graders kept
+  strict.
+- Smoke: 9/10. `s2_bruker_1d` now routes to code (F11 holds) but still
+  fails, see F12.
+- Logs: no 400s, no context-full, one stream loop cut (that run scored
+  1.00), 5 phantom flags (about one per S3 run), 17 prose-action recoveries
+  (12 in `s3_dose#1`, which passed).
+- **F12. Verbatim reruns.** In `s2_bruker_1d` the model ran one script three
+  times in a row (runs 7-9) and another six times in a row (runs 13-18), each
+  with the same wrong output (it read SW in ppm as MHz and the FID as int16;
+  DTYPA=0 is int32), and the turn ended after 20 calls and 14 min with no
+  results.json. The model error is not ours to fix by prompt; the wasted
+  budget is. Fix: a sandbox call (`run_python`, `edit_python`, `compute`,
+  `compile_latex`) identical to the call made just before it, nothing run in
+  between, gets a synthetic "not run, change the code or answer" result
+  (`_repeated_call_skips` in `chat_service.py`); a rerun after a timeout or
+  an infrastructure error is allowed. The second blocked rerun in a message
+  ends the tool loop into the wrap-up. Tests: `tests/test_repeat_calls.py`.
+
+## Fourth live check (after F12)
+
+2026-11-16 07:09-07:47 UTC, tags `bugfix4-bruker` (x3) and `bugfix4-smoke`.
+
+- The guard works: it fired in Bruker reps 1 and 3 (two blocked reruns each,
+  then the wrap-up), ending rep 3 at 9 calls instead of 20. Rep 1 wrapped up
+  honestly ("I will not fabricate numbers"); rep 3's wrap-up was only another
+  promise ("Let me process it correctly ..."). It never fired in the smoke set.
+- Bruker still 0/3: rep 2 wrote a JSON block with wrong shifts. The model
+  misreads the acquisition parameters every time; that is a capability limit,
+  not plumbing. Every Bruker step used the whole 8,192-token thinking budget
+  (about 47 s at 193 tok/s).
+- Smoke 8/9: `s1_trap_unidentifiable` missed the keyword check this time (it
+  said the top is pinned and the slope and EC50 strongly correlated, but none
+  of the listed phrases). n=1 variance; it passed in the last two checks.
+
+## Open questions (defaults taken unless you say otherwise)
+
+| # | Question | Default |
+|---|---|---|
+| Q1 | Seaborn detection: a user's own vertical line exactly through a bar centre and across its top reads as that bar's error bar. Require every bar in a group to match instead? | Accept the rare false positive (the strict rule drops errors for whole plots with an n=1 group). |
+| Q2 | A `save_figure(path, width_mm, height_mm, dpi)` helper in the sandbox now? | No. It would change the ad hoc arm of the Phase 2 baseline; it belongs in `labkit`. Prompt rules plus the hook's real saved size cover it for now. |
+| Q3 | Step 4 scope: which turns get the current-script block, how big? | Any persona whose conversation has a sandbox session; up to 3 output files, 6,000 tokens total, oldest dropped first, and the block is the first thing trimmed near the window. |
+| Q4 | Retry a repeated, tool-less reply? | Yes, once; otherwise keep the stripped text. |
+| Q5 | Re-run the earlier lab scorecards after the fix? | Only the S3 cases and the smoke set (Step 7); the smoke scorecard stays as is ("not a result"). |
+| Q6 | Deploy | Sandbox (Steps 1-2) and retrieval (Steps 3-5) via `deploy.sh`, you run them; Step 6 is harness only. |
+
+## Not in this plan
+
+- The tool-call cap (20 per turn) and over-tooling in general: Step 2 removes
+  the main source of pointless reruns; revisit with Step 7 numbers.
+- Sandbox logging of kernel aborts and timeouts (no production count for F6
+  exists today); worth a follow-up.

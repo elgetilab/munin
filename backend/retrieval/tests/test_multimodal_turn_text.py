@@ -194,8 +194,9 @@ def _drive(
     capture.setdefault("add_message", [])
     capture.setdefault("assembled", [])
 
-    def _spy_route(query, pin, index, embed_fn):
+    def _spy_route(query, pin, index, embed_fn, attachments=None):
         capture["route_calls"].append(query)
+        capture.setdefault("route_attachments", []).append(attachments)
         if route_impl is not None:
             return route_impl(query, pin, index, embed_fn)
         slash = router_module.parse_slash(query)
@@ -293,7 +294,7 @@ def _drive(
         patch.object(
             chat_service,
             "audit_artifact_urls_in_content",
-            lambda content, tcs: (content, []),
+            lambda content, tcs, known=None: (content, []),
         ),
         patch("document_store.get_document_text", _fake_get_document_text),
         patch("document_store.upload_document", _fake_upload_document),
@@ -514,6 +515,15 @@ def test_router_exception_still_persists_a_real_profile() -> bool:
 
 # ---------------------------------------------------------------------------
 
+def test_router_gets_attached_file_names() -> bool:
+    """F11: an attached data file can route the turn to code, so the router
+    must see the attachment's file name (not its body)."""
+    cap: dict = {}
+    _drive([{"type": "text", "text": TYPED}, DOC_BLOCK], cap)
+    assert cap["route_attachments"] == [["p.docx"]], cap["route_attachments"]
+    return True
+
+
 TESTS = [
     test_string_content_passes_through,
     test_single_text_block,
@@ -528,6 +538,7 @@ TESTS = [
     test_generate_title_receives_a_string,
     test_generate_title_gets_typed_text_not_the_document_body,
     test_router_gets_typed_text_not_the_document_body,
+    test_router_gets_attached_file_names,
     test_persisted_row_still_carries_the_document_text,
     test_persona_is_persisted_on_a_multimodal_turn,
     test_blank_typed_text_skips_the_router_and_stays_on_pin,

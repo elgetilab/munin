@@ -1,0 +1,51 @@
+{
+ "id": "s1_3pl_s7",
+ "suite": "S1",
+ "inputs": [
+  "agonist_7.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "agonist_7.csv holds an agonist concentration-response curve (µM, triplicates). Fit the standard-slope model (Hill slope fixed at 1.0) of response vs log10(concentration) to all replicate points. Report bottom, top and logEC50 with the 95% confidence interval of logEC50.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "bottom",
+     "truth": "truth:ref.bottom",
+     "rtol": 0.02,
+     "atol": 0.5
+    },
+    {
+     "type": "numeric",
+     "key": "top",
+     "truth": "truth:ref.top",
+     "rtol": 0.02,
+     "atol": 0.5
+    },
+    {
+     "type": "numeric",
+     "key": "logEC50",
+     "truth": "truth:ref.logEC50",
+     "rtol": 0,
+     "atol": 0.02
+    },
+    {
+     "type": "ci_close",
+     "key": "logEC50_ci",
+     "truth": "truth:ref.logEC50_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "bottom": "",
+  "top": "",
+  "logEC50": "",
+  "logEC50_ci": ""
+ },
+ "tags": [
+  "dose-response"
+ ],
+ "provenance": "synthetic, s1.case_3pl seed 7"
+}

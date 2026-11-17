@@ -237,6 +237,139 @@ def test_manifest_diff_bar_yerr_copy_is_not_a_change():
     assert ok, detail
 
 
+# Manifest shapes below are from the overflow-check run (2026-11, s3_bars and s3_dose).
+
+def _bar(label, pos, vals, color, **err):
+    return {"kind": "bar", "orientation": "vertical", "label": label, "positions": pos,
+            "values": vals, "colors": [color], **err}
+
+
+def _per_bar_fig():
+    # KO2 removed, one ax.bar call per bar (s3_bars#1 turn 7, activity.png v37)
+    S = [_bar("control", [0.0], [41.985], "#1b9e77"), {"kind": "errorbar", "label": None, "yerr": [3.68]},
+         _bar("treated", [0.35], [44.5425], "#d95f02"), {"kind": "errorbar", "label": None, "yerr": [1.77]},
+         _bar(None, [0.7], [37.54], "#1b9e77"), {"kind": "errorbar", "label": None, "yerr": [3.62]},
+         _bar(None, [1.05], [70.075], "#d95f02"), {"kind": "errorbar", "label": None, "yerr": [2.65]}]
+    return {"axes": [{"series": S}]}
+
+
+def test_bar_values_match_across_per_bar_series():
+    ko2 = {"type": "manifest", "file": "activity.png", "assert": [{"path": "axes.0.series", "any": {
+        "kind": "bar", "values": {"approx_set": [41.985, 37.54], "rtol": 0.01}}}]}
+    rec = _fig_record([(7, "activity.png", _per_bar_fig())])
+    ok, detail = graders.grade(ko2, rec, 7)
+    assert ok, detail
+    wrong = _per_bar_fig()
+    wrong["axes"][0]["series"][4]["values"] = [19.595]          # KO2 kept, KO1 dropped
+    ok, _ = graders.grade(ko2, _fig_record([(7, "activity.png", wrong)]), 7)
+    assert not ok
+    # colours are not mixed: control + treated values of one genotype do not pass
+    ok, _ = graders.grade({**ko2, "assert": [{"path": "axes.0.series", "any": {
+        "kind": "bar", "values": {"approx_set": [41.985, 44.5425], "rtol": 0.01}}}]},
+        _fig_record([(7, "activity.png", _per_bar_fig())]), 7)
+    assert not ok
+
+
+def test_must_change_satisfied_when_already_requested():
+    # s3_dose#2: the turn-1 plot already used a log x axis
+    def dose(xscale, title=None):
+        return {"axes": [{"xscale": xscale, "title": title, "series": [
+            {"kind": "errorbar", "label": None, "x": [0.01, 0.1], "y": [3.0, 9.0], "yerr": [1.0, 2.0]}]}]}
+    c = {"type": "manifest_diff", "file": "dose.png", "allowed": ["axes.0.xscale"],
+         "must_change": ["axes.0.xscale"], "requested": {"axes.0.xscale": "log"}}
+    ok, detail = graders.grade(c, _fig_record([(1, "dose.png", dose("log")), (2, "dose.png", dose("log"))]), 2)
+    assert ok and "already 'log'" in detail
+    # nothing redrawn at all is fine too when the request already held
+    ok, detail = graders.grade(c, _fig_record([(1, "dose.png", dose("log"))]), 2)
+    assert ok and "already" in detail
+    # still linear: unchanged and not what was asked
+    ok, detail = graders.grade(c, _fig_record([(1, "dose.png", dose("linear")),
+                                               (2, "dose.png", dose("linear"))]), 2)
+    assert not ok and "unchanged" in detail
+    # an unrequested title change still fails
+    ok, detail = graders.grade(c, _fig_record([(1, "dose.png", dose("log")),
+                                               (2, "dose.png", dose("log", "Dose response"))]), 2)
+    assert not ok and "axes.0.title" in detail
+
+
+def test_manifest_diff_ignores_float_noise():
+    # s3_dose turn 4: means recomputed from the CSV differ in the last bits
+    def fig(y, title=None):
+        return {"axes": [{"title": title, "series": [
+            {"kind": "errorbar", "label": "cmpd-A", "x": [0.01, 0.1], "y": y, "yerr": [1.0, 2.0]}]}]}
+    c = {"type": "manifest_diff", "file": "dose.png", "allowed": []}
+    rec = _fig_record([(1, "dose.png", fig([3.3333333333333335, 9.0])),
+                       (2, "dose.png", fig([3.333333333333333, 9.000000000000002]))])
+    ok, detail = graders.grade(c, rec, 2)
+    assert ok, detail
+    rec = _fig_record([(1, "dose.png", fig([3.33, 9.0])), (2, "dose.png", fig([3.40, 9.0]))])
+    assert not graders.grade(c, rec, 2)[0]
+    rec = _fig_record([(1, "dose.png", fig([3.33, 9.0])), (2, "dose.png", fig([3.33, 9.0], "T"))])
+    ok, detail = graders.grade(c, rec, 2)
+    assert not ok and "title" in detail
+
+
+def test_renamed_output_is_reported():
+    # s3_bars#2 turn 7: the edit went to activity_significance.png
+    rec = _fig_record([(5, "activity.png", _fig()), (6, "plot_101_1.png", _fig(ylabel="z")),
+                       (6, "activity_significance.png", _fig(texts=["***"]))])
+    ok, detail = graders.grade({"type": "manifest_diff", "file": "activity.png", "allowed": []}, rec, 6)
+    assert not ok and detail == "output file renamed: activity.png -> activity_significance.png"
+    ok, detail = graders.grade({"type": "manifest", "file": "activity.png", "assert": [
+        {"path": "axes.0.texts", "item_eq": "***"}]}, rec, 6)
+    assert not ok and "output file renamed" in detail
+    # only an inline capture: no rename claimed
+    rec = _fig_record([(5, "activity.png", _fig()), (6, "plot_101_1.png", _fig(ylabel="z"))])
+    ok, detail = graders.grade({"type": "manifest_diff", "file": "activity.png", "allowed": []}, rec, 6)
+    assert not ok and detail == "no new figure this turn"
+
+
+def test_canon_series_dedupes_asymmetric_and_x_errors():
+    lo, hi = [1.0, 2.0], [1.5, 2.5]
+    plain = [_bar("c", [0, 1], [10.0, 20.0], "#1b9e77"),
+             {"kind": "errorbar", "label": None, "yerr_low": lo, "yerr_high": hi}]
+    copy_on_bar = copy.deepcopy(plain)
+    copy_on_bar[0].update(yerr_low=lo, yerr_high=hi)
+    assert graders._canon_series(copy_on_bar) == plain
+    xe = [_bar("c", [0, 1], [10.0, 20.0], "#1b9e77", xerr=[0.1, 0.2]),
+          {"kind": "errorbar", "label": None, "xerr": [0.1, 0.2]}]
+    assert "xerr" not in graders._canon_series(xe)[0]
+    # different errors on the bar are kept (a real difference)
+    other = copy.deepcopy(plain)
+    other[0].update(yerr_low=lo, yerr_high=[9.0, 9.0])
+    assert "yerr_low" in graders._canon_series(other)[0]
+    rec = _fig_record([(1, "f.png", {"axes": [{"series": plain}]}),
+                       (2, "f.png", {"axes": [{"series": list(reversed(copy_on_bar))}]})])
+    ok, detail = graders.grade({"type": "manifest_diff", "file": "f.png", "allowed": []}, rec, 2)
+    assert ok, detail
+
+
+def test_errorbar_series_order_is_content_based():
+    # two errorbar series with no values/positions: swapping them is not a change
+    e1 = {"kind": "errorbar", "label": None, "yerr": [3.68, 3.62, 1.01]}
+    e2 = {"kind": "errorbar", "label": None, "yerr": [1.77, 2.65, 1.23]}
+    rec = _fig_record([(1, "f.png", {"axes": [{"series": [e1, e2]}]}),
+                       (2, "f.png", {"axes": [{"series": [e2, e1]}]})])
+    ok, detail = graders.grade({"type": "manifest_diff", "file": "f.png", "allowed": []}, rec, 2)
+    assert ok, detail
+
+
+def test_s3_bars_turn1_accepts_seaborn_shaped_manifest():
+    # after the hook change seaborn bars come with a separate errorbar series
+    c = BY_ID["s3_bars"].turns[0].checks[1]
+    sd_c, sd_t = [7.361451396746884, 7.232403934147116, 2.020140259156939], [3.54, 5.3, 2.47]
+    fig = {"axes": [{"series": [
+        _bar("control", [-0.2, 0.8, 1.8], [41.985, 37.54, 19.595], "#1f77b4"),
+        _bar("treated", [0.2, 1.2, 2.2], [44.5425, 70.075, 21.97], "#ff7f0e"),
+        {"kind": "errorbar", "label": None, "yerr": sd_c},
+        {"kind": "errorbar", "label": None, "yerr": sd_t}]}]}
+    ok, detail = graders.grade(c, _fig_record([(1, "activity.png", fig)]), 1)
+    assert ok, detail
+    fig["axes"][0]["series"][2] = {"kind": "errorbar", "label": None,
+                                   "yerr_low": sd_c, "yerr_high": [2 * x for x in sd_c]}
+    assert not graders.grade(c, _fig_record([(1, "activity.png", fig)]), 1)[0], "asymmetric is not SD"
+
+
 def test_immutable_detects_changed_bytes():
     rec = _fig_record([(1, "f.png", _fig()), (2, "f.png", _fig())])
     assert graders.grade({"type": "immutable"}, rec, 2)[0]
@@ -316,3 +449,90 @@ def test_fixtures_regenerate_identically():
                 assert _close_json(json.loads(a), json.loads(b)), name
             elif a != b:
                 assert hashlib.sha256(a).hexdigest() == hashlib.sha256(b).hexdigest(), name
+
+
+def test_manifest_diff_ignores_saved_size_keys():
+    # The new hook reports the saved file's size; a relabelled axis under a
+    # tight bbox changes it without being an edit of its own.
+    def fig(saved, ylabel="y"):
+        return {"size_mm": [85, 60], "size_mm_saved": saved, "size_differs_on_save": saved != [85, 60],
+                "axes": [{"ylabel": ylabel, "series": []}]}
+    c = {"type": "manifest_diff", "file": "f.png", "allowed": ["axes.0.ylabel"]}
+    rec = _fig_record([(1, "f.png", fig([85, 60])), (2, "f.png", fig([88.1, 61.0], "Activity"))])
+    ok, detail = graders.grade(c, rec, 2)
+    assert ok, detail
+
+
+def test_text_checks_ignore_lookalike_codepoints():
+    # bugfix live check: the case asks for "Concentration (µM)" (micro sign
+    # U+00B5); the model wrote Greek mu U+03BC, which renders the same.
+    fig = {"axes": [{"xlabel": "Concentration (μM)", "series": []}]}
+    rec = _fig_record([(1, "dose.png", fig)])
+    ok, detail = graders.grade({"type": "manifest", "file": "dose.png", "assert": [
+        {"path": "axes.0.xlabel", "eq": "Concentration (µM)"}]}, rec, 1)
+    assert ok, detail
+    ok, _ = graders.grade({"type": "manifest", "file": "dose.png", "assert": [
+        {"path": "axes.0.xlabel", "eq": "Concentration (nM)"}]}, rec, 1)
+    assert not ok
+
+
+# --- runner: --concurrency and --resume -----------------------------------------
+
+class _FakeLabClient:
+    """Stands in for LabClient: no network, records how many runs overlap."""
+    calls: list = []
+    in_flight = 0
+    peak = 0
+
+    def __init__(self, base=None, persona=None):
+        pass
+
+    def run_case(self, case, rep, keep=False, sandbox_image=None):
+        import threading
+        import time
+        cls = _FakeLabClient
+        with _FAKE_LOCK:
+            cls.in_flight += 1
+            cls.peak = max(cls.peak, cls.in_flight)
+            cls.calls.append((case.id, rep, threading.get_ident()))
+        time.sleep(0.05)
+        with _FAKE_LOCK:
+            cls.in_flight -= 1
+        return RunRecord(case_id=case.id, suite=case.suite, rep=rep), None
+
+    def close(self):
+        pass
+
+
+import threading as _threading  # noqa: E402
+_FAKE_LOCK = _threading.Lock()
+
+
+def _run_main(monkeypatch, tmp_path, *extra):
+    from munin_bench.labanalysis import client as client_mod, run as run_mod
+    monkeypatch.setattr(run_mod, "BENCH", tmp_path)
+    monkeypatch.setattr(client_mod, "LabClient", _FakeLabClient)
+    _FakeLabClient.calls, _FakeLabClient.in_flight, _FakeLabClient.peak = [], 0, 0
+    rc = run_mod.main(["--tag", "t", "--no-scorecard", "--case", "s1_4pl_s1",
+                       "--case", "s1_decay1_s1", "--reps", "2", *extra])
+    rec = (tmp_path / "results" / "lab" / "t" / "records.jsonl").read_text().splitlines()
+    graded = json.loads((tmp_path / "results" / "lab" / "t" / "graded.json").read_text())
+    return rc, rec, graded
+
+
+def test_runner_concurrency_runs_in_parallel_and_records_every_run(monkeypatch, tmp_path):
+    rc, rec, graded = _run_main(monkeypatch, tmp_path, "--concurrency", "3")
+    assert rc == 0 and len(rec) == 4 and len(graded) == 4
+    assert _FakeLabClient.peak > 1, "runs did not overlap"
+    assert {(json.loads(r)["case_id"], json.loads(r)["rep"]) for r in rec} == {
+        ("s1_4pl_s1", 1), ("s1_4pl_s1", 2), ("s1_decay1_s1", 1), ("s1_decay1_s1", 2)}
+
+
+def test_runner_resume_skips_recorded_runs_and_grades_the_whole_file(monkeypatch, tmp_path):
+    _run_main(monkeypatch, tmp_path)
+    p = tmp_path / "results" / "lab" / "t" / "records.jsonl"
+    lines = p.read_text().splitlines()
+    p.write_text("\n".join(lines[:3]) + "\n")          # an interrupted run
+    rc, rec, graded = _run_main(monkeypatch, tmp_path, "--resume", "--concurrency", "2")
+    assert [(c[0], c[1]) for c in _FakeLabClient.calls] == [("s1_decay1_s1", 2)]
+    assert rc == 0 and len(rec) == 4 and len(graded) == 4

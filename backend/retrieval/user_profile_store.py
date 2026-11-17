@@ -19,7 +19,7 @@ from typing import Any, Optional
 
 import aiosqlite
 
-from chat_store import _iso_now, get_db
+from chat_store import _iso_now, get_db, write_txn
 
 
 PROFILE_TEXT_FIELD_LIMIT = 1500
@@ -119,63 +119,61 @@ async def upsert_profile(user_email: str, fields: dict) -> dict:
     ``validate_profile_input``); leave everything else untouched. Returns
     the full profile after the write.
     """
-    db = await get_db()
-    now = _iso_now()
+    async with write_txn() as db:
+        now = _iso_now()
 
-    cur = await db.execute(
-        "SELECT user_email FROM user_profiles WHERE user_email = ?",
-        (user_email,),
-    )
-    exists = (await cur.fetchone()) is not None
-    await cur.close()
-
-    if not exists:
-        # Insert with defaults; subsequent UPDATE applies the new fields.
-        await db.execute(
-            """
-            INSERT INTO user_profiles (
-                user_email, about_me, response_format, default_persona,
-                default_rag_sources, timezone, created_at, updated_at
-            ) VALUES (?, NULL, NULL, NULL, NULL, NULL, ?, ?)
-            """,
-            (user_email, now, now),
+        cur = await db.execute(
+            "SELECT user_email FROM user_profiles WHERE user_email = ?",
+            (user_email,),
         )
+        exists = (await cur.fetchone()) is not None
+        await cur.close()
 
-    if fields:
-        set_clauses: list[str] = []
-        params: list[Any] = []
-        for field in PROFILE_FIELDS:
-            if field not in fields:
-                continue
-            value = fields[field]
-            if field == "default_rag_sources" and value is not None:
-                value = json.dumps(value)
-            set_clauses.append(f"{field} = ?")
-            params.append(value)
-        if set_clauses:
-            set_clauses.append("updated_at = ?")
-            params.append(now)
-            params.append(user_email)
+        if not exists:
+            # Insert with defaults; subsequent UPDATE applies the new fields.
             await db.execute(
-                f"UPDATE user_profiles SET {', '.join(set_clauses)} "
-                f"WHERE user_email = ?",
-                params,
+                """
+                INSERT INTO user_profiles (
+                    user_email, about_me, response_format, default_persona,
+                    default_rag_sources, timezone, created_at, updated_at
+                ) VALUES (?, NULL, NULL, NULL, NULL, NULL, ?, ?)
+                """,
+                (user_email, now, now),
             )
 
-    await db.commit()
-    return await get_profile(user_email)
+        if fields:
+            set_clauses: list[str] = []
+            params: list[Any] = []
+            for field in PROFILE_FIELDS:
+                if field not in fields:
+                    continue
+                value = fields[field]
+                if field == "default_rag_sources" and value is not None:
+                    value = json.dumps(value)
+                set_clauses.append(f"{field} = ?")
+                params.append(value)
+            if set_clauses:
+                set_clauses.append("updated_at = ?")
+                params.append(now)
+                params.append(user_email)
+                await db.execute(
+                    f"UPDATE user_profiles SET {', '.join(set_clauses)} "
+                    f"WHERE user_email = ?",
+                    params,
+                )
+
+        return await get_profile(user_email)
 
 
 async def delete_profile(user_email: str) -> bool:
     """Wipe the profile row. Returns True if a row was removed."""
-    db = await get_db()
-    cur = await db.execute(
-        "DELETE FROM user_profiles WHERE user_email = ?",
-        (user_email,),
-    )
-    await db.commit()
-    removed = (cur.rowcount or 0) > 0
-    return removed
+    async with write_txn() as db:
+        cur = await db.execute(
+            "DELETE FROM user_profiles WHERE user_email = ?",
+            (user_email,),
+        )
+        removed = (cur.rowcount or 0) > 0
+        return removed
 
 
 def build_profile_block(profile: Optional[dict]) -> Optional[str]:

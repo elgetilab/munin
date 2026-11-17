@@ -113,6 +113,12 @@ export interface ToolCall {
   arguments: Record<string, unknown>;
   result?: unknown;
   duration_ms?: number;
+  // Text the model wrote in this step before calling its tools: narration,
+  // shown in the work log, not as part of the answer (TURN-RESULTS-PLAN.md).
+  step_text?: string;
+  // Results of this call that a later call in the same turn replaced:
+  // {replaced artifact id: replacing artifact id}. Not shown inline.
+  superseded_by?: Record<string, string>;
 }
 
 export interface RagContext {
@@ -211,6 +217,8 @@ export type SSEEvent =
   | { type: 'clarification'; data: Clarification }
   | { type: 'artifact_created'; data: ArtifactCreatedEvent }
   | { type: 'artifact_updated'; data: ArtifactUpdatedEvent }
+  // A later call in this turn replaced the result `artifact_id`.
+  | { type: 'artifact_superseded'; data: { artifact_id: string; superseded_by: string; tool_call_id: string } }
   | { type: 'routing'; data: { profile: string; pin: string | null; method: string; confidence?: number } }
   | { type: 'retrying'; data: { attempt: number; max_attempts: number; delay_s: number; reason: string } }
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
@@ -225,7 +233,10 @@ export type SSEEvent =
   // transcript instead of surfacing an error banner.
   | { type: 'stream_gone'; data: { reason?: string } }
   // message_ids: saved ids of the turn's user message and reply; empty when ephemeral.
-  | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string; terminal_reason?: string; message_ids?: { user?: string; assistant?: string } } };
+  // narration_in_log: true when the saved message holds only the answer and the
+  // text written before tool calls is in tool_calls[].step_text; otherwise the
+  // message holds all of the turn's text (older servers send nothing).
+  | { type: 'done'; data: { usage?: { prompt_tokens: number; completion_tokens: number }; finish_reason: string; terminal_reason?: string; message_ids?: { user?: string; assistant?: string }; narration_in_log?: boolean } };
 
 // ── Compaction (P2 #22) ──────────────────────────────────────────────────────
 

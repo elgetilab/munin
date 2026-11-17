@@ -4,7 +4,7 @@
 # no network and the one capability the service needs (SYS_ADMIN for
 # `unshare --net`), runs the suites inside it and removes it again.
 #
-#   backend/scripts/ci/run_sandbox_live_tests.sh            # artifacts suite
+#   backend/scripts/ci/run_sandbox_live_tests.sh            # artifacts + figure hook suites
 #   WITH_TEX=1 backend/scripts/ci/run_sandbox_live_tests.sh  # + isolation suite
 #
 # The isolation suite compiles LaTeX, so it needs the image built with TeX.
@@ -26,7 +26,9 @@ for _ in $(seq 1 60); do
     sleep 1
 done
 
-suites=(test_artifacts_live.py)
+# test_fighook.py runs the figure hook in-process, against the image's
+# /app/app/fighook.py and plotting stack; it needs no running service.
+suites=(test_artifacts_live.py test_fighook.py)
 [ "$TEX" = "1" ] && suites+=(test_isolation_live.py)
 status=0
 for suite in "${suites[@]}"; do
@@ -34,4 +36,10 @@ for suite in "${suites[@]}"; do
     echo "== $suite"
     docker exec "$NAME" python "/tmp/$suite" || status=1
 done
+# labkit: unit tests plus the NIST StRD certificates they check the fitter against.
+docker exec "$NAME" mkdir -p /tmp/labkit-tests
+docker cp "$REPO/backend/sandbox/labkit/tests/." "$NAME:/tmp/labkit-tests/"
+docker cp "$REPO/backend/benchmarks/fixtures/lab/nist/raw" "$NAME:/tmp/labkit-tests/nist_raw"
+echo "== labkit"
+docker exec -e NIST_RAW=/tmp/labkit-tests/nist_raw "$NAME" python /tmp/labkit-tests/test_labkit.py || status=1
 exit $status

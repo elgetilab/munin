@@ -10,8 +10,10 @@ Wraps jupyter_client.AsyncKernelManager so that:
   service can enter, since TCP cannot cross the namespace. firejail was used
   before 2026-09-30 and silently did nothing inside the container.
 - Execution is async with a per-call wall-clock timeout. On timeout we
-  interrupt the kernel cleanly (SIGINT-equivalent) so the next call
-  succeeds, instead of killing the kernel entirely.
+  interrupt the kernel cleanly (SIGINT-equivalent) and wait for the
+  interrupted request to finish, so the next call succeeds, instead of
+  killing the kernel entirely. Only when the kernel does not stop within
+  INTERRUPT_GRACE_S is it restarted (in-memory state lost, files kept).
 - iopub messages are demultiplexed into stdout / stderr / display_data /
   result / error so the caller never has to touch the raw protocol.
 - display_data ``image/png`` payloads and every file user code writes to the
@@ -42,6 +44,15 @@ from .store import ConversationStore
 
 # Published by the in-kernel figure hook; never shown to the user as output.
 FIGURE_MIME = "application/vnd.munin.figure+json"
+
+# How long an interrupted run may take to stop (a slow `finally` or
+# `except KeyboardInterrupt`, a BLAS call that only checks for signals when it
+# returns, a loaded host) before the kernel is restarted instead.
+INTERRUPT_GRACE_S = 10.0
+
+# How long to wait for the shell execute_reply once iopub reported idle. The
+# reply is sent before the idle status, so this is normally immediate.
+REPLY_WAIT_S = 5.0
 
 with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "fighook.py")) as _f:
     _FIGHOOK_SOURCE = _f.read()
@@ -249,6 +260,9 @@ class KernelHandle:
 
     async def execute(self, code: str, timeout_s: float = 30.0) -> ExecutionResult:
         async with self._lock:
+            if self._kc is None or self._km is None:
+                # A restart after a stuck interrupt failed half way; try again.
+                await self.start()
             assert self._kc is not None and self._km is not None
             self.last_used_at = time.time()
             started = time.monotonic()
@@ -266,7 +280,12 @@ class KernelHandle:
                 "exec": exec_rec,
             }
 
-            msg_id = self._kc.execute(code, store_history=False)
+            # stop_on_error=False: an error (also the KeyboardInterrupt of a
+            # timed-out run) must not make ipykernel abort requests queued
+            # behind it. With the default, a run sent while an interrupted one
+            # was still stopping came back aborted, which looked like an empty
+            # success (no output, no error).
+            msg_id = self._kc.execute(code, store_history=False, stop_on_error=False)
 
             timed_out = False
             try:
@@ -280,14 +299,31 @@ class KernelHandle:
                     await self._km.interrupt_kernel()
                 except Exception:
                     pass
-                # After interrupt, drain whatever is left in the queue without
-                # blocking, so the next execution starts from a clean state.
-                await self._flush_remaining(msg_id, state)
-                state["error"] = (
-                    f"execution exceeded {timeout_s:.1f}s timeout - kernel "
-                    "was interrupted; in-memory state from before the timeout "
-                    "is preserved"
-                )
+                # Wait for the interrupted request to really finish (its idle),
+                # keeping its late output, so the next execution starts clean.
+                settled = await self._flush_remaining(msg_id, state)
+                if settled:
+                    state["error"] = (
+                        f"execution exceeded {timeout_s:.1f}s timeout - kernel "
+                        "was interrupted; in-memory state from before the timeout "
+                        "is preserved"
+                    )
+                else:
+                    await self._restart_after_stuck_interrupt()
+                    state["error"] = (
+                        f"execution exceeded {timeout_s:.1f}s timeout and the kernel "
+                        f"did not stop within {INTERRUPT_GRACE_S:.0f}s of the interrupt, "
+                        "so it was restarted; in-memory state (variables, imports, "
+                        "open figures) was lost, files in the working directory are kept"
+                    )
+            else:
+                status = await self._reply_status(msg_id)
+                if status == "aborted" and state["error"] is None:
+                    state["error"] = (
+                        "execution was aborted by the kernel before the code ran "
+                        "(an earlier run was still stopping); nothing was executed, "
+                        "run it again"
+                    )
 
             # Surface any files the user code wrote to the scratch dir
             # this turn as artifacts, alongside the inline images that the
@@ -370,20 +406,28 @@ class KernelHandle:
                 if content.get("execution_state") == "idle":
                     return
 
-    async def _flush_remaining(self, msg_id: str, state: dict) -> None:
-        """Best-effort drain after an interrupt so the next call starts clean."""
+    async def _flush_remaining(self, msg_id: str, state: dict) -> bool:
+        """After an interrupt, keep draining the interrupted request's output
+        until the kernel reports idle for it. Returns False when that does not
+        happen within INTERRUPT_GRACE_S (the kernel is stuck).
+
+        Returning on a short silence instead (as before 2026-11) let the next
+        request reach a kernel that was still unwinding the interrupt."""
         assert self._kc is not None
         stdout: CappedBuffer = state["stdout"]
         stderr: CappedBuffer = state["stderr"]
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
+        deadline = time.monotonic() + INTERRUPT_GRACE_S
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
             try:
                 msg = await asyncio.wait_for(
                     self._kc.get_iopub_msg(timeout=None),
-                    timeout=0.2,
+                    timeout=remaining,
                 )
             except asyncio.TimeoutError:
-                return
+                return False
             parent = msg.get("parent_header") or {}
             if parent.get("msg_id") != msg_id:
                 continue
@@ -398,7 +442,35 @@ class KernelHandle:
             elif mt in ("execute_result", "display_data"):
                 self._extract_display(content.get("data") or {}, state)
             elif mt == "status" and content.get("execution_state") == "idle":
-                return
+                return True
+
+    async def _reply_status(self, msg_id: str) -> Optional[str]:
+        """Status of the shell execute_reply for msg_id ("ok", "error",
+        "aborted"), or None if it does not arrive in time. Replies to other
+        requests (silent setup, earlier timed-out runs) are skipped."""
+        assert self._kc is not None
+        deadline = time.monotonic() + REPLY_WAIT_S
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            try:
+                msg = await self._kc.get_shell_msg(timeout=remaining)
+            except Exception:
+                return None
+            parent = msg.get("parent_header") or {}
+            if parent.get("msg_id") == msg_id:
+                return (msg.get("content") or {}).get("status")
+
+    async def _restart_after_stuck_interrupt(self) -> None:
+        """Replace a kernel that ignored the interrupt. Called with the lock
+        held, so this cannot go through reset(). If the new kernel fails to
+        start, the next execute() tries again."""
+        await self.shutdown()
+        try:
+            await self.start()
+        except Exception:
+            pass
 
     def _extract_display(self, data: dict, state: dict) -> None:
         """Turn a display bundle into an artifact (inline image) or, for a

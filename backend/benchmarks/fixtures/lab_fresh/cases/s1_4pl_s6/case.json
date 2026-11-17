@@ -1,0 +1,66 @@
+{
+ "id": "s1_4pl_s6",
+ "suite": "S1",
+ "inputs": [
+  "dose_response_6.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "dose_response_6.csv is a dose-response experiment: concentration in µM and response, three replicates per concentration. Fit a four-parameter logistic (variable slope) model of response against log10(concentration), using every replicate point. Report bottom, top, logEC50 (log10 µM) and the Hill slope, with the 95% confidence interval of logEC50 and of the Hill slope.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "bottom",
+     "truth": "truth:ref.bottom",
+     "rtol": 0.02,
+     "atol": 0.5
+    },
+    {
+     "type": "numeric",
+     "key": "top",
+     "truth": "truth:ref.top",
+     "rtol": 0.02,
+     "atol": 0.5
+    },
+    {
+     "type": "numeric",
+     "key": "logEC50",
+     "truth": "truth:ref.logEC50",
+     "rtol": 0,
+     "atol": 0.02
+    },
+    {
+     "type": "numeric",
+     "key": "hill",
+     "truth": "truth:ref.hill",
+     "rtol": 0.03,
+     "atol": 0
+    },
+    {
+     "type": "ci_close",
+     "key": "logEC50_ci",
+     "truth": "truth:ref.logEC50_ci",
+     "tol": 0.25
+    },
+    {
+     "type": "ci_close",
+     "key": "hill_ci",
+     "truth": "truth:ref.hill_ci",
+     "tol": 0.25
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "bottom": "",
+  "top": "",
+  "logEC50": "",
+  "hill": "",
+  "logEC50_ci": "",
+  "hill_ci": ""
+ },
+ "tags": [
+  "dose-response"
+ ],
+ "provenance": "synthetic, s1.case_4pl seed 6"
+}

@@ -47,7 +47,10 @@
      ],
      "must_change": [
       "axes.0.xscale"
-     ]
+     ],
+     "requested": {
+      "axes.0.xscale": "log"
+     }
     }
    ]
   },

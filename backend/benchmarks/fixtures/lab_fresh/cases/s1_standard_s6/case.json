@@ -1,0 +1,63 @@
+{
+ "id": "s1_standard_s6",
+ "suite": "S1",
+ "inputs": [
+  "bradford_6.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "bradford_6.csv is a protein assay: standards in duplicate (sample = std) and six unknowns. Fit a straight-line standard curve and interpolate the unknown concentrations (µg/mL). Report each unknown under its name; for any unknown whose reading lies outside the range of the standards, report null instead of a number.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "U1",
+     "truth": "truth:ref.U1",
+     "rtol": 0.02,
+     "atol": 0.3
+    },
+    {
+     "type": "numeric",
+     "key": "U2",
+     "truth": "truth:ref.U2",
+     "rtol": 0.02,
+     "atol": 0.3
+    },
+    {
+     "type": "numeric",
+     "key": "U3",
+     "truth": "truth:ref.U3",
+     "rtol": 0.02,
+     "atol": 0.3
+    },
+    {
+     "type": "numeric",
+     "key": "U4",
+     "truth": "truth:ref.U4",
+     "rtol": 0.02,
+     "atol": 0.3
+    },
+    {
+     "type": "is_null",
+     "key": "U5"
+    },
+    {
+     "type": "is_null",
+     "key": "U6"
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "U1": "",
+  "U2": "",
+  "U3": "",
+  "U4": "",
+  "U5": "",
+  "U6": ""
+ },
+ "tags": [
+  "standard-curve",
+  "trap:extrapolation"
+ ],
+ "provenance": "synthetic, s1.case_standard seed 6"
+}

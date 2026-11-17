@@ -173,6 +173,20 @@ check("files written before a timeout still surface", bool(by_name(rt, "partial.
 ru = run(A, "print(1+1)")
 check("kernel usable after timeout", ru["stdout"].strip() == "2", ru)
 
+# The interrupted run takes a while to stop (here a slow except-block). The
+# next run used to reach the kernel while it was still unwinding, came back
+# aborted and read as an empty success: stdout "", error None.
+SLOW_STOP = ("import time\ntry:\n    time.sleep(30)\nexcept KeyboardInterrupt:\n"
+             "    time.sleep(0.5)\n    raise\n")
+rs = run(A, "kept_after_timeout = 41")
+rs = run(A, SLOW_STOP, timeout_s=2)
+check("slow-stopping timeout reported", rs["timed_out"] and "preserved" in (rs["error"] or ""), rs)
+ru2 = run(A, "print(1+1)")
+check("next run after a slow-stopping timeout really runs",
+      ru2["stdout"].strip() == "2" and ru2["error"] is None, ru2)
+ru3 = run(A, "print(kept_after_timeout + 1)")
+check("state survives a slow-stopping timeout", ru3["stdout"].strip() == "42", ru3)
+
 # ---- inputs -------------------------------------------------------------------
 
 csv_de = "Probe;Konz. (ng/µL);A260/A280\nS1;1200,45;1,92\nS2;85,10;1,71\n".encode("utf-8")

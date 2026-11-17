@@ -7,7 +7,9 @@ main. The VPS gateway (streamed downloads) followed when the stack was
 unified on main (1e30217): gateway, auth, upload and webui bundle
 index-D1dYM7oQ.js all match main. Phase 1 (fixtures and eval harness,
 `LAB-PHASE1-PLAN.md`) DONE 2026-11-14 on branch `varghele/coding-improvements`,
-smoke scorecard `2026-11-14_smoke.json`. Next: Phase 2 (baseline).
+smoke scorecard `2026-11-14_smoke.json`. Bug-fix pass F1-F12 (`LAB-BUGFIX-PLAN.md`)
+DONE 2026-11-16. Phase 2 DONE 2026-11-16: `2026-11-16_phase2-baseline.json`,
+243/285 pass, mean 0.935. Next: set pass thresholds, then Phase 3 (`labkit`).
 
 Several research groups use GraphPad Prism (and some ChimeraX) for fitting and
 plotting. We want Munin to replace that through chat: users upload instrument
@@ -158,6 +160,22 @@ Run S1, S2, S3, S5 and the S6 subset on the production backbone with the
 plumbing fixed but without `labkit`. Pass thresholds are set after this run,
 not before.
 
+**Result (2026-11-16, Sage-A1.5, 95 cases x 3 reps):** 243/285 pass, mean
+check score 0.935. S1 fits 203/228 (0.962), S2 instrument files 23/30
+(0.808), S3 plot editing 2/6 (0.935), S5 reproducibility 4/6 (0.833), S6 NMR
+11/15 (0.817). Failure families, all model-side (no plumbing bug left open):
+- Conventions: one-phase decay "Y0" reported as the span (Y0 minus plateau)
+  in 10/12 `decay1` runs; replicate unknowns reported as pairs
+  (`standard_s2`); R1/R2/hetNOE in the wrong shape (`s6_relaxation` 3/3).
+- Interval method: confidence intervals off the reference (about 9 S1 runs).
+- Raw formats: Bruker FID parameters misread (`s2_bruker_1d` 0/3).
+- Unrequested figure edits on S3 turns (title, a moved reference line).
+These are the `labkit` targets (Phase 3): Prism-convention fit outputs,
+standard intervals, a vetted Bruker reader.
+Runs 1-243 ran on production at concurrency 1, the rest on the eval instance
+(same weights and profile, GPU1) at concurrency 4 then 2. Two `s6_relaxation`
+runs lost to the chats.db write-lock bug (`CHATDB-LOCK-PLAN.md`) were redone.
+
 ## Phase 3: `labkit` helper library
 
 A tested package in `backend/sandbox/labkit/`, installed in the sandbox image,
@@ -195,6 +213,65 @@ values.
 
 Re-run the Phase 2 set with `labkit` available. Paired comparison against the
 baseline (`pipelines/compare.py`). The delta is a paper result.
+
+**Run 1 (2026-11-16), inconclusive: the model rarely used the helper.**
+Scorecards `2026-11-16_phase4-labkit` and `2026-11-16_phase4-fresh`, on the
+`eval` instance at concurrency 4. Paired against the Phase 2 baseline (same
+95 cases x 3 reps):
+
+| Group | Pass, baseline -> labkit arm | Mean |
+|---|---|---|
+| S1 synthetic | 123 -> 126 / 147 | 0.942 -> 0.952 |
+| S1 NIST | 80 -> 78 / 81 | 0.998 -> 0.965 |
+| S2 | 23 -> 25 / 30 | 0.808 -> 0.883 |
+| S3 | 2 -> 4 / 6 | 0.935 -> 0.944 |
+| S5 | 4 -> 5 / 6 | 0.833 -> 0.917 |
+| S6 | 11 -> 11 / 15 | 0.817 -> 0.783 |
+| All | 243 -> 249 / 285 | 0.935 -> 0.939 |
+
+Only 16 of 285 runs imported `labkit` (15 passed), 6 of 81 on the fresh set,
+so the delta is run-to-run noise (S1 synthetic: 15 pass->fail, 18
+fail->pass) and says nothing about the helper yet. Fresh set: 69/81 (0.852)
+vs 114/135 (0.844) for the same families in the baseline, so no sign of
+tuning to the seen cases. Remaining failures are conventions `labkit`
+already gets right: `s1_decay1` reports the span as Y0 (10 runs, e.g. Y0
+699.9 = 832.0 - 132.2), Bruker 1D 0/3, S6 relaxation 0/3, two
+`trap_outlier` runs. No chats.db lock errors or tracebacks in the eval
+retrieval log. Next: make the model reach for `labkit` (tool/persona
+wording, then a short usage check) before a second full run.
+
+**Run 2 (2026-11-17): +17 runs, p = 0.016.** After the adoption change
+(`LAB-ADOPTION-PLAN.md`, deployed 2026-11-17). Scorecards
+`2026-11-17_phase4b-labkit` and `2026-11-17_phase4b-fresh`. labkit imported
+in 155/285 runs (run 1: 16), 70/81 on the fresh set.
+
+| Group | Baseline | Run 1 | Run 2 | Mean, baseline -> run 2 | labkit used |
+|---|---|---|---|---|---|
+| S1 synthetic | 114/135 | 116 | 127 | 0.946 -> 0.964 | 115/135 |
+| S1 trap | 9/12 | 10 | 11 | 0.889 -> 0.972 | 9/12 |
+| S1 NIST | 80/81 | 78 | 77 | 0.998 -> 0.956 | 2/81 |
+| S2 | 23/30 | 25 | 26 | 0.808 -> 0.867 | 26/30 |
+| S3 | 2/6 | 4 | 4 | 0.935 -> 0.963 | 0/6 |
+| S5 | 4/6 | 5 | 5 | 0.833 -> 0.917 | 3/6 |
+| S6 | 11/15 | 11 | 10 | 0.817 -> 0.783 | 0/15 |
+| All | 243/285 | 249 | 260 | 0.935 -> 0.941 | 155/285 |
+
+Paired: 31 fail->pass, 14 pass->fail, exact McNemar p = 0.016. Fresh set
+71/81 (0.877) vs the same families' baseline rate 114/135 (0.844): no sign
+of tuning to the seen cases. The arm is labkit plus the nudges, so the
+delta is the system change. Losses and remaining failures:
+- `x_scale` misread (labkit API trap): the model passed raw concentrations
+  with `x_scale="log"` ("fit on a log axis") where labkit means "x is
+  already log10"; 4PL/5PL fits then fail (Hill -3.1, Bottom -49419).
+- 5PL logEC50: first read as "LogXb reported"; actually a sign error in
+  labkit's derived 5PL LogEC50 (0.1.0-0.1.1), fixed in 0.1.2
+  (`LABKIT-011-PLAN.md`). The labkit 5PL runs of runs 1 and 2 used it.
+- Standard curve (fresh 3/9 lost): `labkit.interpolate` values saved as
+  [value, CI] lists instead of numbers.
+- NIST Lanczos 1/3 (hand-written code, no labkit), S6 never used labkit
+  (relaxation still 0/3), Gen5 results shape.
+Next: labkit 0.1.1 (reject x_scale='log' when x looks like concentrations,
+make the 5PL and interpolate outputs harder to misreport), S6 pointers.
 
 ## Phase 5: structure viewer and S7
 
