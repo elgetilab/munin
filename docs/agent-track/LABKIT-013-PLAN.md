@@ -176,3 +176,29 @@ Other failures:
   group, though the prompt says the first line is the lipid name.
 - Lanczos3 2/3: hand-written, local minima (custom_fit/exponential hints
   fired, not followed).
+
+## Result: results-suffix A/B (2026-11-17)
+
+User decision: fix the wording and measure it. Harness `RESULTS_SUFFIXES`
+v2 (default since `558bfc4`): a number per key, an object per item
+(residue, well, sample, peak, pair), [low, high] only for interval keys; v1
+selectable with `--results-suffix v1`, recorded in the scorecard. Same
+system (labkit 0.1.3, round-4 retrieval), same 30 cases x 3; v1 arm =
+`r4-targeted`, v2 arm = `r4-suffix-v2` / `r4-suffix-v2-fresh`.
+
+| | v2 | v1 |
+|---|---|---|
+| Original set | 68/72 | 60/72 |
+| Fresh (standard, competitive) | 17/18 | 15/18 |
+| Paired | 14 fail->pass, 4 pass->fail, exact McNemar p = 0.031 | |
+
+Relaxation 3/3 (v1 0/3), standard curves 24/24 (v1 21/24), Gen5 3/3 (2/3).
+So part of every earlier lab scorecard's failures (Phase 2 baseline
+included) were harness wording, in both arms alike; run 4 runs on v2 and
+its scorecard says so.
+
+Left after v2: Bruker #3 again wrote `spec.ppms` (3/3 Bruker failures in
+round 4 used it, and kept it after the "did you mean 'ppm'?" error), so
+labkit 0.1.4 adds `Spectrum.ppms` as an alias (labkit tests 36/36);
+NOESY #2 sigma off (context budgeted, not looked into); one Lanczos3
+local minimum; one ENSO b6/b8 slightly off; one fresh Ki CI.

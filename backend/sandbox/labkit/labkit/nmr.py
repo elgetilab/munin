@@ -55,6 +55,13 @@ class Spectrum(FieldHelp):
     phase: tuple = (0.0, 0.0)
     ref_offset_ppm: float = 0.0
 
+    @property
+    def ppms(self) -> np.ndarray:
+        """Alias of `ppm`. In Phase 4 round 4 the model wrote `spec.ppms` in
+        three of three Bruker runs, kept it after the error named 'ppm', and
+        ran out of turns; the plural is a natural name for an axis array."""
+        return self.ppm
+
     def __repr__(self):
         return (f"Spectrum({self.ppm.size} points, {self.ppm.min():.3f} to {self.ppm.max():.3f} ppm, "
                 f"phase p0={self.phase[0]:.2f} p1={self.phase[1]:.2f} deg; steps: {'; '.join(self.steps)})")

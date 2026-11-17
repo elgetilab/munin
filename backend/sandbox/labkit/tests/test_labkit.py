@@ -538,6 +538,8 @@ def test_field_errors_name_the_fields():
     import pickle
     copy.deepcopy(spec)
     pickle.loads(pickle.dumps(spec))
+    check("Spectrum.ppms is an alias of ppm (written in 3/3 round-4 Bruker runs)",
+          spec.ppms is spec.ppm)
     check("field errors: a wrong attribute names the closest field and lists them all; copy/pickle work",
           msgs[0] and "did you mean 'ppm'" in msgs[0] and "real" in msgs[0]
           and msgs[1] and "ppm" in msgs[1] and msgs[2] and "did you mean 'params'" in msgs[2], msgs)
