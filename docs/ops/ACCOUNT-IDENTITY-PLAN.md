@@ -1,6 +1,6 @@
 # Account identity: self-service aliases, then a numeric user id
 
-Status: Part A DEPLOYED 2026-11-17. Part B BUILT 2026-11-17 (defaults 6-9 accepted), NOT cut over: see "Part B cutover" below. Follows df2c2c5 (frozen `users.identity_email`, deployed 2026-11-17).
+Status: Part A DEPLOYED 2026-11-17. Part B LIVE 2026-11-17 15:28 UTC (c2476ba): auth switched and data converged in ~7 s; 162 users, 724 conversations, 419 uploaded docs, 14 API keys moved to u<id>. Backups: auth sessions.db.pre-userkey-2026-11-17, chats.db.pre-converge-20261117T152849Z, gateway.db.pre-converge-20261117T152851Z. Follows df2c2c5 (frozen `users.identity_email`, deployed 2026-11-17).
 
 ## Where we are
 
