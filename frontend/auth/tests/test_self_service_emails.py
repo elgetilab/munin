@@ -162,8 +162,10 @@ def test_make_primary_and_list(client, me, sent, auth_env):
     body = client.get("/auth/me/emails").json()
     assert body["emails"][0] == {"email": NEW, "primary": True, "current": False}
     assert {"email": ME, "primary": False, "current": True} in body["emails"]
-    # Data key unchanged.
-    assert client.get("/auth/check").headers["X-Munin-Email"] == ME
+    # Data key unchanged; the address sent along is now the new primary.
+    h = client.get("/auth/check").headers
+    assert h["X-Munin-User"] == f"u{me}"
+    assert h["X-Munin-Email"] == NEW
 
 
 def test_cannot_touch_someone_elses_address(client, me, sent, auth_env):

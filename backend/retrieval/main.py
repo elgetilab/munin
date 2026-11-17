@@ -128,6 +128,7 @@ app.add_middleware(SandboxPeerGuard)
 # Forwarded identity must come with the gateway's token when one is configured
 # (MUNIN_GATEWAY_TOKEN); see gateway_token_guard.py.
 from gateway_token_guard import GatewayTokenGuard  # noqa: E402
+from user_key import request_user_key  # noqa: E402
 app.add_middleware(GatewayTokenGuard)
 
 # Include MCP router
@@ -784,17 +785,18 @@ async def api_status():
 # ==============================================================================
 def _require_user_email(request: Request) -> str:
     """
-    Extract the authenticated user's email from the forward-auth header
-    set by the VPS gateway (both for browser sessions and API-key
-    `/v1/*` requests). Raises 401 if absent.
+    The authenticated user's storage key (user_key.request_user_key), from the
+    headers the VPS gateway sets for browser sessions and API-key `/v1/*`
+    requests. Raises 401 if absent. The name predates user keys; the value
+    is a key, not necessarily an address.
     """
-    email = request.headers.get("X-Munin-Email")
-    if not email:
+    key = request_user_key(request.headers)
+    if not key:
         raise HTTPException(
             status_code=401,
             detail={"error": {"message": "Missing authentication header"}},
         )
-    return email.strip().lower()
+    return key
 
 
 def _error_404(message: str) -> HTTPException:

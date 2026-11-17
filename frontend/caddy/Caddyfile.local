@@ -58,7 +58,7 @@
 (local-auth) {
 	forward_auth 127.0.0.1:8090 {
 		uri /auth/check
-		copy_headers X-Munin-Email X-Munin-Name X-Munin-Role X-Munin-Group
+		copy_headers X-Munin-User X-Munin-Email X-Munin-Name X-Munin-Role X-Munin-Group
 
 		@unauthorized status 401
 		handle_response @unauthorized {
@@ -186,6 +186,7 @@
 :8085 {
 	# API endpoint for API-key clients, same as production's api site: no
 	# forward-auth, so client-sent identity headers are stripped here.
+	request_header -X-Munin-User
 	request_header -X-Munin-Email
 	request_header -X-Munin-Name
 	request_header -X-Munin-Role

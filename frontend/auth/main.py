@@ -234,15 +234,10 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_emails_user ON user_emails(user_id)")
-    # Frozen identity key sent downstream as X-Munin-Email; see
-    # migrate_identity_email_v1. Added here too so every code path that
-    # creates users finds the column, migration or not.
+    # The address a user's data was stored under before the numeric key
+    # (see migrate_user_key_v1). Kept as a record; nothing keys on it.
     if not _column_exists(conn, "users", "identity_email"):
         conn.execute("ALTER TABLE users ADD COLUMN identity_email TEXT")
-    conn.execute(
-        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identity_email "
-        "ON users(identity_email) WHERE identity_email IS NOT NULL"
-    )
     conn.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             slug TEXT PRIMARY KEY,
@@ -456,10 +451,6 @@ def migrate_identity_email_v1() -> dict:
     try:
         if not _column_exists(conn, "users", "identity_email"):
             conn.execute("ALTER TABLE users ADD COLUMN identity_email TEXT")
-        conn.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identity_email "
-            "ON users(identity_email) WHERE identity_email IS NOT NULL"
-        )
         if _migration_applied(conn, "identity_email_v1"):
             summary["already_run"] = True
             conn.commit()
@@ -503,6 +494,57 @@ def migrate_identity_email_v1() -> dict:
     return summary
 
 
+def user_key(user_id: int) -> str:
+    """The key all of a user's data is stored under, in every service:
+    "u" plus the users.id. Sent downstream as X-Munin-User. It never
+    changes and never names an address, so addresses can be added, removed
+    and handed to someone else without moving or exposing anyone's data."""
+    return f"u{user_id}"
+
+
+_USER_KEY_RE = re.compile(r"^u(\d+)$")
+
+
+def migrate_user_key_v1() -> dict:
+    """Move this service's own per-user rows (user_profiles, display_names)
+    from address keys to user_key(), and drop the uniqueness guard on
+    identity_email: once data is keyed by number, a removed address may go
+    to another user. Other services' data moves with
+    backend/scripts/maintenance/converge_emails.py (plan --to-user-key).
+    Gated by schema_migrations.name = 'user_key_v1'."""
+    summary = {"already_run": False, "profiles_moved": 0, "profiles_dropped": 0}
+    conn = get_db()
+    try:
+        if _migration_applied(conn, "user_key_v1"):
+            summary["already_run"] = True
+            return summary
+        conn.execute("DROP INDEX IF EXISTS idx_users_identity_email")
+        # Every address a user has, plus the identity, maps to the user.
+        rows = conn.execute(
+            """
+            SELECT ue.email AS addr, ue.user_id AS uid FROM user_emails ue
+            UNION
+            SELECT u.identity_email, u.id FROM users u WHERE u.identity_email IS NOT NULL
+            """
+        ).fetchall()
+        for table in ("user_profiles", "display_names"):
+            for r in rows:
+                key = user_key(r["uid"])
+                if not conn.execute(f"SELECT 1 FROM {table} WHERE email = ?", (r["addr"],)).fetchone():
+                    continue
+                if conn.execute(f"SELECT 1 FROM {table} WHERE email = ?", (key,)).fetchone():
+                    conn.execute(f"DELETE FROM {table} WHERE email = ?", (r["addr"],))
+                    summary["profiles_dropped"] += 1
+                else:
+                    conn.execute(f"UPDATE {table} SET email = ? WHERE email = ?", (key, r["addr"]))
+                    summary["profiles_moved"] += 1
+        _mark_migration(conn, "user_key_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
 # ── User lookup + mutation helpers ────────────────────────────────────────
 
 def _ensure_identity(conn: sqlite3.Connection, user_id: int) -> str | None:
@@ -530,29 +572,20 @@ def _ensure_identity(conn: sqlite3.Connection, user_id: int) -> str | None:
 
 
 def _email_owner(conn: sqlite3.Connection, email: str) -> int | None:
-    """The user an address belongs to: as a login address, or as the
-    identity key of a user who has since removed it as a login. An
-    address owned either way cannot be given to another user, or that
-    user would see the owner's chats and files."""
-    email = email.strip().lower()
+    """The user an address belongs to as a sign-in address, or None."""
     row = conn.execute(
-        "SELECT user_id FROM user_emails WHERE email = ?", (email,)
+        "SELECT user_id FROM user_emails WHERE email = ?", (email.strip().lower(),)
     ).fetchone()
-    if row:
-        return row["user_id"]
-    row = conn.execute(
-        "SELECT id FROM users WHERE identity_email = ?", (email,)
-    ).fetchone()
-    return row["id"] if row else None
-
+    return row["user_id"] if row else None
 
 
 def lookup_user(email: str) -> dict | None:
-    """Resolve an email (any alias, or the identity key) to its user.
+    """Resolve a sign-in address, or a user key ("u12"), to its user.
     Returns None if not found."""
     email = email.strip().lower()
     conn = get_db()
-    user_id = _email_owner(conn, email)
+    m = _USER_KEY_RE.match(email)
+    user_id = int(m.group(1)) if m else _email_owner(conn, email)
     row = None
     if user_id is not None:
         row = conn.execute(
@@ -586,8 +619,9 @@ def lookup_user(email: str) -> dict | None:
         "group": row["research_group"],
         "username": row["username"],
         "emails": emails,
-        "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else email),
+        "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else None),
         "identity_email": identity or email,
+        "key": user_key(row["id"]),
     }
 
 
@@ -995,7 +1029,7 @@ def create_session(email: str, name: str) -> str:
 
 
 def validate_session(signed_token: str) -> dict | None:
-    """Validate a signed session token. Returns {email, login_email, name} or None."""
+    """Validate a signed session token. Returns {user, email, login_email, name} or None."""
     try:
         token = signer.unsign(signed_token, max_age=SESSION_MAX_AGE).decode()
     except BadSignature:
@@ -1014,12 +1048,16 @@ def validate_session(signed_token: str) -> dict | None:
     if datetime.now(timezone.utc) > expires:
         return None
 
-    # `email` is the account's identity key, the same whichever address
-    # the user signed in with; every caller (X-Munin-Email, profiles,
-    # admin checks) keys on it. `login_email` is the address typed at login.
+    # `user` is the account's key (user_key), the same whichever address
+    # the user signed in with; everything stored per user keys on it.
+    # `email` is the primary address, for display and mail. `login_email`
+    # is the address typed at login. A session whose account is gone is
+    # no session.
     user = lookup_user(row["email"])
-    identity = user["identity_email"] if user else row["email"]
-    return {"email": identity, "login_email": row["email"], "name": row["name"]}
+    if not user:
+        return None
+    return {"user": user["key"], "email": user["primary_email"] or row["email"],
+            "login_email": row["email"], "name": row["name"]}
 
 
 def delete_session(signed_token: str):
@@ -1310,6 +1348,7 @@ async def startup():
     migrate_split_name_v1()
     migrate_group_members_v1()
     migrate_identity_email_v1()
+    migrate_user_key_v1()
     seed_users_from_whitelist()
     seed_contributors_from_yaml()
 
@@ -1460,16 +1499,17 @@ async def auth_check(request: Request):
     if not session:
         return Response(status_code=401)
 
-    profile = get_user_profile(session["email"]) or {}
+    profile = get_user_profile(session["user"]) or {}
     name = (
         profile.get("nickname")
         or profile.get("full_name")
-        or get_display_name(session["email"])
+        or get_display_name(session["user"])
         or session["name"]
     )
     user = lookup_user(session["email"])
     role = user["role"] if user else "user"
     headers = {
+        "X-Munin-User": session["user"],
         "X-Munin-Email": _header_safe(session["email"]),
         "X-Munin-Name": _header_safe(name),
         "X-Munin-Role": _header_safe(role),
@@ -1489,17 +1529,18 @@ async def auth_me(request: Request):
     if not session:
         return JSONResponse({"error": "invalid session"}, status_code=401)
 
-    profile = get_user_profile(session["email"]) or {}
+    profile = get_user_profile(session["user"]) or {}
     # Greeting name priority: nickname > full_name > display_name (legacy) > whitelist name
     greeting_name = (
         profile.get("nickname")
         or profile.get("full_name")
-        or get_display_name(session["email"])
+        or get_display_name(session["user"])
         or session["name"]
     )
     return JSONResponse({
         "email": session["email"],
         "login_email": session["login_email"],
+        "user": session["user"],
         "name": greeting_name,
         "full_name": profile.get("full_name") or session["name"],
         "nickname": profile.get("nickname") or "",
@@ -1534,19 +1575,20 @@ async def auth_me_update(request: Request):
     if avatar is not None and len(avatar) > 200_000:
         return JSONResponse({"error": "avatar too large"}, status_code=400)
 
-    set_user_profile(session["email"], full_name, nickname, avatar)
+    set_user_profile(session["user"], full_name, nickname, avatar)
 
     # Return updated profile
-    profile = get_user_profile(session["email"]) or {}
+    profile = get_user_profile(session["user"]) or {}
     greeting_name = (
         profile.get("nickname")
         or profile.get("full_name")
-        or get_display_name(session["email"])
+        or get_display_name(session["user"])
         or session["name"]
     )
     return JSONResponse({
         "email": session["email"],
         "login_email": session["login_email"],
+        "user": session["user"],
         "name": greeting_name,
         "full_name": profile.get("full_name") or session["name"],
         "nickname": profile.get("nickname") or "",
@@ -2480,7 +2522,9 @@ async def admin_check_role(request: Request, email: str = ""):
     """Internal role lookup used by the tusd hook-service KB gate.
 
     Auth: bearer token matching KB_GATE_TOKEN OR an admin session
-    cookie. Returns role + allowed_kb_contribution boolean.
+    cookie. `email` may be a sign-in address or a user key ("u12"; the
+    gateway resolves API-key owners this way). Returns the user key,
+    primary address, name, role + allowed_kb_contribution boolean.
     """
     auth_header = request.headers.get("Authorization", "")
     token_ok = (
@@ -2514,7 +2558,9 @@ async def admin_check_role(request: Request, email: str = ""):
         user["role"] == "group_leader" and bool(user["group"])
     )
     return JSONResponse({
+        "user": user["key"],
         "email": user["primary_email"],
+        "name": user["name"],
         "role": user["role"],
         "group": user["group"],
         "allowed_kb_contribution": allowed,

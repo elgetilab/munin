@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { fetchAdminActivity, fetchAdminUsage } from '../lib/api';
-import type { AdminActivity, AdminUsage } from '../lib/api';
+import type { AdminActivity, AdminActivityUser, AdminUsage } from '../lib/api';
 import { useUiStore } from '../stores/uiStore';
 import { UsersTab } from './admin/UsersTab';
 import { GroupsTab } from './admin/GroupsTab';
@@ -215,11 +215,14 @@ const STATUS_LABELS: Record<ActivityStatus, string> = {
 // nobody is listed twice.
 function ActivityTab({ activity }: { activity: AdminActivity }) {
   const [filter, setFilter] = useState<ActivityFilter>('all');
-  const online = new Set(activity.online.map(u => u.email));
-  const recent = new Set(activity.recent.map(u => u.email));
-  const statusOf = (email: string): ActivityStatus =>
-    online.has(email) ? 'online' : recent.has(email) ? 'recent' : 'offline';
-  const rows = activity.all_users.filter(u => filter === 'all' || statusOf(u.email) === filter);
+  // Keyed by user key: two users can show the same last address (one
+  // handed an address another removed).
+  const idOf = (u: AdminActivityUser) => u.user ?? u.email;
+  const online = new Set(activity.online.map(idOf));
+  const recent = new Set(activity.recent.map(idOf));
+  const statusOf = (id: string): ActivityStatus =>
+    online.has(id) ? 'online' : recent.has(id) ? 'recent' : 'offline';
+  const rows = activity.all_users.filter(u => filter === 'all' || statusOf(idOf(u)) === filter);
   const filters: { value: ActivityFilter; label: string }[] = [
     { value: 'all', label: `All (${activity.total})` },
     { value: 'online', label: `Online (${activity.online.length})` },
@@ -249,7 +252,7 @@ function ActivityTab({ activity }: { activity: AdminActivity }) {
       </div>
       <div className="bg-bg-secondary border border-border rounded-lg divide-y divide-border max-h-[50vh] overflow-y-auto">
         {rows.map(u => (
-          <UserRow key={u.email} user={u} status={statusOf(u.email)} />
+          <UserRow key={idOf(u)} user={u} status={statusOf(idOf(u))} />
         ))}
         {activity.all_users.length === 0 ? (
           <div className="px-4 py-6 text-center text-text-secondary text-sm">No activity recorded yet</div>
@@ -312,7 +315,7 @@ function UsageTab({ usage }: { usage: AdminUsage }) {
                 const maxTokens = usage.top_users[0]?.tokens || 1;
                 const pct = Math.max(1, (u.tokens / maxTokens) * 100);
                 return (
-                  <tr key={u.email} className="relative">
+                  <tr key={u.user ?? u.email} className="relative">
                     <td className="px-4 py-2.5 relative">
                       {/* Background bar */}
                       <div

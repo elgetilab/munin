@@ -29,7 +29,7 @@ import os
 logger = logging.getLogger(__name__)
 
 HEADER = b"x-munin-gateway-token"
-IDENTITY_HEADERS = frozenset({b"x-munin-email", b"x-munin-role",
+IDENTITY_HEADERS = frozenset({b"x-munin-user", b"x-munin-email", b"x-munin-role",
                               b"x-munin-group", b"x-munin-name"})
 
 

@@ -262,7 +262,10 @@ export async function fetchUsageStats(): Promise<UsageStats> {
 // ── Admin ────────────────────────────────────────────────────────────────
 
 export interface AdminActivityUser {
+  // The last address seen for this user, for display.
   email: string;
+  // The user key ("u12") rows are stored under; absent from older gateways.
+  user?: string;
   last_seen_at: string;
   source: string;
 }
@@ -276,6 +279,7 @@ export interface AdminActivity {
 
 export interface AdminUsageUser {
   email: string;
+  user?: string;
   tokens: number;
   requests: number;
   by_source: Record<string, { tokens: number; requests: number }>;

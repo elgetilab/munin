@@ -25,6 +25,12 @@ SUBCOMMANDS
                            JSON. Every user_emails row whose address is not
                            its user's identity_email is an alias.
 
+  plan AUTH_DB --to-user-key
+                           The map for the move to numeric user keys: every
+                           address a user signs in with, and their
+                           identity_email, -> "u<id>". Applied with the same
+                           subcommands below.
+
   chats DB --map F         Rewrite user_email in every chats.db table that has
                            one (found by schema, so tables added later are
                            covered). Where user_email is part of a primary key
@@ -111,14 +117,25 @@ def cmd_plan(args) -> int:
         print("users.identity_email missing: deploy the auth change first",
               file=sys.stderr)
         return EXIT_ERROR
-    rows = conn.execute(
-        """
-        SELECT ue.email AS alias, u.identity_email AS identity
-          FROM user_emails ue JOIN users u ON u.id = ue.user_id
-         WHERE u.identity_email IS NOT NULL AND ue.email != u.identity_email
-         ORDER BY u.id, ue.email
-        """
-    ).fetchall()
+    if args.to_user_key:
+        rows = conn.execute(
+            """
+            SELECT ue.email AS alias, 'u' || ue.user_id AS identity FROM user_emails ue
+            UNION
+            SELECT u.identity_email, 'u' || u.id FROM users u
+             WHERE u.identity_email IS NOT NULL
+            ORDER BY identity, alias
+            """
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT ue.email AS alias, u.identity_email AS identity
+              FROM user_emails ue JOIN users u ON u.id = ue.user_id
+             WHERE u.identity_email IS NOT NULL AND ue.email != u.identity_email
+             ORDER BY u.id, ue.email
+            """
+        ).fetchall()
     unset = conn.execute(
         "SELECT COUNT(*) FROM users WHERE identity_email IS NULL"
     ).fetchone()[0]
@@ -186,6 +203,10 @@ def rewrite_db(path: str, mapping: dict[str, str], apply: bool) -> tuple[dict, i
             if not key:
                 continue
             uniques = [u for u in _unique_sets(conn, table) if key in u]
+            cols = {r[1] for r in conn.execute(f'PRAGMA table_info("{table}")')}
+            # gateway.user_activity keeps the last address seen per user key;
+            # fill it from the address the row was keyed by, if empty.
+            fill_address = "address" in cols and key != "address"
             moved = replaced = dropped = 0
             users = set()
             for alias, identity in mapping.items():
@@ -203,6 +224,9 @@ def rewrite_db(path: str, mapping: dict[str, str], apply: bool) -> tuple[dict, i
                             vals).fetchone()
                         if clash:
                             break
+                    if fill_address and "@" in alias and not row["address"]:
+                        conn.execute(f'UPDATE "{table}" SET address = ? WHERE rowid = ?',
+                                     (alias, row["_rid"]))
                     if clash is None:
                         conn.execute(f'UPDATE "{table}" SET "{key}" = ? WHERE rowid = ?',
                                      (identity, row["_rid"]))
@@ -324,7 +348,8 @@ def cmd_qdrant(args) -> int:
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
-    s = sub.add_parser("plan"); s.add_argument("auth_db"); s.set_defaults(fn=cmd_plan)
+    s = sub.add_parser("plan"); s.add_argument("auth_db")
+    s.add_argument("--to-user-key", action="store_true"); s.set_defaults(fn=cmd_plan)
     for name in ("chats", "gateway"):
         s = sub.add_parser(name); s.add_argument("db")
         s.add_argument("--map", required=True); s.add_argument("--apply", action="store_true")

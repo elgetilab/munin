@@ -1,6 +1,6 @@
 # Account identity: self-service aliases, then a numeric user id
 
-Status: Part A BUILT (approved 2026-11-17, defaults accepted); Part B approved, after Part A. Follows df2c2c5 (frozen `users.identity_email`, deployed 2026-11-17).
+Status: Part A DEPLOYED 2026-11-17. Part B BUILT 2026-11-17 (defaults 6-9 accepted), NOT cut over: see "Part B cutover" below. Follows df2c2c5 (frozen `users.identity_email`, deployed 2026-11-17).
 
 ## Where we are
 
@@ -103,14 +103,41 @@ Steps:
    X-Munin-Email when it is absent (keeps scripts and benchmarks working;
    their data stays under their test addresses; `u\d+` and addresses
    cannot collide). Admin gate and KB uploads read X-Munin-Email.
-5. Admin UI: usage and activity tables show the user's name and primary
-   address by joining `u<id>` against the Users list it already loads.
+5. Admin views: as built, the gateway keeps the last address seen per user
+   key (user_activity.address) and its admin endpoints return that address
+   as `email` plus the key as `user`, so the admin UI needed no join.
 6. Lift the "identity address cannot go to another user" guard once the
    cutover is done; identity_email stays as a record.
 7. Cutover per host, no downtime window: deploy auth + Caddy + gateway
    (X-Munin-User is sent but nothing keys on it yet); then on hugin run
    converge with {identity: u<id>}, restart retrieval, run converge again to
    catch writes made in between (it is idempotent); same for gateway.db.
+
+## Part B cutover
+
+Nothing changes for users until step 4; steps 1-3 can go out any time.
+
+1. Merge the latest main into the branch (peers rebuild
+   munin-retrieval:latest from main; the deploy must not drop their work).
+2. VPS: check KB_GATE_TOKEN is set in ~/munin/frontend/.env (the gateway now
+   needs it for API-key owners). Sync gateway/, caddy/, docker-compose.yml;
+   rebuild api-gateway; validate + reload Caddy. Auth is NOT synced yet, so
+   no X-Munin-User arrives and the gateway keys by address as before.
+3. hugin: deploy retrieval. It reads X-Munin-User, else X-Munin-Email;
+   the gateway forwards the address in both, so keys are unchanged.
+4. The switch, as one sequence: back up auth sessions.db; sync auth and
+   rebuild munin-auth (from now on X-Munin-User is u<id>); at once
+   `plan --to-user-key` on the auth DB; converge chats, files, qdrant on
+   hugin and gateway on the VPS with --apply. Between the auth restart
+   and the converge (about a minute) users see an empty account.
+5. Run the same converge commands again a few minutes later: writes made
+   under an address in that minute move too (idempotent).
+6. Verify: a known user's X-Munin-User at /auth/check, their chat count
+   under u<id>, nothing left under any address in chats.db / gateway.db.
+
+Rollback: restore the pre-converge backups and the auth backup, redeploy
+the previous auth. Gateway and retrieval from steps 2-3 can stay: they work
+keyed by address too.
 
 ## Open questions (defaults in brackets)
 

@@ -512,7 +512,7 @@ print(response.choices[0].message.content)`;
         {/* ── API Keys Section ── */}
         <h3 className="text-lg font-semibold text-text-primary mb-2">API Keys</h3>
         <p className="text-sm text-text-secondary mb-4">
-          Use API keys to access Munin from scripts, notebooks, or any OpenAI-compatible client. Keys are tied to your email ({profile.email}).
+          Use API keys to access Munin from scripts, notebooks, or any OpenAI-compatible client. Keys are tied to your account, whichever address you sign in with.
         </p>
         <div className="text-xs text-text-secondary mb-6 flex flex-wrap gap-x-4 gap-y-1">
           {usage && usage.current_month.tokens_limit > 0 && (

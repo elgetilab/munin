@@ -14,6 +14,7 @@ import asyncio
 from fastapi import APIRouter, Request, HTTPException
 
 from models import MCPCallRequest
+from user_key import request_user_key
 from .schemas import MCP_TOOLS
 from .executor import execute_mcp_tool
 from .context import (
@@ -186,7 +187,8 @@ async def call_mcp_tool_rest(request: MCPCallRequest, http_request: Request):
     REST endpoint for MCP tool execution (used by Deep Research and the
     stress test harness).
 
-    Sets ``current_user_email`` from the ``X-Munin-Email`` header
+    Sets ``current_user_email`` from the ``X-Munin-User`` header (else
+    ``X-Munin-Email``)
     before dispatching, so user-scoped tools like ``search_user_docs``
     and ``search_past_conversations`` work the same way they do from
     inside chat completions. Optional; callers without a header (e.g.
@@ -199,7 +201,7 @@ async def call_mcp_tool_rest(request: MCPCallRequest, http_request: Request):
             detail=f"Unknown tool: {request.name}. Available: {list(MCP_TOOLS.keys())}"
         )
 
-    user_email = http_request.headers.get("X-Munin-Email")
+    user_email = request_user_key(http_request.headers)
     conv_id = http_request.headers.get("X-Munin-Conversation-Id")
     if user_email:
         current_user_email.set(user_email)

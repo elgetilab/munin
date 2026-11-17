@@ -127,6 +127,7 @@ test_labkit_hints.py                     hermetic
 test_upload_cancel.py                    hermetic
 test_upload_doi_hint.py                  hermetic
 test_url_guard.py                        hermetic
+test_user_key.py                         hermetic
 test_usage_tracking.py                   hermetic
 test_vision_synthesis.py                 hermetic
 test_vllm_maintenance_window.py          hermetic

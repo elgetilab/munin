@@ -134,3 +134,35 @@ def test_plan_reads_auth_db(tmp_path, capsys):
     c.close()
     assert C.main(["plan", db]) == 0
     assert json.loads(capsys.readouterr().out) == {ALIAS: IDENT}
+
+
+def test_plan_to_user_key_maps_every_address_and_the_identity(tmp_path, capsys):
+    db = str(tmp_path / "sessions.db")
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, identity_email TEXT)")
+    c.execute("CREATE TABLE user_emails (email TEXT PRIMARY KEY, user_id INTEGER, is_primary INTEGER)")
+    # User 1 removed their identity address since; user 2 has one address.
+    c.executemany("INSERT INTO users VALUES (?, ?)", [(1, "old@x.org"), (2, "b@x.org")])
+    c.executemany("INSERT INTO user_emails VALUES (?, ?, ?)",
+                  [("new@x.org", 1, 1), ("alt@x.org", 1, 0), ("b@x.org", 2, 1)])
+    c.commit()
+    c.close()
+    assert C.main(["plan", db, "--to-user-key"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "old@x.org": "u1", "new@x.org": "u1", "alt@x.org": "u1", "b@x.org": "u2"}
+
+
+def test_user_key_move_keeps_the_gateway_address(tmp_path, capsys):
+    p = tmp_path / "map.json"
+    p.write_text(json.dumps({IDENT: "u7", ALIAS: "u7"}))
+    db = str(tmp_path / "gateway.db")
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE user_activity (email TEXT PRIMARY KEY, last_seen_at TEXT, "
+              "source TEXT, address TEXT)")
+    c.executemany("INSERT INTO user_activity (email, last_seen_at, source) VALUES (?, ?, 'web')",
+                  [(IDENT, "2026-11-10"), (ALIAS, "2026-11-01")])
+    c.commit()
+    c.close()
+    assert C.main(["gateway", db, "--map", str(p), "--apply"]) == 0
+    assert rows(db, "SELECT email, address, last_seen_at FROM user_activity") == [
+        ("u7", IDENT, "2026-11-10")]
