@@ -145,3 +145,34 @@ everything.
   fitting and established software as reference (for example EasySpin for
   CW, DeerLab for DEER); plan it as its own round with fixtures and an S6
   extension.
+
+## Result: targeted rerun (2026-11-17, labkit 0.1.3 deployed)
+
+Tags `r4-targeted` and `r4-targeted-fresh` (no scorecard), 3 reps of every
+case family that failed in run 3. Original set 60/72 (run 3: 54, baseline:
+59 on the same runs); fresh standard curve and competitive 15/18 (run 3:
+16). Fixed: JASCO 3/3 (run 3: 1), HSQC 6/6 (5), NanoDrop 9/9 (7), Rat42 and
+ENSO 3/3, Bruker 2/3 (1). Hints fired: standard_curve 14, competitive 12,
+custom_fit 6, exponential 4, cd 3, relaxation 3, bruker 2, sparky 2, kd 1.
+No tracebacks, lock errors or outline failures in the eval log.
+
+**Results shape: the cause is the harness, not the model.** The results
+suffix every case gets (`munin_bench/labanalysis/cases.py`,
+`RESULTS_SUFFIX`) says "Use plain numbers ..., lists for intervals as
+[low, high]". The model follows it against the case prompt: relaxation
+"per-residue maps" saved as plain lists of 40 numbers; Gen5 results.v2 was
+keyed by well, v3 rewritten as plain lists; standard curves saved
+`[value, [low, high]]`. The json_outline showed "(no labels)" and did not
+override the explicit instruction. NOESY rep 1 went the other way (exact
+sigma values saved as `{sigma, sigma_ci}` objects).
+
+Other failures:
+- Competitive (1 original, 2 fresh): the 20-turn budget ran out (one run
+  had the numbers in its answer but no results.json).
+- Bruker #1: wrote `spec.ppms` in two scripts, then reran the second
+  verbatim twice despite the quoted "did you mean 'ppm'?" error; the guard
+  forced the wrap-up.
+- NOESY #2: read the header line of lipid_groups.txt ("POPC") as a lipid
+  group, though the prompt says the first line is the lipid name.
+- Lanczos3 2/3: hand-written, local minima (custom_fit/exponential hints
+  fired, not followed).
