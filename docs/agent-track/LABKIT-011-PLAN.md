@@ -115,3 +115,12 @@ dose_response 16, kd 6, relaxation 3, exponential 3.
 Left alone: relaxation saved R1/R2 as bare lists (values match the truth),
 standard-curve `[value, CI]` lists (Q3), one 3PL CI.
 labkit tests 30/30 in the sandbox image; sandbox live 54/54, figure hook 20/20.
+
+## Result: full run 3 (2026-11-17, labkit 0.1.2)
+
+267/285 (run 2: 260, baseline: 243), mean 0.952; vs baseline 36 gained,
+12 lost, McNemar p = 0.0007; vs run 2 20/13, p = 0.30. Fresh 79/81 (run 2:
+71). labkit used 180/285 and 77/81. Dose response and standard curves all
+pass bar three `[value, CI]` standard-curve runs; S6 now uses labkit in 8/15
+runs (run 2: 0) and relaxation passed for the first time (1/3). Details and
+the remaining failures in `LAB-ANALYSIS-PLAN.md` (Phase 4 run 3).

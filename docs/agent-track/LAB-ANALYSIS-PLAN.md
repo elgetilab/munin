@@ -273,6 +273,50 @@ delta is the system change. Losses and remaining failures:
 Next: labkit 0.1.1 (reject x_scale='log' when x looks like concentrations,
 make the 5PL and interpolate outputs harder to misreport), S6 pointers.
 
+**Run 3 (2026-11-17): 267/285, p < 0.001 vs baseline.** After round 3
+(`LABKIT-011-PLAN.md`: labkit 0.1.2 with the `x_scale` guard, the 5PL
+LogEC50 sign fix and the `csp` order guard; NMR, standard-curve hints;
+persona names the `labkit.nmr` functions). Scorecards
+`2026-11-17_phase4c-labkit` and `2026-11-17_phase4c-fresh`. Prompt, hints
+and labkit unchanged during the run. labkit imported in 180/285 runs, 77/81
+on the fresh set.
+
+| Group | Baseline | Run 1 | Run 2 | Run 3 | Mean, run 3 | labkit used (run 3) |
+|---|---|---|---|---|---|---|
+| S1 synthetic | 114/135 | 116 | 127 | 132 | 0.986 | 133/135 |
+| S1 trap | 9/12 | 10 | 11 | 12 | 1.000 | 10/12 |
+| S1 NIST | 80/81 | 78 | 77 | 78 | 0.965 | 1/81 |
+| S2 | 23/30 | 25 | 26 | 23 | 0.833 | 25/30 |
+| S3 | 2/6 | 4 | 4 | 6 | 1.000 | 0/6 |
+| S5 | 4/6 | 5 | 5 | 6 | 1.000 | 3/6 |
+| S6 | 11/15 | 11 | 10 | 10 | 0.733 | 8/15 |
+| All | 243/285 | 249 | 260 | 267 | 0.952 | 180/285 |
+
+Paired vs baseline: 36 fail->pass, 12 pass->fail, exact McNemar
+p = 0.0007 (without NIST: 35/9, p = 0.0001). Vs run 2: 20/13, p = 0.30,
+so run 3 is not shown to beat run 2. Fresh set 79/81 (run 2: 71) vs the
+same families' baseline rate 114/135. Hints fired (eval log): exponential
+45, standard_curve 19, competitive 13, dose_response 12, kd 5,
+relaxation 4, morrison 3, michaelis_menten 2, bruker 1. No tracebacks or
+lock errors. Remaining failures (18 + 2 fresh):
+- Results shape (Q3, left alone): standard curve `[value, CI]` lists (3),
+  relaxation R1/R2 not per-residue maps (2), Gen5, NanoDrop nested
+  (2), one fresh competitive with no results.json.
+- S2 Bruker 1D 1/3 (run 2: 2/3): both failures ran out of tool budget on
+  `Spectrum` attribute typos (`ppmm`, `ppmin`) after reading and processing
+  with labkit. In rep 3 the model wrote invented shifts to results.json and
+  then said in the answer that they were invented and should be
+  disregarded. Candidate: an AttributeError on `Spectrum` that lists the
+  fields, and a note in `guide('nmr')`.
+- S2 JASCO CD 1/3: MRE computed by hand with unit errors instead of
+  `labkit.cd`.
+- S6 NOESY buildup 1/3 (3/3 in all earlier runs): hand-written fits, sigma
+  off by about 100x in both failures; not looked into yet.
+- S6 HSQC s2#3: Kd right, CSPs wrong: the model's own CSP code indexed its
+  (1H, 15N) tuples the wrong way round after swapping them for labkit.
+- NIST (3): ENSO no results, Lanczos3 local minimum, Rat42 off; one S1
+  competitive Ki CI too wide. All hand-written.
+
 ## Phase 5: structure viewer and S7
 
 Extend `show_protein`: load a PDB or mmCIF artifact from the sandbox or an

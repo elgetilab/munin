@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-71 committed scorecard JSONs, copied verbatim from
+73 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 115 JSON plus 67 Markdown twins; the remainder are mostly the
+The full set is 117 JSON plus 69 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -137,6 +137,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-16_phase4-fresh.json` | Lab-analysis Phase 4 tuning check: 27 fresh S1 cases (seeds 6-8, `fixtures/lab_fresh`, generated after the labkit freeze) x 3 reps, `labkit` arm: 69/81 pass (0.852), mean 0.944, vs 114/135 (0.844) for the same nine families in the baseline. 6/81 runs imported `labkit` | none yet |
 | `2026-11-17_phase4b-labkit.json` | Lab-analysis Phase 4 run 2, `labkit` arm plus adoption nudges (`LAB-ADOPTION-PLAN.md`: LAB DATA rule at the top of the code persona, labkit first in the `run_python` description, a once-per-conversation hint on hand-rolled fits, reader named in upload notes), same 95 x 3 as the baseline, `eval` instance at concurrency 4: 260/285 pass (baseline 243, run 1 249), mean 0.941. labkit imported in 155/285 runs. Paired vs baseline: 31 runs fail->pass, 14 pass->fail, exact McNemar p = 0.016. S1 synthetic 114->127/135 (decay1 the main gain), S1 trap 9->11/12, S1 NIST 80->77/81 (Lanczos, no labkit), S2 23->26/30, S3 2->4/6, S5 4->5/6, S6 11->10/15 (labkit never used in S6). Measures the system change (helper plus nudges), not labkit alone | none yet |
 | `2026-11-17_phase4b-fresh.json` | Phase 4 run 2 tuning check on the 27 fresh S1 cases (seeds 6-8) x 3: 71/81 (0.877), run 1 69/81, same-family baseline rate 114/135 (0.844); labkit in 70/81 runs. decay1 9/9 (run 1 4/9); standard curve 6/9 (interpolate results saved as [value, CI] lists) | none yet |
+| `2026-11-17_phase4c-labkit.json` | Lab-analysis Phase 4 run 3, `labkit` 0.1.2 (`x_scale` guard, 5PL LogEC50 sign fix, `csp` order guard) plus round-3 pointers (`LABKIT-011-PLAN.md`: NMR, titration and standard-curve hints, `labkit.nmr` functions in the persona), same 95 x 3, `eval` instance at concurrency 4: 267/285 pass (baseline 243, run 2 260), mean 0.952. labkit imported in 180/285 runs. Paired vs baseline: 36 fail->pass, 12 pass->fail, exact McNemar p = 0.0007; vs run 2 20/13, p = 0.30. S1 synthetic 132/135, S1 trap 12/12, S1 NIST 78/81, S2 23/30, S3 6/6, S5 6/6, S6 10/15. Measures the system change (helper plus nudges), not labkit alone | none yet |
+| `2026-11-17_phase4c-fresh.json` | Phase 4 run 3 on the 27 fresh S1 cases (seeds 6-8) x 3: 79/81 (0.979), run 2 71/81, same-family baseline rate 114/135 (0.844); labkit in 77/81 runs. Failures: one standard curve saved as [value, CI], one competitive with no results.json | none yet |
 
 ## Cautions when regenerating figures
 
