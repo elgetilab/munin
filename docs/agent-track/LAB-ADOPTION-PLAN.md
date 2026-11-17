@@ -25,7 +25,7 @@ Code: `backend/retrieval/labkit_hints.py` (wired into `run_python` in
 `mcp/tools/sandbox.py` and the upload note in `chat_service.py`), the
 `LAB DATA` section at the top of the `code.json` fragment, the
 `run_python` description. Tests: `tests/test_labkit_hints.py` (7, uses the
-model's own run 1 scripts), hermetic 117/117. Parent: `LAB-ANALYSIS-PLAN.md`
+model's own run 1 scripts), hermetic 116/116. Parent: `LAB-ANALYSIS-PLAN.md`
 (Phase 4), `LAB-PHASE3-PLAN.md`.
 
 ## Why
