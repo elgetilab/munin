@@ -192,10 +192,45 @@ def test_5pl_reports_logec50_next_to_logxb():
     rows = [ln.split()[0] for ln in str(r).splitlines()[2:] if ln.startswith("  ") and not ln.startswith("  WARNING")]
     i = rows.index("LogXb")
     text = str(r)
-    expect = 0.2 + (1 / 1.1) * math.log10(2 ** (1 / 0.5) - 1)
     check("5pl: print(r) shows LogEC50 right after LogXb, marked as the value to report",
-          rows[i + 1] == "LogEC50" and "report THIS as logEC50" in text
-          and close(r.params["LogEC50"], expect, 1e-5), rows)
+          rows[i + 1] == "LogEC50" and "report THIS as logEC50" in text, rows)
+
+
+def test_derived_values_match_the_curve():
+    """Every derived quantity checked against the fitted curve itself, by a
+    numerical root, never against its own formula: labkit 0.1.1's 5PL
+    LogEC50 had a sign error that a formula-copy test passed."""
+    from scipy.optimize import brentq
+    ok, bad = True, []
+
+    def halfway(r, lo_y, hi_y, a, b):
+        return brentq(lambda v: float(r.predict(np.array([v]))[0]) - (lo_y + hi_y) / 2, a, b)
+
+    for S, H in ((0.5, 1.1), (2.5, 0.8), (1.0, 1.3), (0.4, -1.2)):
+        x = np.linspace(-4, 4, 33)
+        y = 2 + 90 / (1 + 10 ** ((0.3 - x) * H)) ** S
+        r = fit("5pl", x, y, x_scale="log")
+        root = halfway(r, r.params["Bottom"], r.params["Top"], -6, 6)
+        if not close(r.params["LogEC50"], root, 1e-6) or not close(r.params["EC50"], 10 ** root, 1e-5):
+            ok = False; bad.append(("5pl", S, H, r.params["LogEC50"], root))
+    x = np.linspace(-3, 3, 25)
+    r4 = fit("4pl", x, 5 + 95 / (1 + 10 ** ((-0.7 - x) * 1.4)), x_scale="log")
+    if not close(r4.params["LogEC50"], halfway(r4, r4.params["Bottom"], r4.params["Top"], -3, 3), 1e-6):
+        ok = False; bad.append("4pl")
+    t = np.linspace(0, 20, 30)
+    rd = fit("one_phase_decay", t, 130 + 700 * np.exp(-0.2 * t))
+    if not close(rd.params["HalfLife"], halfway(rd, rd.params["Plateau"], rd.params["Y0"], 0, 20), 1e-6) \
+            or not close(rd.params["Span"], float(rd.predict(np.array([0.0]))[0]) - rd.params["Plateau"], 1e-9):
+        ok = False; bad.append("decay1")
+    ra = fit("one_phase_association", t, 20 + 300 * (1 - np.exp(-0.3 * t)))
+    if not close(ra.params["HalfLife"], halfway(ra, ra.params["Y0"], ra.params["Plateau"], 0, 20), 1e-6):
+        ok = False; bad.append("assoc1")
+    rl = fit("linear", t, 3.0 * t - 12.0)
+    if not close(rl.params["XIntercept"], brentq(lambda v: float(rl.predict(np.array([v]))[0]), -50, 50), 1e-9):
+        ok = False; bad.append("linear")
+    check("derived values (5PL LogEC50 for S above and below 1 and both slope signs, 4PL LogEC50, "
+          "decay and association half-life and span, linear X intercept) equal numerical roots of the curve",
+          ok, bad)
 
 
 def test_ambiguous_fit_warns():
@@ -436,6 +471,23 @@ def test_bruker_chain():
     check("bruker: zip read with int32 from DTYPA, digital filter removed, peaks at the right ppm, "
           "integrals in ratio, phasing must be chosen",
           pos_ok and int_ok and par_ok and must_choose, (found, rel, raw.params["dtype"]))
+
+
+def test_csp_refuses_swapped_h_n():
+    """(15N, 1H) tuples raise (LABKIT-011-PLAN.md): in Phase 4 round 3 the
+    model passed Sparky's w1/w2 order and got CSPs 2-7x too large silently."""
+    from labkit import nmr
+    hn = {"G10": (8.0, 120.0), "A11": (8.2, 121.0), "K12": (7.9, 118.0), "L13": (8.5, 125.0)}
+    hn_b = {k: (h + 0.02, n + 0.3) for k, (h, n) in hn.items()}
+    nh, nh_b = ({k: (n, h) for k, (h, n) in d.items()} for d in (hn, hn_b))
+    try:
+        nmr.csp(nh, nh_b, alpha=0.14, scheme="euclidean")
+        raised = False
+    except ValueError as e:
+        raised = "swap" in str(e)
+    good = nmr.csp(hn, hn_b, alpha=0.14, scheme="euclidean")
+    check("csp: (15N, 1H) order raises and says to swap; (1H, 15N) works",
+          raised and close(good["G10"], math.sqrt(0.02 ** 2 + (0.14 * 0.3) ** 2), 1e-9))
 
 
 def test_csp_and_kd_and_relaxation():

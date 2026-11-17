@@ -230,6 +230,26 @@ def integrate(spec: Spectrum, regions: Sequence[tuple], *, baseline: str = "line
 # Chemical shift perturbation and titrations
 # ==============================================================================
 
+def _check_hn_order(shifts: dict) -> None:
+    """Raise when the tuples are (15N, 1H) instead of (1H, 15N).
+
+    Sparky and most peak lists give w1 = 15N first; in Phase 4 round 3 the
+    model passed them in that order and got CSPs 2-7x too large with no
+    error. Amide 1H sits near 6-11 ppm and 15N near 100-135 ppm, so the
+    medians tell the order apart.
+    """
+    pairs = [v for v in shifts.values() if v is not None and None not in v]
+    if len(pairs) < 3:
+        return
+    h = float(np.median([p[0] for p in pairs]))
+    n = float(np.median([p[1] for p in pairs]))
+    if h > 50 and n < 50:
+        raise ValueError(
+            f"csp expects (dH, dN) = (1H ppm, 15N ppm) per residue, but the first values (median {h:.1f} ppm) "
+            f"look like 15N and the second (median {n:.1f} ppm) like 1H. Peak lists such as Sparky's give "
+            "w1 = 15N first: swap them to (H, N).")
+
+
 def csp(free: dict, bound: dict, *, alpha: float, scheme: str) -> dict:
     """Combined 1H/15N chemical shift perturbation per residue.
 
@@ -241,6 +261,8 @@ def csp(free: dict, bound: dict, *, alpha: float, scheme: str) -> dict:
     """
     if scheme not in ("williamson", "euclidean"):
         raise ValueError("scheme='williamson' (sqrt(0.5*(...))) or 'euclidean' (sqrt(...)); the two differ by sqrt(2)")
+    _check_hn_order(free)
+    _check_hn_order(bound)
     out = {}
     for res in sorted(set(free) | set(bound), key=_res_key):
         f, b = free.get(res), bound.get(res)

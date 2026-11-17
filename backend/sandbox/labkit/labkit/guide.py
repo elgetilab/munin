@@ -76,7 +76,8 @@ spec = nmr.reference(spec, ppm=0.0)          # tallest peak near 0 -> 0.00 (DSS/
 nmr.peaks(spec, threshold=None, region=(lo, hi))  -> [{ppm, height, snr}]
 nmr.integrate(spec, [(a, b), ...], relative_to=k) -> [{region, integral, relative}]
 nmr.csp(free, bound, alpha=..., scheme="williamson"|"euclidean")  {res: CSP or None}
-       free/bound: {res: (H, N)}; alpha and scheme are REQUIRED, missing residues stay None
+       free/bound: {res: (1H ppm, 15N ppm)}, H FIRST (Sparky lists give 15N first: swap them;
+       the wrong order raises); alpha and scheme are REQUIRED, missing residues stay None
 nmr.kd_fit(ligand_conc, {res: [csp...]}, protein_conc=P)  global Kd with ligand depletion
        -> {"Kd", "Kd_ci", "per_residue": {res: {"CSPmax", "CSPmax_ci"}}}
 nmr.relaxation_fit(delays_s, {res: [I...]}, kind="decay"|"inversion_recovery")

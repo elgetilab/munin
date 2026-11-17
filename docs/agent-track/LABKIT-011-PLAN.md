@@ -80,3 +80,38 @@ Sandbox image rebuild (labkit), retrieval and personas deploy, then
 | Q1 | Dilution-series case: raise, or only warn? | Raise: a wrong-scale fit gives confident nonsense, and the error says exactly what to pass. Ambiguous inputs only warn. |
 | Q2 | Full run 3 after the targeted rerun? | Yes, if the targeted rerun is at least as good as run 2 on those cases. |
 | Q3 | A persona line on keeping results in the asked form (a number per name, no extra lists)? | No: it would tune to the grader. Real users read the answer, not results.json. |
+
+## Result: targeted rerun (2026-11-17, labkit 0.1.1 deployed)
+
+Tags `r3-targeted` and `r3-targeted-fresh` (no scorecard), 3 reps, compared
+with run 2 on the same cases:
+
+| Set | Round 3 | Run 2 | Baseline | labkit used (run 2) |
+|---|---|---|---|---|
+| Original (3pl, 4pl, 5pl, standard, trap_outlier, S6) | 68/78 | 64 | 67 | 68 (45) |
+| Fresh (3pl, 4pl, 5pl, standard) | 31/36 | 27 | - | 34 (26) |
+
+4PL 15/15 and 9/9 (run 2: 12, 6); standard curve now uses labkit (13/15
+and 7/9 runs, run 2: 0); trap_outlier 3/3 with `labkit.rout`; HSQC 6/6 and
+relaxation 3/3 use `labkit.nmr`. Hints fired (eval log): standard_curve 19,
+dose_response 16, kd 6, relaxation 3, exponential 3.
+
+**Two labkit bugs found, fixed in 0.1.2:**
+- **5PL LogEC50 had the wrong sign** (`LogXb + log10(2^(1/S)-1)/H`, should
+  be minus). The run-2 5PL failures were NOT the model reporting LogXb: it
+  reported labkit's wrong LogEC50 (same values in run 2 and round 3, e.g.
+  s1_5pl_s1 0.387001 vs truth -0.535). Present since 0.1.0, so the 5PL
+  runs of Phase 4 runs 1 and 2 that used labkit were scored against a
+  wrong helper. The 0.1.1 test passed because it checked the formula
+  against a copy of itself; the new test checks every derived value
+  (5PL for S above and below 1 and both slope signs, 4PL, decay and
+  association half-life and span, linear X intercept) against a numerical
+  root of the fitted curve, and fails on 0.1.1.
+- **`nmr.csp` accepted (15N, 1H) tuples silently.** s6_hsqc_titration_s2
+  2/3: the model passed Sparky's w1/w2 order and got CSPs 2-7x too large
+  (Kd still right). `csp` now raises when the first values look like 15N
+  (median > 50 ppm) and the second like 1H, and says to swap.
+
+Left alone: relaxation saved R1/R2 as bare lists (values match the truth),
+standard-curve `[value, CI]` lists (Q3), one 3PL CI.
+labkit tests 30/30 in the sandbox image; sandbox live 54/54, figure hook 20/20.

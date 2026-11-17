@@ -165,12 +165,19 @@ def _d_ec50(p):
 
 
 def _d_5pl(p):
+    # Halfway: (1 + 10^((LogXb - X)*H))^S = 2, so 10^((LogXb - X)*H) = 2^(1/S) - 1
+    # and X = LogXb - log10(2^(1/S) - 1)/H. labkit 0.1.0/0.1.1 had "+" here and
+    # reported a point on the wrong side of LogXb (Phase 4 round 3: 5 of 24
+    # 5PL runs failed on logEC50 while using labkit). The test checks it
+    # against a numerical root of the curve, not this formula.
+    def logec50_of(q):
+        return q["LogXb"] - (1.0 / q["HillSlope"]) * math.log10(2 ** (1.0 / q["S"]) - 1)
     s, h = p["S"], p["HillSlope"]
-    logec50 = p["LogXb"] + (1.0 / h) * math.log10(2 ** (1.0 / s) - 1) if s > 0 and h != 0 else float("nan")
+    logec50 = logec50_of(p) if s > 0 and h != 0 else float("nan")
     out = [_Derived("LogEC50", "log10 of the X giving a response halfway between Bottom and Top: report THIS as logEC50", logec50,
-                    grad=_num_grad(lambda q: q["LogXb"] + (1.0 / q["HillSlope"]) * math.log10(2 ** (1.0 / q["S"]) - 1), p))]
+                    grad=_num_grad(logec50_of, p))]
     out.append(_Derived("EC50", "10^LogEC50", _pow10(logec50) if np.isfinite(logec50) else float("nan"),
-                        grad=_num_grad(lambda q: _pow10(q["LogXb"] + (1.0 / q["HillSlope"]) * math.log10(2 ** (1.0 / q["S"]) - 1)), p)))
+                        grad=_num_grad(lambda q: _pow10(logec50_of(q)), p)))
     return out
 
 

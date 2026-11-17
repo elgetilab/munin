@@ -263,7 +263,9 @@ delta is the system change. Losses and remaining failures:
 - `x_scale` misread (labkit API trap): the model passed raw concentrations
   with `x_scale="log"` ("fit on a log axis") where labkit means "x is
   already log10"; 4PL/5PL fits then fail (Hill -3.1, Bottom -49419).
-- 5PL: LogXb reported as logEC50 although labkit derives LogEC50.
+- 5PL logEC50: first read as "LogXb reported"; actually a sign error in
+  labkit's derived 5PL LogEC50 (0.1.0-0.1.1), fixed in 0.1.2
+  (`LABKIT-011-PLAN.md`). The labkit 5PL runs of runs 1 and 2 used it.
 - Standard curve (fresh 3/9 lost): `labkit.interpolate` values saved as
   [value, CI] lists instead of numbers.
 - NIST Lanczos 1/3 (hand-written code, no labkit), S6 never used labkit
