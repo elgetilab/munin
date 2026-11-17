@@ -21,6 +21,7 @@ from typing import Optional
 
 import httpx
 
+import labkit_hints
 from text_edits import apply_edits as _apply_edits, near_misses
 
 from ..context import current_user_email, current_conversation_id
@@ -93,6 +94,9 @@ def _require_persistent_conversation() -> tuple[Optional[str], Optional[dict]]:
 # a restart or a different worker degrades to a slower path, not an error.
 _last_source: dict[str, str] = {}
 _LAST_SOURCE_MAX = 512
+
+# Which labkit pointers each conversation has had (labkit_hints.py).
+_labkit_hints = labkit_hints.HintState()
 
 
 def _remember_source(conv_id: str, code: str) -> None:
@@ -265,6 +269,11 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         "replace. Do not re-send the whole script; the kernel state persists. "
         "To change a file made by an earlier run, pass file=<its name>."
     )
+    # A hand-rolled fit of a model labkit has (LAB-ADOPTION-PLAN.md), once
+    # per conversation and hint, never after the conversation used labkit.
+    hint = _labkit_hints.hint_for(conv_id, code)
+    if hint:
+        payload["labkit_hint"] = hint
     return payload
 
 

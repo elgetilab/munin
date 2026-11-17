@@ -232,11 +232,14 @@ async def _attach_to_sandbox(user_email: str, conversation_id: str, ephemeral: b
         logger.warning("attaching %s to sandbox failed: %s", doc_id, res["error"])
         return f"It could not be copied to the code sandbox ({res['error']})."
     paths = res.get("paths") or []
+    import labkit_hints
+    reader = labkit_hints.upload_hint(filename or os.path.basename(path), data, paths)
+    reader = f" {reader}" if reader else ""
     if len(paths) == 1:
-        return f"Code can read it at {paths[0]!r} (read-only)."
+        return f"Code can read it at {paths[0]!r} (read-only).{reader}"
     shown = ", ".join(repr(p) for p in paths[:20])
     more = f" and {len(paths) - 20} more" if len(paths) > 20 else ""
-    return f"It was unpacked for code under inputs/ (read-only): {shown}{more}."
+    return f"It was unpacked for code under inputs/ (read-only): {shown}{more}.{reader}"
 
 
 async def _resolve_user_content_images(
