@@ -271,6 +271,9 @@ export interface AdminUser {
   group: string | null;
   username: string | null;
   primary_email: string;
+  // Account key all of the user's data is stored under. Set once, never
+  // changed: logging in with any address, or changing the primary, keeps it.
+  identity_email?: string | null;
   emails: string[];
   created_at: string;
   updated_at: string;

@@ -234,6 +234,15 @@ def init_db():
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_user_emails_user ON user_emails(user_id)")
+    # Frozen identity key sent downstream as X-Munin-Email; see
+    # migrate_identity_email_v1. Added here too so every code path that
+    # creates users finds the column, migration or not.
+    if not _column_exists(conn, "users", "identity_email"):
+        conn.execute("ALTER TABLE users ADD COLUMN identity_email TEXT")
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identity_email "
+        "ON users(identity_email) WHERE identity_email IS NOT NULL"
+    )
     conn.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             slug TEXT PRIMARY KEY,
@@ -427,24 +436,135 @@ def migrate_group_members_v1() -> dict:
     return summary
 
 
+def migrate_identity_email_v1() -> dict:
+    """Give every user a frozen identity key: users.identity_email.
+
+    Reason: every downstream service (chats, uploads, gateway keys and
+    usage) stores user data under the X-Munin-Email header. That header
+    used to carry whichever address the user typed at login, so signing
+    in with an alias showed an empty account. It now carries
+    identity_email instead: set once from the user's primary address and
+    never changed, so neither logging in with an alias nor changing the
+    primary address moves anyone's data. Adding the address that is
+    another user's identity is refused (see _email_owner).
+
+    This is the step before a numeric user id: identity_email maps one to
+    one onto users.id. Gated by schema_migrations.name = 'identity_email_v1'.
+    """
+    summary = {"already_run": False, "rows_backfilled": 0}
+    conn = get_db()
+    try:
+        if not _column_exists(conn, "users", "identity_email"):
+            conn.execute("ALTER TABLE users ADD COLUMN identity_email TEXT")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_identity_email "
+            "ON users(identity_email) WHERE identity_email IS NOT NULL"
+        )
+        if _migration_applied(conn, "identity_email_v1"):
+            summary["already_run"] = True
+            conn.commit()
+            return summary
+        rows = conn.execute(
+            "SELECT id FROM users WHERE identity_email IS NULL"
+        ).fetchall()
+        for r in rows:
+            if _ensure_identity(conn, r["id"]):
+                summary["rows_backfilled"] += 1
+        # Profiles saved while signed in with an alias were keyed on the
+        # alias. Move each onto the identity unless the identity already
+        # has its own (which then wins).
+        summary["profiles_moved"] = 0
+        for table in ("user_profiles", "display_names"):
+            alias_rows = conn.execute(
+                f"""
+                SELECT t.email AS alias, u.identity_email AS identity
+                  FROM {table} t
+                  JOIN user_emails ue ON ue.email = t.email
+                  JOIN users u ON u.id = ue.user_id
+                 WHERE u.identity_email IS NOT NULL AND t.email != u.identity_email
+                """
+            ).fetchall()
+            for a in alias_rows:
+                taken = conn.execute(
+                    f"SELECT 1 FROM {table} WHERE email = ?", (a["identity"],)
+                ).fetchone()
+                if taken:
+                    conn.execute(f"DELETE FROM {table} WHERE email = ?", (a["alias"],))
+                else:
+                    conn.execute(
+                        f"UPDATE {table} SET email = ? WHERE email = ?",
+                        (a["identity"], a["alias"]),
+                    )
+                    summary["profiles_moved"] += 1
+        _mark_migration(conn, "identity_email_v1")
+        conn.commit()
+    finally:
+        conn.close()
+    return summary
+
+
 # ── User lookup + mutation helpers ────────────────────────────────────────
 
+def _ensure_identity(conn: sqlite3.Connection, user_id: int) -> str | None:
+    """Return the user's identity_email, setting it from the primary (else
+    alphabetically first) address when it is still empty."""
+    row = conn.execute(
+        "SELECT identity_email FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    if not row:
+        return None
+    if row["identity_email"]:
+        return row["identity_email"]
+    em = conn.execute(
+        "SELECT email FROM user_emails WHERE user_id = ? "
+        "ORDER BY is_primary DESC, email ASC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    if not em:
+        return None
+    conn.execute(
+        "UPDATE users SET identity_email = ? WHERE id = ? AND identity_email IS NULL",
+        (em["email"], user_id),
+    )
+    return em["email"]
+
+
+def _email_owner(conn: sqlite3.Connection, email: str) -> int | None:
+    """The user an address belongs to: as a login address, or as the
+    identity key of a user who has since removed it as a login. An
+    address owned either way cannot be given to another user, or that
+    user would see the owner's chats and files."""
+    email = email.strip().lower()
+    row = conn.execute(
+        "SELECT user_id FROM user_emails WHERE email = ?", (email,)
+    ).fetchone()
+    if row:
+        return row["user_id"]
+    row = conn.execute(
+        "SELECT id FROM users WHERE identity_email = ?", (email,)
+    ).fetchone()
+    return row["id"] if row else None
+
+
+
 def lookup_user(email: str) -> dict | None:
-    """Resolve an email (any alias) to its user. Returns None if not found."""
+    """Resolve an email (any alias, or the identity key) to its user.
+    Returns None if not found."""
     email = email.strip().lower()
     conn = get_db()
-    row = conn.execute(
-        """
-        SELECT u.id, u.first_name, u.last_name, u.role, u.research_group, u.username
-          FROM users u
-          JOIN user_emails ue ON ue.user_id = u.id
-         WHERE ue.email = ?
-        """,
-        (email,),
-    ).fetchone()
+    user_id = _email_owner(conn, email)
+    row = None
+    if user_id is not None:
+        row = conn.execute(
+            "SELECT id, first_name, last_name, role, research_group, username "
+            "FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
     if not row:
         conn.close()
         return None
+    identity = _ensure_identity(conn, row["id"])
+    conn.commit()
     emails = [
         r["email"]
         for r in conn.execute(
@@ -467,6 +587,7 @@ def lookup_user(email: str) -> dict | None:
         "username": row["username"],
         "emails": emails,
         "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else email),
+        "identity_email": identity or email,
     }
 
 
@@ -513,6 +634,8 @@ def _attach_email(conn: sqlite3.Connection, user_id: int, email: str, is_primary
         "INSERT INTO user_emails (email, user_id, is_primary, added_at) VALUES (?, ?, ?, ?)",
         (email.strip().lower(), user_id, 1 if is_primary else 0, now),
     )
+    if is_primary:
+        _ensure_identity(conn, user_id)
 
 
 def seed_users_from_whitelist() -> dict:
@@ -534,10 +657,7 @@ def seed_users_from_whitelist() -> dict:
                 email = (row.get("email") or "").strip().lower()
                 if not email:
                     continue
-                exists = conn.execute(
-                    "SELECT 1 FROM user_emails WHERE email = ?", (email,)
-                ).fetchone()
-                if exists:
+                if _email_owner(conn, email) is not None:
                     skipped += 1
                     continue
                 first = (row.get("first_name") or "").strip()
@@ -656,11 +776,9 @@ def seed_contributors_from_yaml() -> dict:
             # Find an existing user via any of the entry's emails.
             existing_user_id: int | None = None
             for em in emails:
-                row = conn.execute(
-                    "SELECT user_id FROM user_emails WHERE email = ?", (em,)
-                ).fetchone()
-                if row:
-                    existing_user_id = row["user_id"]
+                owner = _email_owner(conn, em)
+                if owner is not None:
+                    existing_user_id = owner
                     break
 
             if existing_user_id is not None:
@@ -689,10 +807,7 @@ def seed_contributors_from_yaml() -> dict:
 
                 # Attach any of the entry's emails that aren't already on this user.
                 for em in emails:
-                    er = conn.execute(
-                        "SELECT user_id FROM user_emails WHERE email = ?", (em,)
-                    ).fetchone()
-                    if not er:
+                    if _email_owner(conn, em) is None:
                         _attach_email(conn, existing_user_id, em, is_primary=False)
             else:
                 # Brand new user from this YAML entry. The contributors
@@ -880,7 +995,7 @@ def create_session(email: str, name: str) -> str:
 
 
 def validate_session(signed_token: str) -> dict | None:
-    """Validate a signed session token. Returns {email, name} or None."""
+    """Validate a signed session token. Returns {email, login_email, name} or None."""
     try:
         token = signer.unsign(signed_token, max_age=SESSION_MAX_AGE).decode()
     except BadSignature:
@@ -899,7 +1014,12 @@ def validate_session(signed_token: str) -> dict | None:
     if datetime.now(timezone.utc) > expires:
         return None
 
-    return {"email": row["email"], "name": row["name"]}
+    # `email` is the account's identity key, the same whichever address
+    # the user signed in with; every caller (X-Munin-Email, profiles,
+    # admin checks) keys on it. `login_email` is the address typed at login.
+    user = lookup_user(row["email"])
+    identity = user["identity_email"] if user else row["email"]
+    return {"email": identity, "login_email": row["email"], "name": row["name"]}
 
 
 def delete_session(signed_token: str):
@@ -1132,6 +1252,7 @@ async def startup():
     init_db()
     migrate_split_name_v1()
     migrate_group_members_v1()
+    migrate_identity_email_v1()
     seed_users_from_whitelist()
     seed_contributors_from_yaml()
 
@@ -1321,6 +1442,7 @@ async def auth_me(request: Request):
     )
     return JSONResponse({
         "email": session["email"],
+        "login_email": session["login_email"],
         "name": greeting_name,
         "full_name": profile.get("full_name") or session["name"],
         "nickname": profile.get("nickname") or "",
@@ -1367,6 +1489,7 @@ async def auth_me_update(request: Request):
     )
     return JSONResponse({
         "email": session["email"],
+        "login_email": session["login_email"],
         "name": greeting_name,
         "full_name": profile.get("full_name") or session["name"],
         "nickname": profile.get("nickname") or "",
@@ -1399,7 +1522,8 @@ async def support_contact(request: Request):
     if not session:
         return JSONResponse({"error": "Invalid session"}, status_code=401)
 
-    sender_email = session["email"]
+    # Replies go to the address the user signed in with.
+    sender_email = session["login_email"]
     sender_name = session["name"]
 
     # Rate limit: 3 per hour
@@ -1497,6 +1621,8 @@ def _user_row_to_dict(conn: sqlite3.Connection, row: sqlite3.Row) -> dict:
         "username": row["username"],
         "emails": emails,
         "primary_email": primary_row["email"] if primary_row else (emails[0] if emails else None),
+        # The account key all user data is stored under; fixed for good.
+        "identity_email": row["identity_email"] if "identity_email" in row.keys() else None,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -1532,7 +1658,7 @@ def _group_members(conn: sqlite3.Connection, slug: str) -> list[dict]:
 
 _USERS_SELECT_COLUMNS = (
     "id, first_name, last_name, role, research_group, username, "
-    "created_at, updated_at"
+    "identity_email, created_at, updated_at"
 )
 
 
@@ -1580,10 +1706,7 @@ async def admin_create_user(request: Request):
 
     conn = get_db()
     try:
-        existing = conn.execute(
-            "SELECT user_id FROM user_emails WHERE email = ?", (email,)
-        ).fetchone()
-        if existing:
+        if _email_owner(conn, email) is not None:
             return JSONResponse({"error": "email already in use"}, status_code=409)
 
         if group is not None:
@@ -1752,10 +1875,7 @@ async def admin_add_email(user_id: int, request: Request):
         user_row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
         if not user_row:
             return JSONResponse({"error": "user not found"}, status_code=404)
-        existing = conn.execute(
-            "SELECT user_id FROM user_emails WHERE email = ?", (email,)
-        ).fetchone()
-        if existing:
+        if _email_owner(conn, email) is not None:
             return JSONResponse({"error": "email already in use"}, status_code=409)
 
         _attach_email(conn, user_id, email, is_primary=False)

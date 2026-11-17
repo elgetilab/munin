@@ -541,6 +541,12 @@ function UserEditModal({ user, groups, onClose, onReload, onSaved }: {
                 </div>
               );
             })}
+            {current.identity_email && (
+              <div className="text-[11px] text-text-secondary pt-1">
+                Chats and files are stored under{' '}
+                <span className="font-mono">{current.identity_email}</span>, whichever address is used to sign in.
+              </div>
+            )}
             <form
               className="flex items-center gap-2 pt-2"
               onSubmit={e => {
