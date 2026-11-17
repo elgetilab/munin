@@ -96,3 +96,26 @@ its restart; production gets the same change, which also helps real users.
 | Q1 | Do the tool-result hint (3), or prompts only? | Do it: prompt wording alone is the weakest lever, and the hint fires only on fits `labkit` covers. |
 | Q2 | Usage-check threshold | 70% import rate on the 20 cases. Below that, revise once, then report and ask. |
 | Q3 | Also the upload note (4)? | Yes, it is small and covers S2 and Bruker. |
+
+## Result: usage check (2026-11-17, deployed)
+
+20 cases x 1 on the `eval` instance (tag `adoption-check`, no scorecard):
+labkit imported in 14/20 runs (run 1: 16/285), usually in the first or
+second analysis script; pass 16/20 vs 13.3 expected from the baseline's pass
+rates on the same cases (run 1: 14.7). Bar met (70%, no loss), so Phase 4
+run 2 started (`phase4b-labkit`, `phase4b-fresh`). Both decay1 cases that
+the baseline failed 0/3 passed, and Bruker 1D passed for the first time.
+Not using labkit: NIST misra1a and rat43 (correct: not labkit models),
+standard curve, HSQC, relaxation, trap_outlier. Whether the run_python hint
+fired is not visible in the harness records (they keep tool names, not
+results), so the gain cannot be split between persona and hint.
+The four failures:
+- `s1_trap_outlier`: went looking for the ROUT algorithm on the web
+  (582 s, 12 tool calls) instead of `labkit.rout`, and ended on a promise
+  with no numbers. Candidate: name `labkit.rout` for outliers in the rule.
+- `s6_relaxation`: fitted all 40 residues by hand but saved R1/R2/hetNOE
+  not as per-residue maps (a results-shape miss, not a fit error).
+- `s2_gen5_kinetic`: read with labkit, correct numbers in the answer, wrong
+  shape in results.json (same kind of miss).
+- `s2_jasco_cd`: read with labkit, then computed MRE by hand with an assumed
+  mean residue weight of 110 instead of `labkit.cd` (MW/(N-1)).
