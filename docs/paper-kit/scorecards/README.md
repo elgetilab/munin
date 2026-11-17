@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-69 committed scorecard JSONs, copied verbatim from
+71 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 113 JSON plus 65 Markdown twins; the remainder are mostly the
+The full set is 115 JSON plus 67 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -135,6 +135,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-16_phase2-baseline.json` | Lab-analysis Phase 2 baseline, ad hoc arm (no `labkit`), Sage-A1.5, 95 cases x 3 reps (S1 76, S2 10, S3 2, S5 2, S6 5): 243/285 pass, mean check score 0.935 (S1 203/228 0.962, S2 23/30 0.808, S3 2/6 0.935, S5 4/6 0.833, S6 11/15 0.817). Runs 1-243 on production at concurrency 1, the rest on the `eval` instance (GPU1, same weights and profile) at concurrency 4 then 2 (`resumed: true`); two `s6_relaxation` runs lost to the chats.db lock bug were redone (`CHATDB-LOCK-PLAN.md`). The paired baseline for the Phase 4 `labkit` arm | none yet |
 | `2026-11-16_phase4-labkit.json` | Lab-analysis Phase 4, `labkit` arm (labkit 0.1 at `6900e5f` in the sandbox, persona and `run_python` pointers), same 95 cases x 3 reps as the Phase 2 baseline, `eval` instance at concurrency 4: 249/285 pass, mean 0.939. Paired vs baseline: S1 synthetic 123->126/147, S1 NIST 80->78/81 (Lanczos2/3), S2 23->25/30, S3 2->4/6, S5 4->5/6, S6 11->11/15. Only 16/285 runs imported `labkit` (15 passed), so the delta is mostly run-to-run noise (S1 synthetic: 15 lost, 18 gained) and does NOT measure the helper; see `LAB-ANALYSIS-PLAN.md` Phase 4 | none yet |
 | `2026-11-16_phase4-fresh.json` | Lab-analysis Phase 4 tuning check: 27 fresh S1 cases (seeds 6-8, `fixtures/lab_fresh`, generated after the labkit freeze) x 3 reps, `labkit` arm: 69/81 pass (0.852), mean 0.944, vs 114/135 (0.844) for the same nine families in the baseline. 6/81 runs imported `labkit` | none yet |
+| `2026-11-17_phase4b-labkit.json` | Lab-analysis Phase 4 run 2, `labkit` arm plus adoption nudges (`LAB-ADOPTION-PLAN.md`: LAB DATA rule at the top of the code persona, labkit first in the `run_python` description, a once-per-conversation hint on hand-rolled fits, reader named in upload notes), same 95 x 3 as the baseline, `eval` instance at concurrency 4: 260/285 pass (baseline 243, run 1 249), mean 0.941. labkit imported in 155/285 runs. Paired vs baseline: 31 runs fail->pass, 14 pass->fail, exact McNemar p = 0.016. S1 synthetic 114->127/135 (decay1 the main gain), S1 trap 9->11/12, S1 NIST 80->77/81 (Lanczos, no labkit), S2 23->26/30, S3 2->4/6, S5 4->5/6, S6 11->10/15 (labkit never used in S6). Measures the system change (helper plus nudges), not labkit alone | none yet |
+| `2026-11-17_phase4b-fresh.json` | Phase 4 run 2 tuning check on the 27 fresh S1 cases (seeds 6-8) x 3: 71/81 (0.877), run 1 69/81, same-family baseline rate 114/135 (0.844); labkit in 70/81 runs. decay1 9/9 (run 1 4/9); standard curve 6/9 (interpolate results saved as [value, CI] lists) | none yet |
 
 ## Cautions when regenerating figures
 

@@ -240,6 +240,37 @@ already gets right: `s1_decay1` reports the span as Y0 (10 runs, e.g. Y0
 retrieval log. Next: make the model reach for `labkit` (tool/persona
 wording, then a short usage check) before a second full run.
 
+**Run 2 (2026-11-17): +17 runs, p = 0.016.** After the adoption change
+(`LAB-ADOPTION-PLAN.md`, deployed 2026-11-17). Scorecards
+`2026-11-17_phase4b-labkit` and `2026-11-17_phase4b-fresh`. labkit imported
+in 155/285 runs (run 1: 16), 70/81 on the fresh set.
+
+| Group | Baseline | Run 1 | Run 2 | Mean, baseline -> run 2 | labkit used |
+|---|---|---|---|---|---|
+| S1 synthetic | 114/135 | 116 | 127 | 0.946 -> 0.964 | 115/135 |
+| S1 trap | 9/12 | 10 | 11 | 0.889 -> 0.972 | 9/12 |
+| S1 NIST | 80/81 | 78 | 77 | 0.998 -> 0.956 | 2/81 |
+| S2 | 23/30 | 25 | 26 | 0.808 -> 0.867 | 26/30 |
+| S3 | 2/6 | 4 | 4 | 0.935 -> 0.963 | 0/6 |
+| S5 | 4/6 | 5 | 5 | 0.833 -> 0.917 | 3/6 |
+| S6 | 11/15 | 11 | 10 | 0.817 -> 0.783 | 0/15 |
+| All | 243/285 | 249 | 260 | 0.935 -> 0.941 | 155/285 |
+
+Paired: 31 fail->pass, 14 pass->fail, exact McNemar p = 0.016. Fresh set
+71/81 (0.877) vs the same families' baseline rate 114/135 (0.844): no sign
+of tuning to the seen cases. The arm is labkit plus the nudges, so the
+delta is the system change. Losses and remaining failures:
+- `x_scale` misread (labkit API trap): the model passed raw concentrations
+  with `x_scale="log"` ("fit on a log axis") where labkit means "x is
+  already log10"; 4PL/5PL fits then fail (Hill -3.1, Bottom -49419).
+- 5PL: LogXb reported as logEC50 although labkit derives LogEC50.
+- Standard curve (fresh 3/9 lost): `labkit.interpolate` values saved as
+  [value, CI] lists instead of numbers.
+- NIST Lanczos 1/3 (hand-written code, no labkit), S6 never used labkit
+  (relaxation still 0/3), Gen5 results shape.
+Next: labkit 0.1.1 (reject x_scale='log' when x looks like concentrations,
+make the 5PL and interpolate outputs harder to misreport), S6 pointers.
+
 ## Phase 5: structure viewer and S7
 
 Extend `show_protein`: load a PDB or mmCIF artifact from the sandbox or an
