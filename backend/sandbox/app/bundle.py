@@ -44,11 +44,31 @@ outputs/        the files you selected, exactly as produced
 inputs/         the input files the analysis read, exactly as uploaded
 analysis.py     the code of every successful run, in order. To reproduce the
                 outputs, run it from this directory:  python analysis.py
+                Each run starts with _munin_seed(run number), as in the
+                sandbox, so unseeded random numbers come out the same.
 code/           every run as it was executed, including failed ones
 figures/        machine-readable descriptions of the plotted figures
 environment.txt Python and package versions of the sandbox
 MANIFEST.json   sha256, size and origin of every file
 SHA256SUMS      verify the bundle with:  sha256sum -c SHA256SUMS
+"""
+
+
+# The sandbox seeds Python's and NumPy's random generators with the run
+# number before every run (kernel.seed_code); analysis.py does the same so
+# unseeded randomness redraws the same numbers.
+_SEED_HELPER = """
+
+def _munin_seed(n):
+    # The sandbox seeded Python's and NumPy's random generators with the run
+    # number before each run; this draws the same numbers here.
+    import random
+    random.seed(n)
+    try:
+        import numpy
+        numpy.random.seed(n)
+    except ImportError:
+        pass
 """
 
 
@@ -157,6 +177,8 @@ def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
                 "# Successful runs, in the order they were executed. Run from the\n"
                 "# bundle directory so relative paths such as inputs/ resolve.\n"
             ]
+            if any(r.get("seed") is not None for r in store.execs if r["seq"] <= last):
+                script_parts.append(_SEED_HELPER)
             for rec in store.execs:
                 if rec["seq"] > last:
                     break
@@ -174,7 +196,9 @@ def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
                                          "code_sha": rec.get("code_sha"),
                                          "path": f"code/run_{rec['seq']:03d}.py"})
                 if rec.get("ok"):
-                    script_parts.append("\n" + header + code.rstrip("\n") + "\n")
+                    seed = (f"_munin_seed({int(rec['seed'])})\n"
+                            if rec.get("seed") is not None else "")
+                    script_parts.append("\n" + header + seed + code.rstrip("\n") + "\n")
             add_bytes("analysis.py", "".join(script_parts).encode())
             add_bytes("environment.txt", environment_text().encode())
             add_bytes("README.txt", _README.encode())

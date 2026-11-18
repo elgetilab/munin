@@ -296,6 +296,18 @@ run(C, "from scipy.optimize import curve_fit\n"
        "pd.DataFrame({'param': ['ec50', 'hill'], 'value': p}).to_csv('params.csv', index=False)\n"
        "import matplotlib.pyplot as plt\n"
        "plt.semilogx(d.dose, d.resp, 'o'); plt.savefig('curve.pdf'); plt.close()\n")
+# Unseeded randomness: the sandbox seeds each run with its number, and
+# analysis.py does the same, so jitter and draws reproduce (LABKIT-014-PLAN.md).
+draw = ("import numpy as np, random\n"
+        "print(repr((float(np.random.normal()), random.random())))\n")
+d1, d2 = run(C, draw), run(C, draw)
+check("two runs draw different numbers", d1["stdout"] != d2["stdout"], d1["stdout"] + d2["stdout"])
+run(C, "import numpy as np, pandas as pd\n"
+       "pd.DataFrame({'x': np.random.normal(0, 0.04, 8)}).to_csv('jitter.csv', index=False)\n"
+       "import matplotlib.pyplot as plt\n"
+       "plt.scatter(np.random.normal(1, 0.04, 20), np.arange(20)); plt.savefig('jitter.png'); plt.close()\n")
+own = run(C, "import numpy as np\nnp.random.seed(7)\nprint(np.random.randint(1000))\n")
+check("code that seeds itself keeps its own seed", own["stdout"].strip() == str(__import__("numpy").random.RandomState(7).randint(1000)), own["stdout"])
 rz = c.get(f"/bundle/{C}")
 with tempfile.TemporaryDirectory() as tmp:
     zipfile.ZipFile(io.BytesIO(rz.content)).extractall(tmp)
@@ -306,6 +318,11 @@ with tempfile.TemporaryDirectory() as tmp:
             and open(os.path.join(tmp, "params.csv"), "rb").read()
             == open(os.path.join(tmp, "outputs", "params.csv"), "rb").read())
     check("analysis.py reproduces the outputs", same)
+    for name in ("jitter.csv", "jitter.png"):
+        mine = os.path.join(tmp, name)
+        check(f"analysis.py redraws unseeded {name} byte for byte",
+              os.path.exists(mine) and open(mine, "rb").read()
+              == open(os.path.join(tmp, "outputs", name), "rb").read())
 
 # ---- persistence across a kernel restart --------------------------------------
 

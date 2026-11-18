@@ -33,7 +33,14 @@ r = fit(model, x, y, *, p0=None, replicates="all", weights=None, fixed=None, bou
   5pl: report LogEC50 (derived, halfway between Bottom and Top), not LogXb.
   weights: None | "1/y^2" (relative) | "1/y" | array of SDs.
   fixed={"Bottom": 0}; bounds={"HillSlope": (0, None)}; morrison needs constants={"Et": ...}.
-  competitive_inhibition: x=(S, I) two arrays, y 1D.
+  competitive_inhibition: x=(S, I), two 1D arrays with one entry per measurement, y 1D.
+     ONE fit over all inhibitor concentrations IS the global fit (Vmax, Km, Ki shared);
+     no fit_global needed. From a long table (one row per substrate/inhibitor pair):
+       d = read("inhibition.csv")
+       r = fit("competitive_inhibition", (d["substrate_uM"].to_numpy(),
+               d["inhibitor_uM"].to_numpy()), d["rate"].to_numpy())
+       r.params["Vmax"], r.params["Km"], r.params["Ki"], r.ci["Ki"]   # Ki in I's units
+     A wide table (one column per inhibitor concentration): melt it to long first.
 r.params  {name: value} with Prism names; derived ones too (EC50, HalfLife, Span, Tau...)
 r.ci      {name: (lo, hi)}  Wald = Prism's default asymptotic CI; ci="profile" on request
 r.se, r.dependency, r.warnings (ambiguous fit, parameter at a bound, singular fit)
@@ -118,7 +125,9 @@ TOPICS["cd"] = """\
 from labkit import cd
 cd.mean_residue_ellipticity(theta_mdeg, conc_mg_ml=, path_cm=, mw_da=, n_residues=)
    deg cm^2 dmol^-1 = mdeg * MRW / (10 * mg/mL * cm), MRW = MW/(N-1)
-cd.ht_cutoff(wavelength_nm, ht_v, max_v=600)  shortest trustworthy wavelength
+cd.ht_cutoff(wavelength_nm, ht_v, max_v=600)  shortest trustworthy wavelength: the last
+   MEASURED wavelength (scanning down from the long end) before HT first exceeds
+   max_v. Not interpolated between points.
 """
 
 TOPICS["plot"] = """\

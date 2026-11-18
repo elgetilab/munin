@@ -76,6 +76,20 @@ _FIGHOOK_SETUP = (
 # to application/octet-stream and rendering as a generic download in the
 # frontend. add_type is idempotent and keyed on extension, so re-imports
 # won't drift.
+def seed_code(n: int) -> str:
+    """Setup snippet that seeds `random` and the legacy NumPy RNG with n,
+    without leaving names in the user's namespace. Mirrored by
+    `_munin_seed` in bundle.py."""
+    n = int(n)
+    return (
+        f"__import__('random').seed({n})\n"
+        "try:\n"
+        f"    __import__('numpy').random.seed({n})\n"
+        "except Exception:\n"
+        "    pass\n"
+    )
+
+
 def _register_extra_mimetypes() -> None:
     extras = {
         ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -270,6 +284,13 @@ class KernelHandle:
             exec_rec = self.store.begin_exec(code)
             # Put uploaded inputs back exactly as uploaded, read-only.
             self.store.sync_inputs()
+            # Seed Python's and NumPy's global random generators with the run
+            # number, so unseeded randomness (plot jitter, a bootstrap) is
+            # repeatable and the bundle's analysis.py, which seeds each run
+            # the same way, redraws the same numbers (LABKIT-014-PLAN.md).
+            # Code that seeds itself is unaffected: its seed comes later.
+            await self._silent_setup(seed_code(exec_rec["seq"]))
+            exec_rec["seed"] = exec_rec["seq"]
             state: dict = {
                 "stdout": CappedBuffer(),
                 "stderr": CappedBuffer(),

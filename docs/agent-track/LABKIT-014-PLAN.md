@@ -1,7 +1,35 @@
 # Reproducible randomness, CD cutoff and the (S, I) fit, round 5: plan
 
-Status: PLAN 2026-11-18, waiting for "proceed". Parent: `LAB-ANALYSIS-PLAN.md`
-(Phase 4 run 4, 280/285), `LABKIT-013-PLAN.md`. The eval instance stays up.
+Status: IMPLEMENTED 2026-11-18 ("proceed", Q1-Q3 defaults), not yet
+deployed. Parent: `LAB-ANALYSIS-PLAN.md` (Phase 4 run 4, 280/285),
+`LABKIT-013-PLAN.md`. The eval instance stays up.
+
+What was built:
+- Sandbox: `kernel.seed_code(n)` runs silently before every run (seeds
+  `random` and `numpy.random` with the run number, leaves no names in the
+  user's namespace); the exec record keeps `seed`; `bundle.py` writes
+  `_munin_seed(n)` into `analysis.py` before each seeded run (older,
+  unseeded runs get none). Live tests in a standalone container of the new
+  image: 58/58 (new: two runs draw differently, code that seeds itself keeps
+  its seed, unseeded `jitter.csv` and `jitter.png` reproduce byte for byte);
+  the current production image fails the two reproduction checks (56/58), so
+  the test catches the defect. Isolation 28/28, figure hook 20/20. The run-4
+  ANOVA conversation (`s5_anova#1`, all ten runs incl. the failed ones)
+  replayed through the new sandbox: its bundle's `analysis.py` redraws
+  `groups.png` byte for byte.
+- Hints: new domain hint `ht_cutoff` (an HT/HV limit compared by hand).
+  Domain hints now fall through: if the first matching one was already
+  given, the next one fires (the run-4 JASCO script matched the CD hint,
+  given earlier, so the HT one could never have reached it). General
+  "labkit.fit has this" hints keep the old rule (only the first counts, no
+  fall-through to `custom_fit`). The competitive hint says `x=(S, I)`, one
+  entry per measurement, and that one fit is the global fit.
+  `test_labkit_hints` 15/15 (3 new, on the run-4 JASCO script).
+- labkit 0.1.5: `guide('fit')` has a worked `competitive_inhibition`
+  example from a long table; `guide('cd')` says `ht_cutoff` returns a
+  measured wavelength, not an interpolated one. New test runs the guide
+  example exactly as printed. labkit 38/38 in the new image (NIST mounted).
+- Retrieval hermetic 118/118 (`backend/scripts/ci/run_retrieval_tests.sh`).
 
 ## What run 4 left (checked in the bundles)
 

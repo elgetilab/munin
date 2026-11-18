@@ -684,6 +684,40 @@ def test_guide():
                                    "read_sparky", "noe_buildup", "read_integrals", "spec.ppm")))
 
 
+def test_guide_competitive_example_runs():
+    """The guide's competitive_inhibition example, run as printed on a long
+    table, recovers the generating constants (LABKIT-014-PLAN.md)."""
+    import contextlib, os, tempfile, textwrap
+    import pandas as pd
+    from labkit import fit, read
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        labkit.guide("fit")
+    text = buf.getvalue()
+    lines = text[text.index("From a long table"):text.index("A wide table")].splitlines()[1:]
+    snippet = textwrap.dedent("\n".join(lines)).replace("   # Ki in I's units", "")
+    rng = np.random.default_rng(3)
+    S = np.tile([2, 4, 8, 15, 30, 60, 120.0], 4)
+    I = np.repeat([0, 3, 9, 27.0], 7)
+    v = 115 * S / (9.5 * (1 + I / 5.4) + S) * (1 + 0.02 * rng.standard_normal(S.size))
+    with tempfile.TemporaryDirectory() as tmp:
+        pd.DataFrame({"substrate_uM": S, "inhibitor_uM": I, "rate": v}).to_csv(
+            os.path.join(tmp, "inhibition.csv"), index=False)
+        cwd = os.getcwd()
+        os.chdir(tmp)
+        try:
+            ns = {"read": read, "fit": fit}
+            exec(snippet, ns)
+        finally:
+            os.chdir(cwd)
+    r = ns["r"]
+    check("guide competitive example: runs as printed and recovers Ki",
+          abs(r.params["Ki"] - 5.4) < 0.6 and abs(r.params["Km"] - 9.5) < 1.5
+          and r.ci["Ki"][0] < r.params["Ki"] < r.ci["Ki"][1], str(r.params))
+    check("guide cd: ht_cutoff is the measured point, not interpolated",
+          labkit.cd.ht_cutoff([196, 195, 194.5, 194, 193], [500, 560, 594, 616, 700]) == 194.5)
+
+
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
 
 if __name__ == "__main__":

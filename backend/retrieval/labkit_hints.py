@@ -40,7 +40,9 @@ _FIT_CALL = re.compile(r"\b(curve_fit|least_squares|lmfit|Minimizer)\b")
 # first match names the model in the hint.
 _MODELS: list[tuple[str, re.Pattern, str]] = [
     ("morrison", re.compile(r"morrison", re.I), '"morrison" (constants={"Et": ...})'),
-    ("competitive", re.compile(r"competitive|\bKi\b.*\bKm\b|\bKm\b.*\bKi\b", re.S), '"competitive_inhibition"'),
+    ("competitive", re.compile(r"competitive|\bKi\b.*\bKm\b|\bKm\b.*\bKi\b", re.S),
+     '"competitive_inhibition" with x=(S, I), two arrays with one entry per measurement (one fit '
+     'over all inhibitor concentrations is the global fit, no fit_global)'),
     ("michaelis_menten", re.compile(r"michaelis|\bvmax\b|\bv_?max\b|\bKm\b", re.I), '"michaelis_menten"'),
     ("dose_response", re.compile(
         r"hill|logec50|log_?ec50|\bec50\b|\bic50\b|\b[345]\s*-?\s*pl\b|logistic", re.I),
@@ -94,6 +96,13 @@ _CD = re.compile(r"(?i)ellipticity|\bmre(_\w*)?\b|mean.?residue|\bmrw\b")
 # column, or the Assignment header. Bare w1/w2 are too common (run 3's
 # relaxation script named its warning lists w1 and w2).
 _SPARKY = re.compile(r"(?i)sparky|N-H['\"]|['\"]w1['\"]|assignment[\s\S]{0,200}\bw1\b")
+# Round 5 (LABKIT-014-PLAN.md): an HT (detector voltage) limit applied by
+# hand. In run 4 a JASCO script used labkit.cd for MRE, then interpolated
+# the 600 V crossing between measured points.
+_HT_LIMIT = re.compile(r"(?i)\b(ht|hv|high.?tension)\w*\b[^\n]{0,60}?(<=?|>=?)\s*\d{3}\b"
+                       r"|\b\d{3}\s*(<=?|>=?)[^\n]{0,10}\b(ht|hv)\w*\b")
+
+
 def _calls(*funcs: str) -> re.Pattern:
     """The code calls one of labkit's `funcs` (as `x.func(` or imported from
     labkit). A function of the model's own with the same name does not
@@ -117,6 +126,11 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      "This computes CD mean residue ellipticity by hand. labkit.cd.mean_residue_ellipticity("
      "theta_mdeg, conc_mg_ml=, path_cm=, mw_da=, n_residues=) does it with the units written out "
      "(MRW = MW/(N-1), result in deg cm^2 dmol^-1); see labkit.guide('cd')."),
+    ("ht_cutoff", lambda c: bool(_HT_LIMIT.search(c)), _calls("ht_cutoff"),
+     "This applies a CD HT (detector voltage) limit by hand. labkit.cd.ht_cutoff(wavelength_nm, "
+     "ht_v, max_v=600) returns the last MEASURED wavelength, scanning down from the long end, "
+     "before HT first exceeds max_v: a wavelength that was recorded, not one interpolated "
+     "between points; see labkit.guide('cd')."),
     ("kd", lambda c: bool(_ANY_FIT.search(c) and _KD.search(c) and _TITRATION.search(c)),
      _calls("kd_fit"), _NMR_HINTS[0][1]),
     ("relaxation", lambda c: bool(_ANY_FIT.search(c) and _is_relaxation(c) and re.search(r"\bexp\s*\(", c)),
@@ -130,46 +144,67 @@ _CUSTOM_HINT = (
     "It passes all 27 NIST StRD problems from both start values.")
 
 
-def fit_hint(code: str, labkit_in_use: bool = False) -> Optional[tuple[str, str]]:
+def fit_hint(code: str, labkit_in_use: bool = False,
+             given: frozenset[str] | set[str] = frozenset()) -> Optional[tuple[str, str]]:
     """(key, hint) when `code` hand-rolls something labkit has, else None.
 
     `labkit_in_use`: the conversation has used labkit before. Domain hints
     still fire then (unless the code calls the function they name); the
     general fit hints do not.
+    `given`: hint keys the conversation already had; the next applicable one
+    is returned instead (run 4's JASCO script matched the CD hint, already
+    given, and so never got the HT cutoff one).
     """
     if not isinstance(code, str):
         return None
+    for found in _candidates(code, labkit_in_use):
+        if found[0] in _GENERAL:
+            # Only the first general hint counts, as before round 5: a decay
+            # script whose hint was given does not fall through to custom_fit.
+            return None if found[0] in given else found
+        if found[0] not in given:
+            return found
+    return None
+
+
+# The general "labkit.fit has this" hints: for one script only the first that
+# applies is considered (domain hints fall through to the next one).
+_GENERAL = {k for k, _, _ in _MODELS} | {"standard_curve", "custom_fit"}
+
+
+def _candidates(code: str, labkit_in_use: bool):
+    """Every hint that applies to `code`, most specific first."""
     uses = labkit_in_use or bool(_USES_LABKIT.search(code))
     if _BRUKER.search(code) and not _calls("read_bruker").search(code):
-        return ("bruker", (
+        yield ("bruker", (
             "This reads Bruker data by hand. labkit.nmr has the "
             "processing chain (read_bruker takes the data type from DTYPA, "
             "process_1d, reference, peaks, integrate); see labkit.guide('nmr'). "
             "Keep your own code for steps labkit.nmr does not cover."))
     for key, applies, covered, hint in _DOMAIN:
         if applies(code) and not covered.search(code):
-            return (key, hint)
+            yield (key, hint)
     if uses:
-        return None
+        return
     if _FIT_CALL.search(code):
         for key, pat, names in _MODELS:
             if pat.search(code):
-                return (key, (
+                yield (key, (
                     f"This fits by hand a model labkit.fit has: {names}, with "
                     "GraphPad Prism's parameter names and definitions (for example "
                     "Y0 is the value at X=0, not the drop), Wald CIs and warnings "
                     "for ambiguous fits: r = labkit.fit(model, x, y); print(r); "
                     "see labkit.guide('fit'). Keep your own code if the model is "
                     "not one of these."))
+                break
     if _LINE_FIT.search(code) and _STANDARD.search(code):
-        return ("standard_curve", (
+        yield ("standard_curve", (
             "This fits a standard curve by hand. labkit has it: r = labkit.fit(\"linear\", "
             "conc, readings) (every replicate as a point, Prism's default), then "
             "labkit.interpolate(r, {name: readings}) returns each unknown as a number, or "
             "None outside the standards' range (no extrapolation); see labkit.guide('fit')."))
     if _FIT_CALL.search(code):
-        return ("custom_fit", _CUSTOM_HINT)
-    return None
+        yield ("custom_fit", _CUSTOM_HINT)
 
 
 class HintState:
@@ -190,10 +225,10 @@ class HintState:
         """(kind, hint) for this run, or None (already given; general fit
         hints also stop once the conversation has used labkit)."""
         entry = self._entry(conv_id)
-        found = fit_hint(code, labkit_in_use="uses_labkit" in entry)
+        found = fit_hint(code, labkit_in_use="uses_labkit" in entry, given=entry)
         if isinstance(code, str) and _USES_LABKIT.search(code):
             entry.add("uses_labkit")
-        if found is None or found[0] in entry:
+        if found is None:
             return None
         entry.add(found[0])
         return found

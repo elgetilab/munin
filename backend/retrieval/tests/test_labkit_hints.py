@@ -371,6 +371,54 @@ def test_run_python_result_carries_the_hint_once():
                   f"{r1.get('labkit_hint')!r} {r2.get('labkit_hint')!r} {r3.get('labkit_hint')!r}")
 
 
+# Run 4 (phase4d-labkit s2_jasco_cd#3, run 4): MRE by hand, then the HT
+# limit interpolated between measured points. Trimmed to those two parts.
+JASCO_RUN4 = """mre_222 = (cd_222 * mrw) / (10 * c_mg_ml * l_cm)
+
+# Shortest wavelength where HT <= 600 V
+ht = df['ht_voltage'].values
+wl = df['wavelength'].values
+
+idx = np.where((ht <= 600) & (np.roll(ht, -1) > 600))[0]
+i = idx[0]
+wl1, ht1 = wl[i], ht[i]
+wl2, ht2 = wl[i+1], ht[i+1]
+frac = (600 - ht1) / (ht2 - ht1)
+min_wavelength_ht600 = wl1 + frac * (wl2 - wl1)
+
+"""
+
+
+def test_ht_cutoff_hint_after_the_cd_hint():
+    st = HintState()
+    first = st.hint_for("j4", JASCO_RUN4)
+    second = st.hint_for("j4", JASCO_RUN4)
+    third = st.hint_for("j4", JASCO_RUN4)
+    covered = fit_hint("r = cd.ht_cutoff(wl, ht, max_v=600)\nok = ht <= 600")
+    unrelated = fit_hint("x = df[df.hight > 600]")
+    return _check("run-4 JASCO script: CD hint, then the ht_cutoff one (domain hints fall "
+                  "through to the next); none once given, when ht_cutoff is called, or on 'hight'",
+                  bool(first) and first[0] == "cd" and bool(second) and second[0] == "ht_cutoff"
+                  and "ht_cutoff(" in second[1] and third is None and covered is None
+                  and unrelated is None, f"{first and first[0]} {second and second[0]} {third} {covered} {unrelated}")
+
+
+def test_a_given_model_hint_does_not_fall_through_to_custom_fit():
+    st = HintState()
+    decay = "from scipy.optimize import curve_fit\nf = lambda t, a, k: a*np.exp(-k*t)\ncurve_fit(f, t, y)\n"
+    a, b = st.hint_for("g1", decay), st.hint_for("g1", decay)
+    return _check("a given model hint does not fall through to custom_fit",
+                  bool(a) and a[0] == "exponential" and b is None, f"{a and a[0]} {b}")
+
+
+def test_competitive_hint_says_how_to_pass_x():
+    h = fit_hint("from scipy.optimize import curve_fit\n"
+                 "def competitive(X, vmax, km, ki): ...\ncurve_fit(competitive, (S, I), v)")
+    return _check("the competitive hint says x=(S, I) and that one fit is the global fit",
+                  bool(h) and h[0] == "competitive" and "x=(S, I)" in h[1] and "no fit_global" in h[1],
+                  str(h))
+
+
 TESTS = [
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
@@ -384,6 +432,9 @@ TESTS = [
     test_state_is_bounded,
     test_upload_notes,
     test_run_python_result_carries_the_hint_once,
+    test_ht_cutoff_hint_after_the_cd_hint,
+    test_a_given_model_hint_does_not_fall_through_to_custom_fit,
+    test_competitive_hint_says_how_to_pass_x,
 ]
 
 
@@ -397,6 +448,8 @@ def main() -> int:
             print(f"[FAIL] {t.__name__} raised")
     print(f"\n{passed}/{len(TESTS)} passed")
     return 0 if passed == len(TESTS) else 1
+
+
 
 
 if __name__ == "__main__":
