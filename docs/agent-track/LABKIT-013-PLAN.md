@@ -202,3 +202,13 @@ round 4 used it, and kept it after the "did you mean 'ppm'?" error), so
 labkit 0.1.4 adds `Spectrum.ppms` as an alias (labkit tests 36/36);
 NOESY #2 sigma off (context budgeted, not looked into); one Lanczos3
 local minimum; one ENSO b6/b8 slightly off; one fresh Ki CI.
+
+## Result: full run 4 (2026-11-18, labkit 0.1.4, results request v2)
+
+280/285 (run 3: 267, baseline: 243), mean 0.990; vs baseline 40 gained,
+3 lost, McNemar p = 3e-9; vs run 3 16/3, p = 0.0044. Fresh 80/81. S1
+synthetic 135/135, S2 29/30 (Bruker 3/3, NOESY and relaxation now pass),
+S6 15/15. Part of the gain is the v2 results request (see the A/B above).
+Left: S5 ANOVA 0/3 on reproduction (unseeded plot jitter), one JASCO HT
+cutoff interpolated, one ENSO local minimum, one fresh competitive out of
+turns. Details in `LAB-ANALYSIS-PLAN.md` (Phase 4 run 4).

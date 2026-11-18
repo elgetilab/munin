@@ -317,6 +317,46 @@ lock errors. Remaining failures (18 + 2 fresh):
 - NIST (3): ENSO no results, Lanczos3 local minimum, Rat42 off; one S1
   competitive Ki CI too wide. All hand-written.
 
+**Run 4 (2026-11-18): 280/285, p = 3e-9 vs baseline, p = 0.0044 vs run 3.**
+After round 4 (`LABKIT-013-PLAN.md`: labkit 0.1.4 with `read_sparky`,
+`read_integrals`, `noe_buildup`, a robust `peaks()`, attribute errors that
+name the fields and a `ppms` alias; domain hints that fire with labkit
+imported; a JSON outline after each run; the rerun guard quotes the error)
+and with the **v2 results request** (`--results-suffix v2`). The baseline
+and runs 1-3 used v1, whose wording ("plain numbers, lists for intervals")
+caused the results-shape failures above; on the same system v1 lost 10/90
+runs (p = 0.031, `LABKIT-013-PLAN.md`). So the gain over run 3 is partly the
+harness wording, not the system. Scorecards `2026-11-18_phase4d-labkit` and
+`2026-11-18_phase4d-fresh`. labkit imported in 216/285 runs, 78/81 fresh.
+
+| Group | Baseline | Run 3 | Run 4 | labkit used (run 4) |
+|---|---|---|---|---|
+| S1 synthetic | 114/135 | 132 | 135 | 135/135 |
+| S1 trap | 9/12 | 12 | 12 | 11/12 |
+| S1 NIST | 80/81 | 78 | 80 | 29/81 |
+| S2 | 23/30 | 23 | 29 | 27/30 |
+| S3 | 2/6 | 6 | 6 | 0/6 |
+| S5 | 4/6 | 6 | 3 | 3/6 |
+| S6 | 11/15 | 10 | 15 | 11/15 |
+| All | 243/285 | 267 | 280 | 216/285 |
+
+Paired vs baseline: 40 fail->pass, 3 pass->fail (without NIST 39/2,
+p = 8e-10). Vs run 3: 16/3, p = 0.0044 (without NIST 14/3, p = 0.013). Fresh
+80/81 (run 3: 79). Hints fired (eval log, run 4 day): custom_fit 49,
+exponential 40, standard_curve 16, competitive 13, dose_response 11,
+morrison 4, cd 3, sparky 2, relaxation 2, bruker 2, michaelis_menten 1.
+Remaining failures (5 + 1 fresh):
+- S5 ANOVA 0/3 (run 3: 3/3), `reproduces` only: the strip plot jitters
+  points with an unseeded `np.random.normal`, so `analysis.py` redraws
+  `groups.png` differently. Run 3 happened to call `np.random.seed(42)`.
+  A real defect for users too: the bundle does not reproduce its figure.
+- S2 JASCO CD 1/3 failed: `min_wavelength_ht600` interpolated between
+  measured points (194.365 vs 194.5). `labkit.cd.ht_cutoff` exists; the CD
+  hint names only the MRE function.
+- NIST ENSO 1/3: local minimum (b4, b7 far off), hand-written.
+- Fresh competitive s6#2: 20 tool calls, most spent reading labkit's source
+  to learn how `fit` takes `(S, I)`; `guide('fit')` has one line on it.
+
 ## Phase 5: structure viewer and S7
 
 Extend `show_protein`: load a PDB or mmCIF artifact from the sandbox or an

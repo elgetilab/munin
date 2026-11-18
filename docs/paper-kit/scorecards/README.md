@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-73 committed scorecard JSONs, copied verbatim from
+75 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 117 JSON plus 69 Markdown twins; the remainder are mostly the
+The full set is 119 JSON plus 71 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -139,6 +139,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-17_phase4b-fresh.json` | Phase 4 run 2 tuning check on the 27 fresh S1 cases (seeds 6-8) x 3: 71/81 (0.877), run 1 69/81, same-family baseline rate 114/135 (0.844); labkit in 70/81 runs. decay1 9/9 (run 1 4/9); standard curve 6/9 (interpolate results saved as [value, CI] lists) | none yet |
 | `2026-11-17_phase4c-labkit.json` | Lab-analysis Phase 4 run 3, `labkit` 0.1.2 (`x_scale` guard, 5PL LogEC50 sign fix, `csp` order guard) plus round-3 pointers (`LABKIT-011-PLAN.md`: NMR, titration and standard-curve hints, `labkit.nmr` functions in the persona), same 95 x 3, `eval` instance at concurrency 4: 267/285 pass (baseline 243, run 2 260), mean 0.952. labkit imported in 180/285 runs. Paired vs baseline: 36 fail->pass, 12 pass->fail, exact McNemar p = 0.0007; vs run 2 20/13, p = 0.30. S1 synthetic 132/135, S1 trap 12/12, S1 NIST 78/81, S2 23/30, S3 6/6, S5 6/6, S6 10/15. Measures the system change (helper plus nudges), not labkit alone | none yet |
 | `2026-11-17_phase4c-fresh.json` | Phase 4 run 3 on the 27 fresh S1 cases (seeds 6-8) x 3: 79/81 (0.979), run 2 71/81, same-family baseline rate 114/135 (0.844); labkit in 77/81 runs. Failures: one standard curve saved as [value, CI], one competitive with no results.json | none yet |
+| `2026-11-18_phase4d-labkit.json` | Lab-analysis Phase 4 run 4, `labkit` 0.1.4 (round 4, `LABKIT-013-PLAN.md`: `nmr.read_sparky`, `noe_buildup`, `read_integrals`, robust `peaks()`, field-name errors, `ppms` alias; domain hints that fire even with labkit imported; JSON outline after each run; rerun guard quotes the error) and **results request v2** (`--results-suffix v2`: a number per key, an object per item, intervals only for interval keys; earlier lab scorecards used v1, which on the same system cost 10/90 runs, p = 0.031), same 95 x 3, `eval` instance at concurrency 4: 280/285 pass (baseline 243, run 3 267), mean 0.990. labkit imported in 216/285 runs. Paired vs baseline: 40 fail->pass, 3 pass->fail, exact McNemar p = 3e-9; vs run 3 16/3, p = 0.0044 (non-NIST 200/204, vs run 3 14/3, p = 0.013). S1 synthetic 135/135, S1 trap 12/12, S1 NIST 80/81, S2 29/30, S3 6/6, S5 3/6, S6 15/15. Failures: S5 ANOVA 0/3 on `reproduces` (unseeded plot jitter), one ENSO local minimum, one JASCO HT cutoff interpolated between points. Measures the system change including the results-request wording, not labkit alone | none yet |
+| `2026-11-18_phase4d-fresh.json` | Phase 4 run 4 on the 27 fresh S1 cases (seeds 6-8) x 3, results request v2: 80/81 (0.988), run 3 79/81; labkit in 78/81 runs. Failure: one competitive run exhausted the 20-turn budget reading labkit's source | none yet |
 
 ## Cautions when regenerating figures
 
