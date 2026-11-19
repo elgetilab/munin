@@ -419,6 +419,54 @@ def test_competitive_hint_says_how_to_pass_x():
                   str(h))
 
 
+EPR_READ_BY_HAND = """import numpy as np
+dsc = open('inputs/sample.DSC').read()
+params = dict(l.split(None, 1) for l in dsc.splitlines() if l and l[0].isalpha())
+y = np.fromfile('inputs/sample.DTA', dtype='>f8')
+nu = float(params['MWFQ']) / 1e9
+"""
+DEER_BY_HAND = """import numpy as np
+from scipy.special import fresnel
+t, V = np.loadtxt('deer.csv', delimiter=',', skiprows=1, unpack=True)
+# DEER dipolar kernel
+K = kernel(t, r)
+P = np.linalg.lstsq(K, V, rcond=None)[0]
+"""
+DEERLAB = """import deerlab as dl
+t, V = dl.deerload('deer.DTA')
+"""
+SPIN_BY_HAND = """import numpy as np
+a = np.cumsum(y) * dx
+di = np.trapz(a, x)   # double integral for the spin count vs TEMPOL
+"""
+G_BY_HAND = """h = 6.62607015e-34; mu_B = 9.2740100783e-24
+g = h * 9.5e9 / (mu_B * B0 * 1e-3)
+"""
+EPR_WITH_LABKIT = """from labkit import epr
+d = epr.load('inputs/sample.DSC')
+y = np.fromfile('inputs/sample.DTA', dtype='>f8')
+lf = epr.fit_line(d.field_mT, d.y, freq_GHz=d.freq_GHz)
+"""
+
+
+def test_epr_hints():
+    st = HintState()
+    got = {name: (fit_hint(code) or ("none",))[0] for name, code in (
+        ("read", EPR_READ_BY_HAND), ("deer", DEER_BY_HAND), ("deerlab", DEERLAB), ("spin", SPIN_BY_HAND),
+        ("g", G_BY_HAND))}
+    covered = st.hint_for("e1", EPR_WITH_LABKIT)
+    json_load = fit_hint("import json\nd = json.load(open('x.json'))\ny = np.fromfile('a.DTA', dtype='>f8')")
+    up = upload_hint("sample.DSC", b"#DESC", ["sample.DSC"])
+    up_zip = upload_hint("deer.zip", b"PK", ["deer/deer.DSC", "deer/deer.DTA"])
+    return _check("EPR: hand-read BES3T, DEER by hand or via DeerLab, double integration, typed-in g "
+                  "constants get labkit.epr hints; epr.load/fit_line calls are covered (json.load is not); "
+                  "EPR uploads name epr.load",
+                  got == {"read": "epr_read", "deer": "deer", "deerlab": "deer", "spin": "epr_integral", "g": "epr_g"}
+                  and covered is None and json_load and json_load[0] == "epr_read"
+                  and "labkit.epr.load" in up and "labkit.epr.load" in up_zip,
+                  f"{got} {covered} {json_load and json_load[0]} {up[:40]!r}")
+
+
 TESTS = [
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
@@ -435,6 +483,7 @@ TESTS = [
     test_ht_cutoff_hint_after_the_cd_hint,
     test_a_given_model_hint_does_not_fall_through_to_custom_fit,
     test_competitive_hint_says_how_to_pass_x,
+    test_epr_hints,
 ]
 
 

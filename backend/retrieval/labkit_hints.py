@@ -111,7 +111,54 @@ def _calls(*funcs: str) -> re.Pattern:
     return re.compile(rf"\.(?:{alt})\s*\(|from\s+labkit[\w.]*\s+import[^\n]*\b(?:{alt})\b")
 
 
+# EPR (EPR-PLAN.md): Bruker EPR files read by hand, DEER inversions by hand
+# (or with DeerLab, which is not installed), spin counting by hand, g-values
+# from constants typed in.
+_EPR_FILE = re.compile(r"(?i)\.dta\b|\.dsc\b|\.spc\b|\bbes3t\b|\bMWFQ\b|\bXPTS\b|\bBSEQ\b|\bIKKF\b")
+_EPR_READ_BY_HAND = re.compile(r"\bfromfile\b|\bfrombuffer\b|struct\.unpack|['\"]>f8['\"]|['\"]>i4['\"]|\bdtype\s*=")
+_DEER = re.compile(r"(?i)\bdeer\b|\bpeldor\b|dipolar|\bdeerlab\b|\bdl\.(fit|dipolarmodel|dipolarkernel|deerload|correctphase)")
+_DEER_INVERT = re.compile(r"\b(lstsq|pinv|nnls|curve_fit|least_squares|minimize|tikhonov|fresnel)\b|(?i:deerlab)")
+_DOUBLE_INT = re.compile(r"\b(cumsum|cumtrapz|cumulative_trapezoid)\b")
+_EPR_CONTEXT = re.compile(r"(?i)\bspins?\b|tempol|double.?integ|\bepr\b|\besr\b|\bmodamp\b|\bgauss\b|\bRCAG\b")
+_G_BY_HAND = re.compile(r"(?i)\bmu_?b\b|bohr|9\.27\d*e-24|71\.44|0\.7144|714\.4|13\.996")
+_EPR_HINT_TAIL = "; see labkit.guide('epr')."
+
+
+def _calls_any(*funcs: str) -> re.Pattern:
+    alt = "|".join(funcs)
+    # epr.<func>( or imported from labkit.epr: a bare load( is json.load or np.load
+    return re.compile(rf"\bepr\.(?:{alt})\s*\(|from\s+labkit\.epr\s+import[^\n]*\b(?:{alt})\b")
+
+
 _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
+    ("epr_read", lambda c: bool(_EPR_FILE.search(c) and _EPR_READ_BY_HAND.search(c)),
+     _calls_any("load", "load_bes3t", "load_esp", "load_ascii"),
+     "This reads a Bruker EPR file by hand. labkit.epr.load(path) reads BES3T (.DSC/.DTA: "
+     "byte order, complex interleaving, 2D layout, axis = XMIN + linspace(0, XWID, XPTS)), ESP "
+     ".par/.spc and ASCII exports, converts the field to mT (or time to us), and gives "
+     "freq_GHz (from MWFQ, in Hz in the file), power_mW, modamp_mT, gain_dB, n_scans"
+     + _EPR_HINT_TAIL),
+    ("deer", lambda c: bool(_DEER.search(c) and _DEER_INVERT.search(c)), _calls_any("fit_deer"),
+     "This analyses a DEER trace by hand (DeerLab is not installed). labkit.epr.fit_deer(t_us, V) "
+     "phases a complex trace, finds the zero time, and fits P(r), the modulation depth and the "
+     "background in one step (non-negative Tikhonov, alpha by AIC; background='strexp' for "
+     "membranes); it limits P(r) to what the trace length supports and warns when the trace seems "
+     "to hold longer distances. print(r) gives mean, std, modal, populations, lam, conc_uM, t0_ns; "
+     "see labkit.guide('deer')."),
+    ("epr_integral", lambda c: bool(_DOUBLE_INT.search(c) and _EPR_CONTEXT.search(c)),
+     _calls_any("double_integral", "spin_count"),
+     "This integrates an EPR spectrum by hand. labkit.epr.double_integral(field_mT, y) removes a "
+     "baseline before and after the first integration and warns when the window is too narrow; "
+     "labkit.epr.spin_count(sample, standard, standard_amount=...) also normalises each double "
+     "integral by 10^(gain_dB/20), sqrt(power), modulation amplitude and scans from the files"
+     + _EPR_HINT_TAIL),
+    ("epr_g", lambda c: bool(_G_BY_HAND.search(c)), _calls_any("g_value", "fit_line", "nitroxide_hyperfine",
+                                                               "calibrate_field"),
+     "This computes a g-value from constants typed in. labkit.epr.g_value(B_mT, freq_GHz) uses "
+     "CODATA 2022 (71.447735 mT/GHz); labkit.epr.fit_line(field_mT, y, freq_GHz=d.freq_GHz) fits "
+     "the line and gives g, dBpp and the absorption FWHM (Lorentzian sqrt(3) dBpp, Gaussian "
+     "1.1774 dBpp). Use the measured frequency from the file (d.freq_GHz), not a nominal one"
+     + _EPR_HINT_TAIL),
     ("sparky", lambda c: bool(_SPARKY.search(c)), _calls("read_sparky"),
      "This parses Sparky peak lists by hand. labkit.nmr.read_sparky(path) returns {residue: "
      "(1H, 15N)} in the order csp() takes (it tells 1H from 15N by value; 'G2N-H' -> 'G2'), "
@@ -260,6 +307,13 @@ def upload_hint(filename: str, data: bytes, paths: list[str]) -> str:
         target = "/".join(parts[:2]) if len(parts) > 2 else "inputs"
         return (f"It is Bruker NMR data: labkit.nmr.read_bruker({target!r}) reads it "
                 "(see labkit.guide('nmr')).")
+    epr_names = [p for p in [name] + [q.lower() for q in paths]
+                 if p.endswith((".dsc", ".dta", ".par", ".spc"))]
+    if epr_names:
+        return ("It is Bruker EPR data (BES3T .DSC/.DTA or ESP .par/.spc): labkit.epr.load(path) reads "
+                "it with the field in mT (time in us for pulse data) and the acquisition parameters "
+                "(freq_GHz, power_mW, modamp_mT, gain_dB, n_scans); see labkit.guide('epr') and "
+                "labkit.guide('deer').")
     if any(p.lower().endswith(".list") for p in paths) and ext == ".zip":
         return ("It holds Sparky peak lists (.list): labkit.nmr.read_sparky(path) reads each as "
                 "{residue: (1H, 15N)} in the order labkit.nmr.csp takes (see labkit.guide('nmr')).")

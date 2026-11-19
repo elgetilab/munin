@@ -718,6 +718,178 @@ def test_guide_competitive_example_runs():
           labkit.cd.ht_cutoff([196, 195, 194.5, 194, 193], [500, 560, 594, 616, 700]) == 194.5)
 
 
+# ---- EPR (EPR-PLAN.md) --------------------------------------------------------
+
+def _write_bes3t(base, x, data, *, xunit, big=True, fmt="D", spl=None, dsl=None, y=None):
+    data = np.asarray(data)
+    arr = np.atleast_2d(data)
+    cplx = np.iscomplexobj(arr)
+    flat = np.empty(arr.size * (2 if cplx else 1))
+    if cplx:
+        flat[0::2], flat[1::2] = arr.real.ravel(), arr.imag.ravel()
+    else:
+        flat[:] = arr.real.ravel()
+    dt = np.dtype((">" if big else "<") + {"D": "f8", "F": "f4", "I": "i4"}[fmt])
+    open(str(base) + ".DTA", "wb").write(flat.astype(dt).tobytes())
+    ny, nx = arr.shape
+    lines = ["#DESC\t1.2 * DESCRIPTOR INFORMATION", f"BSEQ\t{'BIG' if big else 'LIT'}",
+             f"IKKF\t{'CPLX' if cplx else 'REAL'}", "XTYP\tIDX", f"IRFMT\t{fmt}", f"XPTS\t{nx}",
+             f"XMIN\t{x[0]:.6f}", f"XWID\t{x[-1] - x[0]:.6f}", f"XUNI\t'{xunit}'"]
+    if ny > 1:
+        lines += ["YTYP\tIDX", f"YPTS\t{ny}", f"YMIN\t{y[0]}", f"YWID\t{y[-1] - y[0]}", "YUNI\t'dB'"]
+    lines += ["#SPL\t1.2 * STANDARD PARAMETER LAYER"] + [f"{k}\t{v}" for k, v in (spl or {}).items()]
+    lines += ["#DSL\t1.0 * DEVICE SPECIFIC LAYER"] + [f"{k}\t{v}" for k, v in (dsl or {}).items()]
+    open(str(base) + ".DSC", "w").write("\n".join(lines) + "\n")
+
+
+def test_epr_constants_and_kernel():
+    from labkit import epr
+    check("epr constants: 71.4477 mT/GHz, nu_dd 52.04 MHz nm^3, hom3d 9.974e-4 per uM",
+          abs(epr.MT_PER_GHZ - 71.44774) < 1e-4 and abs(epr.NU_DD - 52.041) < 0.01
+          and abs(epr.K_HOM3D - 9.974e-4) < 2e-7, f"{epr.MT_PER_GHZ} {epr.NU_DD} {epr.K_HOM3D}")
+    t = np.array([0.0, 0.4, 1.3, 3.0])
+    r = np.array([2.0, 3.5, 5.5])
+    z = np.linspace(0, 1, 200001)
+    ref = np.array([[np.trapz(np.cos((1 - 3 * z * z) * 2 * np.pi * epr.NU_DD / rr ** 3 * tt), z) for rr in r] for tt in t])
+    check("dipolar kernel (Fresnel form) equals the orientation integral",
+          np.max(np.abs(epr.dipolar_kernel(t, r, weighted=False) - ref)) < 1e-6)
+    check("g = 71.4477 nu/B; distance limits 3.73 and 2.96 tmax^(1/3)",
+          abs(epr.g_value(336.689, 9.452103) - 2.0058) < 1e-5
+          and abs(epr.distance_limits(1.0)["r_max_mean_nm"] - 3.733) < 0.002
+          and abs(epr.distance_limits(1.0)["r_max_width_nm"] - 2.963) < 0.002)
+
+
+def test_epr_readers():
+    from labkit import epr
+    d = TMP / "epr"
+    d.mkdir(exist_ok=True)
+    x = np.linspace(3300.0, 3400.0, 512)
+    y = np.sin(x / 7.0)
+    _write_bes3t(d / "a", x, y, xunit="G", spl={"MWFQ": "9.452103e+09", "MWPW": "2.000e-03", "AVGS": 4,
+                                                "RCAG": "60.00"}, dsl={"ModAmp": "0.500 G", "SctNorm": "false"})
+    a = epr.load(d / "a.DSC")
+    check("BES3T: field G -> mT with the endpoint included, MWFQ Hz -> GHz, W -> mW, G -> mT",
+          abs(a.field_mT[0] - 330.0) < 1e-9 and abs(a.field_mT[-1] - 340.0) < 1e-9
+          and abs(a.freq_GHz - 9.452103) < 1e-9 and abs(a.power_mW - 2.0) < 1e-12
+          and abs(a.modamp_mT - 0.05) < 1e-12 and a.n_scans == 4 and a.sctnorm is False
+          and np.allclose(a.y, y), repr(a))
+    _write_bes3t(d / "b", x, y + 1j * np.cos(x), xunit="G", big=False, fmt="F")
+    b = epr.load(d / "b.DTA")
+    check("BES3T: little-endian float32 complex, interleaved",
+          np.iscomplexobj(b.y) and np.allclose(b.real, y, atol=1e-6) and np.allclose(b.y.imag, np.cos(x), atol=1e-6))
+    t = np.arange(200) * 8.0
+    _write_bes3t(d / "c", t, np.outer(np.arange(1, 4), np.exp(-t / 900)) + 0j, xunit="ns", y=np.array([1.0, 2, 3]))
+    c = epr.load(d / "c.DSC")
+    check("BES3T 2D: ns -> us, rows are slices of the second axis",
+          c.kind == "pulse" and abs(c.t_us[-1] - 1.592) < 1e-9 and c.y.shape == (3, 200)
+          and np.allclose(c.real[2], 3 * np.exp(-t / 900)))
+    spc = np.round(y * 1e6).astype(">i4")
+    (d / "e.spc").write_bytes(spc.tobytes())
+    (d / "e.par").write_text("JSS 0\r\nANZ 512\r\nHCF 3350.0\r\nHSW 100.0\r\nMF 9.7714\r\nRMA 1.0\r\n")
+    e = epr.load(d / "e.par")
+    check("ESP par/spc: int32 big-endian, HCF/HSW in G", abs(e.field_mT[0] - 330.0) < 1e-9
+          and np.allclose(e.y, spc.astype(float)) and abs(e.freq_GHz - 9.7714) < 1e-12)
+    (d / "w.spc").write_bytes(y.astype("<f4").tobytes())
+    (d / "w.par").write_text("DOS Format\r\nANZ 512\r\nGST 3300.0\r\nGSI 100.0\r\n")
+    w = epr.load(d / "w.par")
+    check("WinEPR par/spc: float32 little-endian, GST/GSI", np.allclose(w.y, y, atol=1e-6) and abs(w.field_mT[-1] - 340.0) < 1e-6)
+    (d / "n.txt").write_text("a b\n" + "\n".join(f"{u} {v}" for u, v in zip(x, y)))
+    try:
+        epr.load(d / "n.txt")
+        ok = False
+    except ValueError as ex:
+        ok = "x_unit" in str(ex)
+    check("ASCII without a unit raises and says x_unit=", ok)
+    try:
+        labkit.read(d / "a.DSC")
+        ok = False
+    except labkit.UnsupportedFormat as ex:
+        ok = "labkit.epr.load" in str(ex)
+    check("labkit.read points EPR files to labkit.epr.load", ok)
+
+
+def test_epr_cw_lines_and_counting():
+    from labkit import epr
+    rng = np.random.default_rng(5)
+    x = np.linspace(320.0, 350.0, 3001)
+    yl = epr.simulate_iso(x, 9.45, 2.0058, lw_mT=0.15, modamp_mT=0.02) + rng.normal(0, 0.5, x.size)
+    lf = epr.fit_line(x, yl, freq_GHz=9.45)
+    yg = epr.simulate_iso(x, 9.45, 2.0058, lw_mT=0.40, shape="gaussian") + rng.normal(0, 0.05, x.size)
+    gf = epr.fit_line(x, yg, shape="gaussian")
+    check("fit_line: Lorentzian g, dBpp and FWHM = sqrt(3) dBpp; Gaussian FWHM = 1.1774 dBpp",
+          abs(lf.g - 2.0058) < 2e-5 and abs(lf.dBpp_mT - 0.15) < 0.003 and abs(lf.fwhm_mT - 0.2598) < 0.005
+          and abs(gf.fwhm_mT - 0.4710) < 0.008, f"{lf} {gf}")
+    absf = lambda b: epr.simulate_iso(b, 9.45, 2.0058, lw_mT=0.15, harmonic=0, area=10.0)
+    a1 = epr.double_integral(x, epr.modulate_abs(absf, x, 0.02) * 0.01).value / 0.02
+    a2 = epr.double_integral(x, epr.modulate_abs(absf, x, 0.6) * 0.3).value / 0.6
+    check("double integral / modulation amplitude is the same when overmodulated", abs(a2 / a1 - 1) < 0.01, f"{a1} {a2}")
+    dd = TMP / "epr"
+    dd.mkdir(exist_ok=True)
+    base = epr.simulate_iso(x * 10, 9.45, 2.0058, nuclei=[(1, 17.0, 1)], lw_mT=1.3) / 10
+    for name, c, gain, p, ma, n in (("smp", 37.5, 60.0, 2.0, 1.0, 4), ("std", 100.0, 50.0, 0.5, 2.0, 1)):
+        yy = base * c * 10 ** (gain / 20) * np.sqrt(p) * ma * n
+        _write_bes3t(dd / name, x * 10, yy, xunit="G", spl={"MWFQ": "9.45e9", "MWPW": f"{p / 1000}", "AVGS": n,
+                                                             "RCAG": gain}, dsl={"ModAmp": f"{ma} G"})
+    sc = epr.spin_count(epr.load(dd / "smp.DSC"), epr.load(dd / "std.DSC"), standard_amount=100)
+    check("spin_count normalises gain (dB/20), sqrt(power), modulation amplitude and scans",
+          abs(sc.value - 37.5) < 0.4, repr(sc))
+    nx = epr.nitroxide_hyperfine(x, epr.simulate_iso(x, 9.45, 2.006, nuclei=[(1, 1.6, 1)],
+                                                    linewidth_mI=(0.12, 0.01, 0.02), second_order=True), freq_GHz=9.45)
+    check("nitroxide: aN from the outer lines, g_iso, widths per mI",
+          abs(nx.aN_mT - 1.6) < 0.002 and abs(nx.g_iso - 2.006) < 3e-5
+          and abs(nx.dBpp_mT[1] - 0.15) < 0.003 and abs(nx.dBpp_mT[-1] - 0.13) < 0.003, repr(nx))
+    P = epr.attenuation_to_mW(np.arange(0, 31, 2.0))
+    A = 3.0 * np.sqrt(P) * (1 + (2 ** (1 / 1.5) - 1) * P / 12.0) ** -1.5
+    fr = epr.power_saturation_fit(P, A * (1 + 0.003 * rng.standard_normal(P.size)))
+    check("power saturation: P_half and epsilon", abs(fr.params["P_half"] - 12) < 0.6 and abs(fr.params["epsilon"] - 1.5) < 0.08,
+          str(fr.params))
+    k = epr.kivelson_tau(0.12, 1.0, 0.8, 0.55)
+    check("kivelson_tau in G with the low/high-field heights", abs(k["tau_c_s"] - 6.51e-10 * 1.2 * (np.sqrt(1 / 0.8) + np.sqrt(1 / 0.55) - 2)) < 1e-15)
+
+
+def test_epr_deer():
+    from labkit import epr
+    rs = np.arange(1.5, 8, 0.005)
+    t = np.arange(-0.1, 3.0, 0.008)
+    V = epr.simulate_deer(t, rs, epr.gauss_P(rs, [3.5], [0.3]), 0.4, conc_uM=200, t0_us=0.05,
+                          phase_deg=30, noise=0.008, V0=500.0, seed=2)
+    r = epr.fit_deer(t, V)
+    check("fit_deer: phase, zero time, mean/std, lambda, concentration in one step",
+          abs(r.mean_nm - 3.5) < 0.08 and abs(r.std_nm - 0.3) < 0.1 and abs(r.lam - 0.4) < 0.03
+          and abs(r.t0_ns - 50) < 12 and abs(r.phase_deg - 30) < 3 and abs(r.conc_uM - 200) < 50, r.summary())
+    tb = np.arange(0, 5.0, 0.008)
+    Vb = epr.simulate_deer(tb, rs, epr.gauss_P(rs, [3.0, 4.5], [0.25, 0.35], [0.6, 0.4]), 0.4, k_per_us=0.06,
+                           noise=0.005, seed=3).real
+    rb = epr.fit_deer(tb, Vb)
+    check("fit_deer: two populations with fractions", len(rb.populations) == 2
+          and abs(rb.populations[0]["r_nm"] - 3.0) < 0.15 and abs(rb.populations[1]["r_nm"] - 4.5) < 0.15
+          and abs(rb.populations[0]["fraction"] - 0.6) < 0.1, str(rb.populations))
+    ts = np.arange(0, 1.5, 0.008)
+    Vs = epr.simulate_deer(ts, rs, epr.gauss_P(rs, [3.0, 5.5], [0.2, 0.4], [0.65, 0.35]), 0.4, k_per_us=0.08,
+                           noise=0.006, seed=4).real
+    rsh = epr.fit_deer(ts, Vs)
+    long_warn = any("beyond" in w for w in rsh.warnings)
+    check("fit_deer on a too-short trace keeps the short distance and warns about the long one",
+          long_warn and abs(rsh.modal_nm - 3.0) < 0.12, " | ".join(rsh.warnings))
+    check("fit_deer on a long enough trace does not raise that warning",
+          not any("beyond" in w for w in r.warnings + rb.warnings), " | ".join(r.warnings + rb.warnings))
+    try:
+        epr.fit_deer(t * 1000, V)
+        ok = False
+    except ValueError as ex:
+        ok = "ns" in str(ex)
+    check("fit_deer refuses a time axis in ns", ok)
+    buf = io.StringIO()
+    import contextlib
+    with contextlib.redirect_stdout(buf):
+        labkit.guide("epr")
+        labkit.guide("deer")
+    g = buf.getvalue()
+    check("guide('epr') and guide('deer') name the functions",
+          all(k in g for k in ("epr.load", "fit_line", "spin_count", "nitroxide_hyperfine", "power_saturation_fit",
+                               "fit_deer", "distance_limits", "average_scans")))
+
+
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
 
 if __name__ == "__main__":

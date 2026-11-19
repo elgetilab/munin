@@ -5,7 +5,7 @@ TOPICS: dict[str, str] = {}
 
 TOPICS["overview"] = """\
 labkit: vetted helpers for lab data analysis. Topics: guide('fit'), guide('read'),
-guide('nmr'), guide('stats'), guide('cd'), guide('plot').
+guide('nmr'), guide('stats'), guide('cd'), guide('plot'), guide('epr'), guide('deer').
 - fit:   Prism-style nonlinear regression with Prism's parameter NAMES and defaults
 - read:  instrument files (NanoDrop, Gen5, plate grids, JASCO, any table); refuses binaries
 - nmr:   Bruker 1D processing, peaks, integration, Sparky lists, CSP, titration Kd,
@@ -13,6 +13,10 @@ guide('nmr'), guide('stats'), guide('cd'), guide('plot').
 - stats: two-way ANOVA (Type III), post-hoc on the pooled error, asterisks
 - cd:    mean residue ellipticity, HT cutoff
 - plot:  save_figure at exact mm size, seeded jitter
+- epr:   CW-EPR: Bruker BES3T/ESP/ASCII files, g, linewidths, double integral, spin
+         counting, nitroxide aN and tau_c, power saturation, isotropic simulation
+- deer:  4-pulse DEER: phase, zero time, one-step fit of P(r), modulation depth,
+         background; distance limits of the trace
 Every result says what it is: print() it. Warnings in a result are for the user:
 report them in the answer, do not drop them.
 """
@@ -135,6 +139,59 @@ from labkit.plot import save_figure, jitter
 save_figure(fig, "f.png", width_mm=85, height_mm=60, dpi=300)  exact size, no tight bbox
 jitter(center, n, seed=0)  reproducible x scatter (an unseeded jitter makes a re-run
                            of the script produce a different figure)
+"""
+
+
+TOPICS["epr"] = """\
+from labkit import epr          # field in mT, frequency in GHz, everywhere
+d = epr.load("inputs/sample.DSC")   # Bruker BES3T (.DSC+.DTA), ESP (.par+.spc), ASCII (x_unit= if
+                                    # the header has no unit). Converts G -> mT; print(d) shows it all
+d.field_mT, d.y (complex if both channels: use d.real), d.freq_GHz (from MWFQ, the MEASURED
+  frequency; never assume 9.5 GHz), d.power_mW, d.modamp_mT, d.gain_dB, d.n_scans, d.sctnorm
+2D (power series, scans): d.y[i] is the slice at d.y2[i] (d.y2_unit, e.g. attenuation dB)
+One line:   lf = epr.fit_line(d.field_mT, d.real, shape="lorentzian"|"gaussian"|"voigt",
+                              freq_GHz=d.freq_GHz)
+            lf.g, lf.B0_mT, lf.dBpp_mT (derivative peak-to-peak), lf.fwhm_mT (absorption FWHM:
+            Lorentzian sqrt(3)*dBpp, Gaussian 1.1774*dBpp), lf.area
+            epr.g_value(B_mT, freq_GHz) = 71.447735 * nu / B; epr.peak_to_peak, epr.zero_crossing
+Calibrate:  field_corr, offset = epr.calibrate_field(d.field_mT, B0_of_DPPH_mT, 2.0036, freq_GHz)
+            epr.frequency_correct(field_mT, freq_GHz, target_GHz)   # scales, does not shift
+Spins:      sc = epr.spin_count(sample, standard, standard_amount=100, unit="uM",
+                                S_sample=0.5, S_standard=0.5)     # both EPRData from epr.load
+            normalises each DOUBLE integral by 10^(gain_dB/20), sqrt(power), modulation amplitude
+            (linear) and scans (unless SctNorm); print(sc) shows every factor
+            epr.double_integral(field_mT, y, wings=0.1) baseline-corrects before AND after the
+            first integration; the window must span 20+ linewidths (it warns)
+Nitroxide:  nx = epr.nitroxide_hyperfine(d.field_mT, d.real, freq_GHz=d.freq_GHz)
+            nx.aN_mT, nx.aN_MHz (half the OUTER-line spacing), nx.g_iso, nx.dBpp_mT[0],
+            nx.heights[+1] (LOW field), nx.heights[0], nx.heights[-1] (HIGH field)
+            epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])
+Saturation: P = epr.attenuation_to_mW(d.y2, p_max_mW=200)
+            A = [epr.peak_to_peak(d.field_mT, row)["Ypp"] for row in d.real]
+            r = epr.power_saturation_fit(P, A); r.params["P_half"], r.params["epsilon"]
+            (P_half = power at half saturation; not the older b-form P')
+Simulate:   epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[(1, 1.6, 1)], lw_mT=0.12,
+                             linewidth_mI=(A, B, C), second_order=True, modamp_mT=0.1)
+            isotropic fast motion only; slow-motion and powder spectra need EasySpin
+"""
+
+TOPICS["deer"] = """\
+from labkit import epr          # time in us, distance in nm, P in 1/nm
+d = epr.load("inputs/deer.DSC")          # or a CSV/ASCII trace (x_unit="ns" if not in the header)
+V = epr.average_scans(d.y) if d.y.ndim == 2 else d.y     # 2D BES3T: one row per scan
+r = epr.fit_deer(d.t_us, V)              # phases complex V, finds the zero time, fits P(r),
+print(r)                                 # lambda, background (and t0) in ONE step
+r.mean_nm, r.std_nm (std, not FWHM), r.modal_nm, r.populations (modes with fractions),
+r.lam (= r.mod_depth), r.k_per_us, r.conc_uM (3D background), r.t0_ns, r.phase_deg, r.warnings
+r.r_nm, r.P: the distribution; r.summary(): the block a report needs (white paper 2021)
+Options: background="hom3d" (frozen solution) | "strexp" (membranes, fractal dimension fitted)
+         method="gauss", n_gauss=2 (parametric); n_boot=100 for 95% CIs (r.ci, r.P_ci95)
+Never take |V|; never subtract the background (fit_deer divides, in one step).
+The trace length limits what it can measure: epr.distance_limits(tmax_us) -> mean distance up
+to 3.73*tmax^(1/3) nm, width/shape up to 2.96*tmax^(1/3) nm. fit_deer limits P(r) to that
+range and WARNS when the trace seems to hold longer distances: report that as unreliable.
+Labelling efficiency = lambda / (pump inversion efficiency).
+epr.simulate_deer(t_us, r_nm, P, lam, conc_uM=..., phase_deg=..., noise=...) for checks.
 """
 
 

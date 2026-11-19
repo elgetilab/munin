@@ -470,6 +470,9 @@ def read(path: PathLike, **kw) -> pd.DataFrame:
     p = Path(path)
     data = p.read_bytes()
     suffix = p.suffix.lower()
+    if suffix in (".dsc", ".dta", ".par", ".spc"):
+        raise UnsupportedFormat(f"{p.name} is a Bruker EPR file: use labkit.epr.load(path) "
+                                f"(see labkit.guide('epr'))")
     if p.is_dir() or suffix == ".zip":
         raise UnsupportedFormat("a directory or zip: for Bruker NMR use labkit.nmr.read_bruker(path)")
     if data[:2] == b"PK" and suffix in (".xlsx", ".xlsm"):
