@@ -1,0 +1,3 @@
+# Fixture bytes are part of the test: CRLF line endings, UTF-16 and binary
+# instrument files must reach every clone exactly as generated (SHA256SUMS).
+* -text

@@ -298,3 +298,23 @@ only numpy/scipy/pandas/matplotlib installed.
   - Those two cases (broad-window, spin-count) get lower noise and a less
     narrow reference line, and broad-window a tolerance of 8%. Their 6
     baseline runs are rerun on the corrected files.
+- **Baseline arm** (`s8-pre-epr`, labkit 0.1.5, no `labkit.epr`), 21 x 3:
+  **17/63** (0.270), mean check score 0.335. CW 17/33: DPPH calibration,
+  Kivelson and overmodulation 3/3; g (BES3T), complex, power saturation
+  2/3; Gaussian FWHM, nitroxide 1/3; spin count, broad window, ESP 0/3.
+  DEER 0/30. The spin-count and broad-window runs were rerun on the
+  corrected files (still 0/3: spin ratios 0.43-0.69 vs 2.4, concentrations
+  25-179 uM vs 37.5). Scorecard `2026-11-19_s8-pre-epr`.
+- **Fresh set, labkit check** (a fixed script calling `labkit.epr`, run
+  after the fresh set was made; labkit unchanged): 19/21 numeric. The two
+  misses are fixture properties, not labkit bugs. DeerLab 1.2.0's
+  model-free fit gives the same answers as labkit on both:
+  - `s8_deer_short_trace_f1`: model-free modal 3.18 nm (labkit 3.18), truth
+    3.05, atol 0.12.
+  - `s8_deer_membrane_f1`: model-free mean 3.39 nm (labkit 3.41), truth
+    3.19, atol 0.12.
+
+  DeerLab's Gaussian fit recovers both (3.051, 3.193), so with this draw only
+  a parametric fit (`fit_deer(method="gauss")`) passes. The fixtures are
+  left as generated, not widened after seeing the result; the fresh score
+  is reported with and without these two cases.

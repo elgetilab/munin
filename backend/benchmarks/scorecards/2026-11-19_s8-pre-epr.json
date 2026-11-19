@@ -1,0 +1,325 @@
+{
+  "meta": {
+    "tag": "s8-pre-epr",
+    "generated_at": "2026-11-19T15:56:13.258517+00:00",
+    "git_sha": "46bc778",
+    "encoder": "n/a",
+    "seed": 42,
+    "packages": {
+      "numpy": "1.26.4",
+      "scipy": "1.13.1",
+      "sentence_transformers": "n/a",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "suite": "lab-analysis",
+    "arm": "pre-epr",
+    "persona": "munin",
+    "results_suffix": "v2",
+    "reps": 3,
+    "heldout": false,
+    "base": "http://127.0.0.1:8082",
+    "concurrency": 4,
+    "resumed": true,
+    "cases": [
+      "s8_cw_broad_window",
+      "s8_cw_complex",
+      "s8_cw_dpph_calibration",
+      "s8_cw_esp",
+      "s8_cw_g_bes3t",
+      "s8_cw_gaussian_fwhm",
+      "s8_cw_kivelson",
+      "s8_cw_nitroxide",
+      "s8_cw_overmodulation",
+      "s8_cw_power_saturation",
+      "s8_cw_spin_count",
+      "s8_deer_angstrom",
+      "s8_deer_bes3t",
+      "s8_deer_bimodal",
+      "s8_deer_concentration",
+      "s8_deer_labeling",
+      "s8_deer_membrane",
+      "s8_deer_ns_axis",
+      "s8_deer_phase",
+      "s8_deer_short_trace",
+      "s8_deer_zero_time"
+    ],
+    "vision_judge": null
+  },
+  "tasks": {
+    "lab-S8": {
+      "sage-a1.5/pre-epr": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.33465608465608465,
+            "ci_low": 0.23277116402116405,
+            "ci_high": 0.44576719576719576,
+            "n": 63
+          },
+          "case_pass": {
+            "mean": 0.2698412698412698,
+            "ci_low": 0.1746031746031746,
+            "ci_high": 0.38095238095238093,
+            "n": 63
+          }
+        },
+        "per_query": {
+          "s8_cw_complex#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_complex#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_dpph_calibration#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_dpph_calibration#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_dpph_calibration#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_complex#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_g_bes3t#1": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s8_cw_g_bes3t#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_esp#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_esp#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_gaussian_fwhm#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_g_bes3t#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_gaussian_fwhm#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_kivelson#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_gaussian_fwhm#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_kivelson#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_kivelson#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_esp#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_nitroxide#2": {
+            "case_score": 0.6666666666666666,
+            "case_pass": 0.0
+          },
+          "s8_cw_overmodulation#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_nitroxide#1": {
+            "case_score": 0.6666666666666666,
+            "case_pass": 0.0
+          },
+          "s8_cw_nitroxide#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_power_saturation#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_overmodulation#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_power_saturation#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_power_saturation#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_overmodulation#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_deer_angstrom#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_angstrom#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_bes3t#1": {
+            "case_score": 0.25,
+            "case_pass": 0.0
+          },
+          "s8_deer_bes3t#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_bes3t#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_angstrom#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_bimodal#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_bimodal#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_bimodal#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_concentration#1": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s8_deer_labeling#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_labeling#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_concentration#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_concentration#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_labeling#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_membrane#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_membrane#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_ns_axis#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_ns_axis#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_membrane#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_phase#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_ns_axis#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_phase#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_phase#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_short_trace#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_short_trace#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_short_trace#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_deer_zero_time#1": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s8_deer_zero_time#2": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s8_deer_zero_time#3": {
+            "case_score": 0.5,
+            "case_pass": 0.0
+          },
+          "s8_cw_broad_window#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_broad_window#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_spin_count#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_broad_window#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_spin_count#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_spin_count#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          }
+        }
+      }
+    }
+  }
+}

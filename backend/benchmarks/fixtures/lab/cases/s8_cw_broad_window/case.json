@@ -13,7 +13,7 @@
      "type": "numeric",
      "key": "spin_ratio",
      "truth": "truth:spin_ratio",
-     "rtol": 0.06
+     "rtol": 0.08
     }
    ]
   }
@@ -26,5 +26,5 @@
   "trap:integration_window",
   "trap:baseline"
  ],
- "provenance": "synthetic, s8.cw_broad_window; the window spans about +-57 HWHM of the broad line"
+ "provenance": "synthetic, s8.cw_broad_window; the window spans about +-72 HWHM of the broad line; integrating +-5 HWHM loses 13%"
 }
