@@ -14,3 +14,7 @@ dependencies = ["numpy", "scipy", "pandas"]
 
 [tool.setuptools]
 packages = ["labkit"]
+
+# Shipped with the package so bundles that carry labkit carry its license.
+[tool.setuptools.package-data]
+labkit = ["LICENSE"]

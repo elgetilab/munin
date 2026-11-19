@@ -324,6 +324,29 @@ with tempfile.TemporaryDirectory() as tmp:
               os.path.exists(mine) and open(mine, "rb").read()
               == open(os.path.join(tmp, "outputs", name), "rb").read())
 
+# ---- bundles carry labkit (EPR-PLAN.md Part C) ---------------------------------
+
+L = "llllllll-0000-4000-8000-0000000000c3".replace("l", "c")
+run(L, "import labkit, json\nr = labkit.fit('linear', [1, 2, 3, 4], [2.1, 3.9, 6.2, 7.8])\n"
+       "print('labkit from', labkit.__file__)\n"
+       "json.dump({'slope': round(r.params['Slope'], 6)}, open('slope.json', 'w'))\n")
+lz = zipfile.ZipFile(io.BytesIO(c.get(f"/bundle/{L}").content))
+names = lz.namelist()
+man = json.loads(lz.read("MANIFEST.json"))
+check("a bundle that uses labkit carries its sources and license",
+      "labkit/__init__.py" in names and "labkit/fit.py" in names and "labkit/LICENSE" in names
+      and man.get("vendored", {}).get("labkit", {}).get("version"), str(man.get("vendored"))[:200])
+with tempfile.TemporaryDirectory() as tmp:
+    lz.extractall(tmp)
+    proc = subprocess.run([sys.executable, "analysis.py"], cwd=tmp, capture_output=True, text=True, timeout=120)
+    check("analysis.py imports the bundled labkit, not the installed one",
+          proc.returncode == 0 and f"labkit from {os.path.realpath(tmp)}" in proc.stdout.replace(tmp, os.path.realpath(tmp)),
+          (proc.stdout + proc.stderr)[-300:])
+    check("and reproduces its output",
+          open(os.path.join(tmp, "slope.json"), "rb").read() == lz.read("outputs/slope.json"))
+plain = zipfile.ZipFile(io.BytesIO(c.get(f"/bundle/{C}").content)).namelist()
+check("a bundle that does not use labkit carries none", not any(n.startswith("labkit/") for n in plain))
+
 # ---- persistence across a kernel restart --------------------------------------
 
 c.delete(f"/kernels/{A}")

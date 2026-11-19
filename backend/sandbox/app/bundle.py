@@ -23,13 +23,16 @@ exactly what each artifact link serves.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import platform
+import re
 import tempfile
 import time
 import zipfile
 from importlib import metadata
+from pathlib import Path
 from typing import Optional
 
 from .store import ConversationStore
@@ -47,6 +50,10 @@ analysis.py     the code of every successful run, in order. To reproduce the
                 Each run starts with _munin_seed(run number), as in the
                 sandbox, so unseeded random numbers come out the same.
 code/           every run as it was executed, including failed ones
+labkit/         when the code uses labkit: the exact version it ran with
+                (Apache-2.0, license in labkit/LICENSE). analysis.py imports
+                this copy, so nothing needs installing besides numpy, scipy,
+                pandas and matplotlib
 figures/        machine-readable descriptions of the plotted figures
 environment.txt Python and package versions of the sandbox
 MANIFEST.json   sha256, size and origin of every file
@@ -70,6 +77,35 @@ def _munin_seed(n):
     except ImportError:
         pass
 """
+
+
+# A bundle whose analysis.py imports labkit carries the exact labkit it ran
+# with, as labkit/ next to analysis.py, so `python analysis.py` works where
+# labkit is not installed (EPR-PLAN.md, Part C).
+_LABKIT_IMPORT = re.compile(r"^\s*(import\s+labkit\b|from\s+labkit[\w.]*\s+import\b)", re.M)
+
+
+def _labkit_files() -> list[tuple[str, bytes]]:
+    """(path inside the bundle, bytes) for the installed labkit's sources and
+    license; [] if labkit is not installed here."""
+    spec = importlib.util.find_spec("labkit")
+    if spec is None or not spec.submodule_search_locations:
+        return []
+    root = Path(list(spec.submodule_search_locations)[0])
+    out = []
+    for p in sorted(root.rglob("*")):
+        if "__pycache__" in p.parts or not p.is_file():
+            continue
+        if p.suffix == ".py" or p.name == "LICENSE":
+            out.append(("labkit/" + p.relative_to(root).as_posix(), p.read_bytes()))
+    return out
+
+
+def _labkit_version() -> str:
+    try:
+        return metadata.version("labkit")
+    except metadata.PackageNotFoundError:
+        return "unknown"
 
 
 class BundleError(ValueError):
@@ -200,6 +236,14 @@ def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
                             if rec.get("seed") is not None else "")
                     script_parts.append("\n" + header + seed + code.rstrip("\n") + "\n")
             add_bytes("analysis.py", "".join(script_parts).encode())
+            if _LABKIT_IMPORT.search("".join(script_parts)):
+                files = _labkit_files()
+                for arc, data in files:
+                    add_bytes(arc, data)
+                if files:
+                    manifest["vendored"] = {"labkit": {"version": _labkit_version(),
+                                                       "license": "Apache-2.0",
+                                                       "files": [a for a, _ in files]}}
             add_bytes("environment.txt", environment_text().encode())
             add_bytes("README.txt", _README.encode())
             add_bytes("MANIFEST.json", json.dumps(manifest, indent=1).encode())
