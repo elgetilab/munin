@@ -1,7 +1,8 @@
 # EPR analysis (CW-EPR and DEER) in labkit, and portable bundles: plan
 
-Status: IN PROGRESS 2026-11-19 ("proceed", Q1-Q7 defaults). Parent: `LAB-ANALYSIS-PLAN.md`,
-`LABKIT-014-PLAN.md`. Direction from the user (2026-11-17): labkit should grow
+Status: DONE 2026-11-19 ("proceed", Q1-Q7 defaults): S8 49/63 with labkit.epr
+(baseline 17/63, p = 2e-7), fresh 47/63; next round in `LABKIT-015-PLAN.md`.
+Parent: `LAB-ANALYSIS-PLAN.md`, `LABKIT-014-PLAN.md`. Direction from the user (2026-11-17): labkit should grow
 by running research agents on the fits the group does often, starting with
 EPR (CW-EPR, DEER). The eval instance stays up (job extended to 14 days).
 
@@ -318,3 +319,42 @@ only numpy/scipy/pandas/matplotlib installed.
   a parametric fit (`fit_deer(method="gauss")`) passes. The fixtures are
   left as generated, not widened after seeing the result; the fresh score
   is reported with and without these two cases.
+
+## Result (2026-11-19, labkit 0.2.0, EPR hints and persona deployed)
+
+Tags `s8-labkit` and `s8-labkit-fresh`, 21 x 3 each, results request v2,
+`eval` instance at concurrency 4, compared run by run with `s8-pre-epr`.
+
+| | Baseline | labkit.epr | Fresh |
+|---|---|---|---|
+| All | 17/63 | **49/63** | 47/63 (47/57 without the two model-free-unsolvable cases) |
+| CW-EPR | 17/33 | 25/33 | 25/33 |
+| DEER | 0/30 | 24/30 | 22/30 |
+| Runs calling labkit.epr | n/a | 50/63 | 52/63 |
+
+Paired vs baseline: 36 fail->pass, 4 pass->fail, exact McNemar p = 2e-7.
+Hints fired (eval log, both runs): deer 29, epr_integral 15, epr_g 13,
+exponential 12, custom_fit 10, relaxation 4, standard_curve 1.
+
+What failed, from the bundles:
+- **Plain-text CW files** (Kivelson `.csv`, Gaussian FWHM `.txt`, broad
+  window `.csv`): 0 of 18 runs called anything but `epr.double_integral`.
+  The upload note only names `labkit.epr` for Bruker extensions, and no hint
+  covers peak-to-peak widths, heights or the Kivelson formula by hand.
+  Kivelson went 3/3 -> 0/3 on the original set (hand smoothing lowered the
+  peak heights; tau_c 4.7-7.0e-10 vs 4.23e-10), 3/3 on the fresh set: model
+  variance on hand code, not labkit. The Gaussian runs got the
+  `exponential` hint (a Gaussian `exp(-...)`), the wrong domain.
+- **Broad window** 0/6: `epr.double_integral` with defaults gives 2.31 (truth
+  2.4) and 2.59 (truth 2.68), both inside 8%. The two runs that called it
+  ran out of time before saving; the others fitted Lorentzians by hand.
+- **DEER by hand despite the hint**: labeling 2/3 runs and concentration
+  2/3 runs on the original set fitted by hand after the `deer` hint fired
+  (modulation depth 0.0015 and 0.008 vs 0.2; two concentration runs saved
+  nothing).
+- **Membrane**: every run called `fit_deer(t, V)` with the default hom3d
+  background (mean 3.57 vs 3.40; fresh 3.43 vs 3.19); the prompt says
+  liposome, `background="strexp"` passes the original.
+- **Power saturation**: runs used `epr.load` but fitted by hand; never
+  `power_saturation_fit` (one fresh run: P1/2 52 vs 8 mW).
+- 7 runs saved no results.json (long explorations).

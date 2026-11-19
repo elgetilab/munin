@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-76 committed scorecard JSONs, copied verbatim from
+78 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 120 JSON plus 72 Markdown twins; the remainder are mostly the
+The full set is 122 JSON plus 74 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -142,6 +142,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-18_phase4d-labkit.json` | Lab-analysis Phase 4 run 4, `labkit` 0.1.4 (round 4, `LABKIT-013-PLAN.md`: `nmr.read_sparky`, `noe_buildup`, `read_integrals`, robust `peaks()`, field-name errors, `ppms` alias; domain hints that fire even with labkit imported; JSON outline after each run; rerun guard quotes the error) and **results request v2** (`--results-suffix v2`: a number per key, an object per item, intervals only for interval keys; earlier lab scorecards used v1, which on the same system cost 10/90 runs, p = 0.031), same 95 x 3, `eval` instance at concurrency 4: 280/285 pass (baseline 243, run 3 267), mean 0.990. labkit imported in 216/285 runs. Paired vs baseline: 40 fail->pass, 3 pass->fail, exact McNemar p = 3e-9; vs run 3 16/3, p = 0.0044 (non-NIST 200/204, vs run 3 14/3, p = 0.013). S1 synthetic 135/135, S1 trap 12/12, S1 NIST 80/81, S2 29/30, S3 6/6, S5 3/6, S6 15/15. Failures: S5 ANOVA 0/3 on `reproduces` (unseeded plot jitter), one ENSO local minimum, one JASCO HT cutoff interpolated between points. Measures the system change including the results-request wording, not labkit alone | none yet |
 | `2026-11-18_phase4d-fresh.json` | Phase 4 run 4 on the 27 fresh S1 cases (seeds 6-8) x 3, results request v2: 80/81 (0.988), run 3 79/81; labkit in 78/81 runs. Failure: one competitive run exhausted the 20-turn budget reading labkit's source | none yet |
 | `2026-11-19_s8-pre-epr.json` | S8 EPR suite baseline (`EPR-PLAN.md`), before `labkit.epr`: labkit 0.1.5, 21 synthetic cases (11 CW-EPR, 10 DEER; Bruker BES3T, ESP, ASCII) x 3, results request v2, `eval` instance: 17/63 (0.270), mean check score 0.335. CW 17/33 (DPPH calibration, Kivelson, overmodulation 3/3; spin count, broad window, ESP 0/3), DEER 0/30. Spin-count and broad-window runs are on the corrected (lower-noise) files | none yet |
+| `2026-11-19_s8-labkit.json` | S8 EPR suite with `labkit` 0.2.0 (`labkit.epr`, EPR hints, persona naming it; `EPR-PLAN.md`), 21 x 3, results request v2, `eval` instance: 49/63 (0.778), baseline 17/63. Paired vs baseline: 36 fail->pass, 4 pass->fail, exact McNemar p = 2e-7. CW 25/33 (baseline 17), DEER 24/30 (baseline 0). `labkit.epr` called in 50/63 runs. Failures: Kivelson 0/3 (baseline 3/3; no run called labkit.epr, hand-smoothed peak heights), broad window 0/3, Gaussian FWHM 1/3 (plain-text files, no EPR hint), DEER concentration, labeling and membrane 1/3 each (hand fits despite the DEER hint; `fit_deer` with the default hom3d background on a membrane sample) | none yet |
+| `2026-11-19_s8-labkit-fresh.json` | S8 tuning check on the 21 fresh cases (`s8.VARIANT = 1`, generated after labkit 0.2.0 was frozen) x 3, same system: 47/63 (0.746); 47/57 without the two cases model-free fitting cannot pass (short trace and membrane; DeerLab's model-free fit gives the same values as labkit). CW 25/33, DEER 22/30; `labkit.epr` in 52/63 runs. Kivelson 3/3 here; broad window and Gaussian FWHM 0/3 | none yet |
 
 ## Cautions when regenerating figures
 
