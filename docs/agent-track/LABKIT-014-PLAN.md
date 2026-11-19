@@ -1,7 +1,7 @@
 # Reproducible randomness, CD cutoff and the (S, I) fit, round 5: plan
 
-Status: IMPLEMENTED 2026-11-18 ("proceed", Q1-Q3 defaults), not yet
-deployed. Parent: `LAB-ANALYSIS-PLAN.md` (Phase 4 run 4, 280/285),
+Status: IMPLEMENTED and DEPLOYED 2026-11-19 ("proceed", Q1-Q3 defaults);
+targeted rerun 33/33 (run 4: 28/33). Parent: `LAB-ANALYSIS-PLAN.md` (Phase 4 run 4, 280/285),
 `LABKIT-013-PLAN.md`. The eval instance stays up.
 
 What was built:
@@ -87,3 +87,31 @@ seeding: a production user's unseeded randomness becomes repeatable per run.
 | Q1 | Also make unseeded `np.random.default_rng()` repeatable (patch it in the sandbox and in `analysis.py`)? | No: patching numpy is invasive and surprising in a downloaded script. The legacy global RNG is what plotting code uses; revisit if a bundle fails on `default_rng`. |
 | Q2 | Seed per run (run number) or one constant seed? | Per run: a bootstrap split over two runs should not draw the same numbers twice. |
 | Q3 | Multi-start for hand-written NIST fits (ENSO)? | No: the model wrote its own least squares; `labkit.fit` with a callable already does multi-start, and the `custom_fit` hint points there. One run in 81. |
+
+## Result: targeted rerun (2026-11-19, labkit 0.1.5 and seeding deployed)
+
+Tags `r5b-targeted` and `r5b-targeted-fresh` (no scorecard), 3 reps, v2
+results request, compared with run 4 on the same cases: **33/33** (run 4:
+28/33).
+
+| Cases | Round 5 | Run 4 |
+|---|---|---|
+| S5 ANOVA | 3/3 | 0/3 |
+| S5 fit | 3/3 | 3/3 |
+| S2 JASCO CD | 3/3 | 2/3 |
+| S1 competitive s1-s5 | 15/15 | 15/15 |
+| Fresh competitive s6-s8 | 9/9 | 8/9 |
+
+- ANOVA: two of the three runs jittered with unseeded `np.random` again and
+  reproduced only because of the per-run seeding (`_munin_seed` in
+  `analysis.py`); the third seeded itself.
+- JASCO: 2/3 runs called `labkit.cd.ht_cutoff` (run 4: 0/3); the
+  `ht_cutoff` hint fired once, after the CD hint (fall-through).
+- Competitive: mean 8.9 tool calls per run on the original set (one run
+  still used all 20 and passed), 6.8 on the fresh set (max 11).
+- Hints fired (eval log): competitive 10, cd 3, ht_cutoff 1, custom_fit 1.
+
+A first attempt (`r5-targeted`, 0/33) is void: the eval vLLM job had hit
+SLURM's 2-day limit in `standard` before the deploy, so every run ended
+"vLLM unreachable". Eval instances now run in `gputraining`, 14 days by
+default, with `instance up --time` and `instance extend` (`cb57923`).
