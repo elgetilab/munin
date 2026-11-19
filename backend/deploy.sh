@@ -29,11 +29,13 @@
 #   sudo ./deploy.sh instance up <slug> --name <n> [--vllm-port 8001] [--api-port 8082]
 #                                     [--corpus shadow] [--vllm <other-instance>]
 #                                     [--gpu-util 0.90] [--max-seqs 4] [--download]
+#                                     [--time 14-00:00:00] (SLURM limit, default 14 days)
 #                                   - a SECOND backbone beside production: its own
 #                                     vLLM job on GPU 0 (or another instance's vLLM)
 #                                     and its own retrieval container, gated, never
 #                                     routed to users. Eval only.
 #   sudo ./deploy.sh instance down <n> | ls | gates <n> | logs <n> [docker-logs args]
+#   sudo ./deploy.sh instance extend <n> <time>  - lengthen a running instance's vLLM job
 #   sudo ./deploy.sh sudoers        - passwordless deploy.sh / vllm-service /
 #                                     munin-maintenance for MUNIN_OPERATOR
 #                                     (default: the invoking sudo user), so the
@@ -1599,9 +1601,33 @@ instance_compose() {
         -f docker-compose.yml -f "$INSTANCES_DIR/$name/compose.yml" "$@")
 }
 
+valid_slurm_time() {
+    [[ "$1" =~ ^([0-9]+-)?[0-9]+(:[0-9]{1,2}){0,2}$ ]] || [ "$1" = "UNLIMITED" ] || [ "$1" = "infinite" ]
+}
+
+# The instance's own vLLM job is gone (time limit, cancelled, crashed): say so
+# instead of recreating a retrieval container that cannot reach a model.
+instance_vllm_job_gone() {
+    local state=$1
+    [ -f "$state/job_id" ] || return 1
+    ! squeue -h -j "$(cat "$state/job_id")" -o %T 2>/dev/null | grep -q .
+}
+
+deploy_instance_extend() {
+    # Lengthen a running instance's vLLM job without restarting it. root may
+    # set a limit beyond the partition's MaxTime.
+    local name=$1 limit=$2
+    local state="$INSTANCES_DIR/$name"
+    [ -f "$state/job_id" ] || { echo "[ERROR] instance '$name' has no vLLM job of its own"; exit 1; }
+    valid_slurm_time "$limit" || { echo "[ERROR] time: a SLURM time such as 14-00:00:00 or UNLIMITED"; exit 1; }
+    instance_vllm_job_gone "$state" && { echo "[ERROR] job $(cat "$state/job_id") is not running; instance up again"; exit 1; }
+    run "scontrol update JobId=$(cat "$state/job_id") TimeLimit=$limit"
+    squeue -h -j "$(cat "$state/job_id")" -o "[OK] job %i: time limit %l, %L left" 2>/dev/null || true
+}
+
 deploy_instance_up() {
     local slug=$1; shift
-    local name="" vllm_port=8001 api_port=8082 corpus=live vllm_of="" gpu_util="" max_seqs="" do_download=0
+    local name="" vllm_port=8001 api_port=8082 corpus=live vllm_of="" gpu_util="" max_seqs="" do_download=0 time_limit=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --name) name=$2; shift 2 ;;
@@ -1614,6 +1640,8 @@ deploy_instance_up() {
             # single-GPU cap). An eval-only card can batch more than production.
             --max-seqs) max_seqs=$2; shift 2 ;;
             --download) do_download=1; shift ;;
+            # SLURM time limit of the vLLM job (default: the script's 14 days).
+            --time) time_limit=$2; shift 2 ;;
             *) echo "[ERROR] instance up: unknown flag $1"; exit 1 ;;
         esac
     done
@@ -1621,6 +1649,9 @@ deploy_instance_up() {
     case "$name" in *[!a-z0-9-]*) echo "[ERROR] --name: lowercase letters, digits, dashes"; exit 1 ;; esac
     case "$corpus" in live|shadow) ;; *) echo "[ERROR] --corpus live|shadow"; exit 1 ;; esac
     case "$max_seqs" in ""|[1-9]|[1-9][0-9]) ;; *) echo "[ERROR] --max-seqs: 1-99"; exit 1 ;; esac
+    if [ -n "$time_limit" ] && ! valid_slurm_time "$time_limit"; then
+        echo "[ERROR] --time: a SLURM time such as 14-00:00:00, 7-0, 72:00:00 or UNLIMITED"; exit 1
+    fi
     if [ "$name" = "prod" ] || [ "$api_port" = "8080" ] || [ "$vllm_port" = "8000" ]; then
         echo "[ERROR] :8080 / :8000 / 'prod' are production; an instance never takes them"; exit 1
     fi
@@ -1691,12 +1722,14 @@ deploy_instance_up() {
         local export_vars="ALL,MUNIN_MODEL_PROFILE=$MODEL_PROFILES_DST/$MODEL_SLUG.env,INSTANCE_NAME=$name,INSTANCE_PORT=$vllm_port,INSTANCE_STATE_DIR=$state,TOKENIZER_HOST_DIR=$tok_dir"
         [ -n "$gpu_util" ] && export_vars="$export_vars,INSTANCE_GPU_UTIL=$gpu_util"
         [ -n "$max_seqs" ] && export_vars="$export_vars,INSTANCE_MAX_NUM_SEQS=$max_seqs"
+        local time_arg=()
+        [ -n "$time_limit" ] && time_arg=(--time="$time_limit")
         run "install -m 0644 $src $MODEL_PROFILES_DST/$MODEL_SLUG.env"
         if [ "$DRY_RUN" = "1" ]; then
-            echo "  [dry-run] sbatch --job-name=$jobname --export=$export_vars $INSTANCE_SCRIPT"
+            echo "  [dry-run] sbatch --job-name=$jobname ${time_arg[*]} --export=$export_vars $INSTANCE_SCRIPT"
         else
             local jid
-            jid=$(sbatch --parsable --job-name="$jobname" --export="$export_vars" "$INSTANCE_SCRIPT") \
+            jid=$(sbatch --parsable --job-name="$jobname" "${time_arg[@]}" --export="$export_vars" "$INSTANCE_SCRIPT") \
                 || { echo "[ERROR] sbatch failed"; exit 1; }
             echo "$jid" > "$state/job_id"
             job_out="/opt/munin/logs/vllm-inst-$jobname-$jid.out"
@@ -1798,6 +1831,12 @@ deploy_instance_refresh() {
     [ -f "$state/profile" ] || { echo "[ERROR] no instance '$name'"; exit 1; }
     # shellcheck disable=SC1090
     source "$MODEL_ENV_SH"
+    if instance_vllm_job_gone "$state"; then
+        echo "[ERROR] the vLLM job of '$name' ($(cat "$state/job_id")) is no longer running (time limit,"
+        echo "        cancelled or crashed; see $(cat "$state/job_out" 2>/dev/null || echo /opt/munin/logs))."
+        echo "        Start it again: sudo $0 instance up $(basename "$(cat "$state/profile")" .env) --name $name"
+        exit 1
+    fi
     TOKENIZER_HOST_DIR=$(cat "$state/tokenizer_dir"); munin_load_model_env "$(cat "$state/profile")" || exit 1
     instance_render_compose "$name" "$(cat "$state/api_port")" "$(cat "$state/vllm_port")" \
         "$(cat "$state/tokenizer_dir")" "$(cat "$state/corpus")" "$state/compose.yml"
@@ -1842,7 +1881,7 @@ deploy_instance_ls() {
         [ -f "$d/profile" ] || continue
         name=$(basename "$d")
         jid=$(cat "$d/job_id" 2>/dev/null || cat "$d/vllm_of" 2>/dev/null | sed 's/^/via:/')
-        jstate=""; [ -n "$jid" ] && [ "${jid#via:}" = "$jid" ] && jstate=$(squeue -h -j "$jid" -o %T 2>/dev/null)
+        jstate=""; [ -n "$jid" ] && [ "${jid#via:}" = "$jid" ] && jstate=$(squeue -h -j "$jid" -o '%T, %L left' 2>/dev/null)
         cstate=$(docker inspect -f '{{.State.Health.Status}}' "munin-retrieval-$name" 2>/dev/null || echo "absent")
         printf "%-12s %-16s %-6s %-6s %-8s %-10s %-10s %s\n" "$name" "$(cat "$d/model_name")" \
             "$(cat "$d/vllm_port")" "$(cat "$d/api_port")" "$(cat "$d/corpus" 2>/dev/null)" \
@@ -1860,12 +1899,14 @@ deploy_instance() {
                deploy_instance_down "${MODEL_ARGS[1]}" ;;
         gates) [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance gates <n>"; exit 1; }
                deploy_instance_gates "${MODEL_ARGS[1]}" ;;
+        extend) [ -n "${MODEL_ARGS[2]:-}" ] || { echo "Usage: sudo $0 instance extend <n> <time, e.g. 14-00:00:00>"; exit 1; }
+               deploy_instance_extend "${MODEL_ARGS[1]}" "${MODEL_ARGS[2]}" ;;
         refresh) [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance refresh <n>"; exit 1; }
                deploy_instance_refresh "${MODEL_ARGS[1]}" ;;
         logs)  [ -n "${MODEL_ARGS[1]:-}" ] || { echo "Usage: sudo $0 instance logs <n> [docker logs args]"; exit 1; }
                docker logs "${MODEL_ARGS[@]:2}" "munin-retrieval-${MODEL_ARGS[1]}" ;;
         ls)    deploy_instance_ls ;;
-        *) echo "Usage: sudo $0 instance {up <slug> --name <n> [--vllm-port P] [--api-port P] [--corpus live|shadow] [--vllm <n>] [--gpu-util U] [--download] | refresh <n> | down <n> | gates <n> | logs <n> | ls}"; exit 1 ;;
+        *) echo "Usage: sudo $0 instance {up <slug> --name <n> [--vllm-port P] [--api-port P] [--corpus live|shadow] [--vllm <n>] [--gpu-util U] [--max-seqs N] [--time T] [--download] | extend <n> <time> | refresh <n> | down <n> | gates <n> | logs <n> | ls}"; exit 1 ;;
     esac
 }
 

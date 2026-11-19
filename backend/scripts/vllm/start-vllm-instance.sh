@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=vllm-inst
-#SBATCH --partition=standard
+#SBATCH --partition=gputraining
 #SBATCH --gres=gpu:batch:1
 #SBATCH --cpus-per-task=6
 #SBATCH --mem=16G
-#SBATCH --time=2-00:00:00
+#SBATCH --time=14-00:00:00
 #SBATCH --output=/opt/munin/logs/vllm-inst-%x-%j.out
 #SBATCH --error=/opt/munin/logs/vllm-inst-%x-%j.err
 
@@ -16,6 +16,10 @@
 # `deploy.sh instance up <slug> ...`, never by the production scheduler:
 #   - the job name is vllm-inst-<name>, which schedule-vllm.sh does not match,
 #     so the 02:00 stop and 06:00 start leave it alone;
+#   - it runs in gputraining (same node, same priority, no preemption, no
+#     MaxTime): `standard` caps jobs at 2 days, and an eval instance died
+#     mid-run on that limit (2026-11-18). Default 14 days; `instance up
+#     --time` sets another, `instance extend` lengthens a running one;
 #   - it claims GPU 0 (gpu:batch:1), the card production leaves free on the
 #     single-GPU profile. It cannot coexist with the TP=2 profile;
 #   - it writes NONE of the production status files (current_job.txt,
