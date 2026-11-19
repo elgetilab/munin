@@ -1,0 +1,45 @@
+{
+ "id": "s8_cw_nitroxide",
+ "suite": "S8",
+ "inputs": [
+  "nitroxide.DSC",
+  "nitroxide.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "nitroxide.DSC/.DTA is the X-band CW-EPR spectrum of a nitroxide spin label in fast motion (three 14N lines). Report the isotropic hyperfine coupling a_N in mT (aN_mT) and in MHz (aN_MHz), and the isotropic g-value (g_iso).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "aN_mT",
+     "truth": "truth:aN_mT",
+     "atol": 0.01
+    },
+    {
+     "type": "numeric",
+     "key": "aN_MHz",
+     "truth": "truth:aN_MHz",
+     "atol": 0.3
+    },
+    {
+     "type": "numeric",
+     "key": "g_iso",
+     "truth": "truth:g_iso",
+     "atol": 0.0002
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "aN_mT": "mT",
+  "aN_MHz": "MHz",
+  "g_iso": ""
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:units_G_mT",
+  "trap:mT_to_MHz",
+  "trap:second_order"
+ ],
+ "provenance": "synthetic triplet with second-order shifts, s8.cw_nitroxide"
+}

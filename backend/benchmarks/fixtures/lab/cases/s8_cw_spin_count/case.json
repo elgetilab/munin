@@ -1,0 +1,36 @@
+{
+ "id": "s8_cw_spin_count",
+ "suite": "S8",
+ "inputs": [
+  "sample.DSC",
+  "sample.DTA",
+  "tempol.DSC",
+  "tempol.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "sample.DSC/.DTA is a CW-EPR spectrum of a spin-labelled protein; tempol.DSC/.DTA is a 100 uM TEMPOL standard in the same tube type, volume and buffer, at the same temperature. The acquisition parameters differ between the two (see the files). Report the spin concentration of the sample in uM (concentration_uM).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "concentration_uM",
+     "truth": "truth:concentration_uM",
+     "rtol": 0.07
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "concentration_uM": "uM"
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:double_integral",
+  "trap:baseline",
+  "trap:gain_dB",
+  "trap:sqrt_power",
+  "trap:modamp_linear",
+  "trap:scans"
+ ],
+ "provenance": "synthetic, s8.cw_spin_count; signal = c * 10^(dB/20) * sqrt(P) * ModAmp * scans"
+}

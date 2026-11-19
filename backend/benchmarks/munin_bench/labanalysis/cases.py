@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-SUITES = ("S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7")
+SUITES = ("S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8")
 
 # Appended to the LAST turn that has results_keys, identical in both arms, so
 # graders read numbers from a file instead of parsing prose (plan D1).

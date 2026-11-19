@@ -1,0 +1,37 @@
+{
+ "id": "s8_cw_power_saturation",
+ "suite": "S8",
+ "inputs": [
+  "psat.DSC",
+  "psat.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "psat.DSC/.DTA is a 2D CW-EPR power-saturation series of a spin label: the second axis is the microwave attenuation in dB, with 200 mW at 0 dB. Fit the centre-line peak-to-peak amplitude A(P) = I sqrt(P) [1 + (2^(1/eps) - 1) P/P_half]^(-eps) and report the half-saturation power in mW (P_half_mW) and eps (epsilon).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "P_half_mW",
+     "truth": "truth:P_half_mW",
+     "rtol": 0.1
+    },
+    {
+     "type": "numeric",
+     "key": "epsilon",
+     "truth": "truth:epsilon",
+     "atol": 0.15
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "P_half_mW": "mW",
+  "epsilon": ""
+ },
+ "tags": [
+  "format:bes3t_2d",
+  "trap:dB_to_mW",
+  "trap:reshape_order"
+ ],
+ "provenance": "synthetic, s8.cw_power_saturation (Altenbach et al. 2005 form)"
+}

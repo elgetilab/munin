@@ -1,0 +1,29 @@
+{
+ "id": "s8_deer_membrane",
+ "suite": "S8",
+ "inputs": [
+  "liposome.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "liposome.csv is a phased 4-pulse DEER trace (time zero at the first point) of a membrane protein reconstituted in liposomes. Report the mean distance (mean_nm) and the standard deviation of the distance distribution (std_nm).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "mean_nm",
+     "truth": "truth:mean_nm",
+     "atol": 0.12
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "mean_nm": "nm",
+  "std_nm": "nm"
+ },
+ "tags": [
+  "format:csv",
+  "trap:membrane_background"
+ ],
+ "provenance": "synthetic, s8.deer_membrane; stretched background exp(-(k t)^(d/3)), d = 2"
+}

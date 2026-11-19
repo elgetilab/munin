@@ -27,6 +27,7 @@ import s1  # noqa: E402
 import s2  # noqa: E402
 import s3s5  # noqa: E402
 import s6  # noqa: E402
+import s8  # noqa: E402
 
 LAB = HERE.parent
 CASES = LAB / "cases"
@@ -42,6 +43,7 @@ def build_all(out: Path, seeds=None) -> None:
     s2.build(out)
     s3s5.build(out)
     s6.build(out)
+    s8.build(out)
 
 
 def sums(root: Path) -> str:

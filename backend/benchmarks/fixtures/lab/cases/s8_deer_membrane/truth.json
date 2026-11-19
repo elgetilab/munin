@@ -1,0 +1,6 @@
+{
+ "background_dim": 2.0,
+ "k_per_us": 0.3,
+ "mean_nm": 3.4,
+ "std_nm": 0.25
+}

@@ -1,0 +1,43 @@
+{
+ "id": "s8_deer_phase",
+ "suite": "S8",
+ "inputs": [
+  "quad.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "quad.csv is a 4-pulse DEER trace as recorded, both quadrature channels (time zero at the first point). Report the mean distance (mean_nm), the standard deviation of the distance distribution (std_nm) and the modulation depth (mod_depth).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "mean_nm",
+     "truth": "truth:mean_nm",
+     "atol": 0.1
+    },
+    {
+     "type": "numeric",
+     "key": "std_nm",
+     "truth": "truth:std_nm",
+     "atol": 0.12
+    },
+    {
+     "type": "numeric",
+     "key": "mod_depth",
+     "truth": "truth:mod_depth",
+     "atol": 0.03
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "mean_nm": "nm",
+  "std_nm": "nm",
+  "mod_depth": ""
+ },
+ "tags": [
+  "format:csv",
+  "trap:phase_correction",
+  "trap:abs_value"
+ ],
+ "provenance": "synthetic, s8.deer_phase"
+}
