@@ -1,0 +1,29 @@
+{
+ "id": "s8_deer_angstrom_f2",
+ "suite": "S8",
+ "inputs": [
+  "trace.dat"
+ ],
+ "turns": [
+  {
+   "prompt": "trace.dat (time in microseconds, phased real signal, zero time at the first point) is a 4-pulse DEER trace. Report the most probable distance in Angstrom (modal_A).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "modal_A",
+     "truth": "truth:modal_A",
+     "atol": 1.0
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "modal_A": "Angstrom"
+ },
+ "tags": [
+  "format:ascii",
+  "trap:nm_to_angstrom",
+  "trap:modal_vs_mean"
+ ],
+ "provenance": "synthetic, s8.deer_angstrom"
+}

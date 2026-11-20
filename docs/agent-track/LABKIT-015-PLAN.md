@@ -125,3 +125,12 @@ Sandbox image (labkit 0.2.1) and retrieval (hints, upload note), then
 - Tests: labkit 64/64 (new: the background warning on a simulated membrane
   trace and not on a frozen solution, `dim` bounds, the text-file recipe),
   `test_labkit_hints` 17/17, retrieval hermetic 118/118.
+
+## Fresh `_f2` set (generated after 6e64286)
+
+21 cases, `s8.VARIANT = 2`. Checked without labkit: the independent CW
+analysis recovers all 11 CW truths; DeerLab 1.2.0's model-free fit passes 9
+of 10 DEER cases. The exception is `s8_deer_membrane_f2`: DeerLab with a
+free stretched background gives mean 3.35 nm (truth 3.17, atol 0.12), its
+Gaussian fit fails too. It needs the sample-based choice this round adds
+(d fixed at 2 for a membrane); left as generated.
