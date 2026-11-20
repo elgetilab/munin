@@ -168,10 +168,14 @@ What is left (7 failing runs of 42):
 
 | Failure | Runs | Cause |
 |---|---|---|
-| Gaussian FWHM | 6/6 | No run called `fit_line`. Hand peak picking: FWHM = dBpp x 1.665 (that is 2 sqrt(2 ln 2), the factor from sigma, not from dBpp = 2 sigma; right is 1.177), or the right factor on extrema read by eye from noisy data (1.013 vs 0.983); two runs used all 20 tool calls (`help(labkit.epr)`, rereading the file, `print('hello')`, web search); one answered 0.81 (right) without code and saved nothing. `epr_lineshape` fired in one of six: the others' code had no width word or EPR word |
+| Gaussian FWHM | 6/6 | No run called `fit_line`. Hand peak picking: FWHM = dBpp x 1.665 (2 sqrt(ln 2); right is sqrt(2 ln 2) = 1.177), or the right factor on extrema read by eye from noisy data (1.013 vs 0.983); two runs used all 20 tool calls (`help(labkit.epr)`, rereading the file, `print('hello')`, web search); one answered 0.81 (right) without code and saved nothing. `epr_lineshape` fired in one of six: the others' code had no width word or EPR word |
 | Saved nothing | 4 (incl. 2 above) | Tool budget or answer without results.json (Q3) |
 | DEER hand fits | 2 | No `fit_deer` (concentration#3; concentration_f2#2 after the deer hint) |
 | Labelling formula | 1 | `fit_deer` used, lambda right, then divided by p(1-p) = 0.25 instead of the stated 0.50 (did not call `guide('deer')`) |
+
+Later finding (LABKIT-016-PLAN): in the Gaussian runs the model saw no tool
+result at all, because the inlined `defect.txt` filled the context and every
+result was elided.
 
 None of these is a missing tool. The Gaussian family is the one place a
 hint could still help (it fires on width or EPR words that this code lacks);
