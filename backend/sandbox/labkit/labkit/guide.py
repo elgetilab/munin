@@ -170,6 +170,14 @@ Saturation: P = epr.attenuation_to_mW(d.y2, p_max_mW=200)
             A = [epr.peak_to_peak(d.field_mT, row)["Ypp"] for row in d.real]
             r = epr.power_saturation_fit(P, A); r.params["P_half"], r.params["epsilon"]
             (P_half = power at half saturation; not the older b-form P')
+Text files (CSV/TXT/DAT export, field in G or mT): d = epr.load("inputs/spec.csv") reads the
+            header unit (x_unit="G" if it has none) and gives d.field_mT, d.y, then as above:
+  linewidth   epr.fit_line(d.field_mT, d.y, shape="gaussian").fwhm_mT   # not curve_fit by hand
+  Kivelson    nx = epr.nitroxide_hyperfine(d.field_mT, d.y)
+              k = epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])
+              k["tau_c_s"] (dBpp in mT; heights from the raw derivative, no smoothing)
+  spin ratio  epr.double_integral(a.field_mT, a.y).value / epr.double_integral(b.field_mT, b.y).value
+              (same settings and S; otherwise spin_count normalises gain, power, modamp, scans)
 Simulate:   epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[(1, 1.6, 1)], lw_mT=0.12,
                              linewidth_mI=(A, B, C), second_order=True, modamp_mT=0.1)
             isotropic fast motion only; slow-motion and powder spectra need EasySpin
@@ -184,13 +192,20 @@ print(r)                                 # lambda, background (and t0) in ONE st
 r.mean_nm, r.std_nm (std, not FWHM), r.modal_nm, r.populations (modes with fractions),
 r.lam (= r.mod_depth), r.k_per_us, r.conc_uM (3D background), r.t0_ns, r.phase_deg, r.warnings
 r.r_nm, r.P: the distribution; r.summary(): the block a report needs (white paper 2021)
-Options: background="hom3d" (frozen solution) | "strexp" (membranes, fractal dimension fitted)
-         method="gauss", n_gauss=2 (parametric); n_boot=100 for 95% CIs (r.ci, r.P_ci95)
+Background: the sample decides, not the fit (both often fit equally well):
+         frozen solution: background="hom3d" (default; gives r.conc_uM)
+         membrane, liposome, micelle, bicelle: background="strexp", dim=2.0 (spins in a plane)
+         crowded or unknown geometry: background="strexp" (d fitted, 1-3)
+         If the question does not say, ask the user; fit_deer warns when the choice matters.
+Options: method="gauss", n_gauss=2 (parametric) when the trace is short or a model-free P(r)
+         is too broad;
+         n_boot=100 for 95% CIs (r.ci, r.P_ci95)
 Never take |V|; never subtract the background (fit_deer divides, in one step).
 The trace length limits what it can measure: epr.distance_limits(tmax_us) -> mean distance up
 to 3.73*tmax^(1/3) nm, width/shape up to 2.96*tmax^(1/3) nm. fit_deer limits P(r) to that
 range and WARNS when the trace seems to hold longer distances: report that as unreliable.
-Labelling efficiency = lambda / (pump inversion efficiency).
+Labelling efficiency = lambda / (pump inversion efficiency): r = epr.fit_deer(t_us, V); r.lam / 0.5
+Concentration (frozen solution): r.conc_uM from the hom3d rate, no hand fit of the decay.
 epr.simulate_deer(t_us, r_nm, P, lam, conc_uM=..., phase_deg=..., noise=...) for checks.
 """
 

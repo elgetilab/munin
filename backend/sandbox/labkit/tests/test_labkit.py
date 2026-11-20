@@ -890,6 +890,49 @@ def test_epr_deer():
                                "fit_deer", "distance_limits", "average_scans")))
 
 
+def test_epr_deer_background_choice():
+    from labkit import epr
+    rs = np.arange(1.5, 8, 0.005)
+    t = np.arange(0, 3.0, 0.008)
+    # spins in a membrane plane: stretched background, d = 2
+    V = epr.simulate_deer(t, rs, epr.gauss_P(rs, [3.4], [0.25]), 0.45, k_per_us=0.3, dim=2.0, noise=0.004,
+                          seed=5).real
+    r = epr.fit_deer(t, V)
+    m = epr.fit_deer(t, V, background="strexp", dim=2.0)
+    w = [x for x in r.warnings if "background model" in x]
+    check("fit_deer warns when a membrane background (d = 2) fits as well and moves the distances, "
+          "and says to ask the user when the question does not name the sample",
+          bool(w) and "dim=2.0" in w[0] and "ask the user" in w[0] and abs(m.mean_nm - 3.4) < 0.03
+          and m.dim == 2.0 and not any("background model" in x for x in m.warnings), " | ".join(r.warnings))
+    t2 = np.arange(-0.1, 3.0, 0.008)
+    Vs = epr.simulate_deer(t2, rs, epr.gauss_P(rs, [3.5], [0.3]), 0.4, conc_uM=200, noise=0.004, seed=2).real
+    check("no background warning on a frozen-solution trace",
+          not any("background model" in x for x in epr.fit_deer(t2, Vs).warnings))
+    try:
+        epr.fit_deer(t, V, background="strexp", dim=4)
+        ok = False
+    except ValueError as ex:
+        ok = "dim" in str(ex)
+    check("fit_deer refuses a background dimension outside 1-3", ok)
+
+
+def test_epr_guide_text_file_recipes():
+    from labkit import epr
+    import tempfile, os
+    B = np.linspace(3320, 3420, 4001)                      # G
+    d1 = epr.simulate_iso(B / 10, 9.5, 2.006, nuclei=[(1, 1.6, 1)], lw_mT=0.12, linewidth_mI=(0.12, 0.01, 0.005))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "label.csv")
+        with open(path, "w") as f:
+            f.write("B_G,dI/dB\n" + "".join(f"{b:.3f},{y:.6e}\n" for b, y in zip(B, d1)))
+        d = epr.load(path)                                  # recipe, as printed in guide('epr')
+        nx = epr.nitroxide_hyperfine(d.field_mT, d.y)
+        k = epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])
+        lf = epr.fit_line(d.field_mT, d.y, shape="gaussian")
+    check("guide('epr') text-file recipe: a CSV in G loads in mT and the Kivelson line runs",
+          abs(d.field_mT[0] - 332.0) < 1e-6 and k["tau_c_s"] > 0 and lf.fwhm_mT > 0, str(k))
+
+
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
 
 if __name__ == "__main__":

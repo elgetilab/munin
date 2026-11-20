@@ -1120,9 +1120,14 @@ def _aic(A, v, L, alpha, x, n_free):
     return N * math.log(rss / N + 1e-300) + 2 * dof
 
 
+_BG_AIC = 8.0        # AIC units: d = 2 fits about as well as hom3d (S8: membranes 2.6-4.7, others >= 12.9)
+_BG_SHIFT_NM = 0.05  # and moves the mean distance by more than this
+
+
 def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, background: str = "hom3d",
              fit_t0: bool = True, t0_us: Optional[float] = None, n_boot: int = 0, seed: int = 0,
-             alpha: Optional[float] = None, check_long: bool = True) -> DeerResult:
+             alpha: Optional[float] = None, check_long: bool = True,
+             check_background: bool = True, dim: Optional[float] = None) -> DeerResult:
     """One-step 4-pulse DEER analysis: P(r), modulation depth lambda,
     background and zero time fitted together (the community recommendation;
     no separate background-then-distance step).
@@ -1135,7 +1140,7 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
               AIC; "gauss": a sum of n_gauss Gaussians (std, not FWHM).
     background "hom3d" (exp(-k t), k = 9.974e-4 lambda c[uM]: frozen
               solution), "strexp" (exp(-(k t)^(d/3)), fractal dimension d
-              fitted in 1-3: membranes about 2),
+              fitted in 1-3; dim=2.0 fixes it: spins in a membrane plane),
               or "none".
     r_nm      distance grid; default from about 1.5 nm to the longest distance
               the trace supports (distance_limits: 3.73 tmax^(1/3) nm). Beyond
@@ -1144,6 +1149,10 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
               puts distance there and fits better: then the trace may hold
               distances it is too short to measure (or the background model
               is wrong); report the long part as unreliable.
+    check_background  with the default hom3d background, also fit a
+              membrane background (strexp, dim=2) and warn when it fits about as
+              well and gives other distances: the trace cannot choose, the
+              sample does (use what the question says, or ask the user).
     n_boot    residual bootstrap repeats for 95% CIs (about 1-2 s each).
     Returns DeerResult: print it (summary() has what a report needs), with
     warnings for distance mass beyond what the trace supports.
@@ -1174,12 +1183,17 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
     r = np.asarray(r_nm, float)
     L = _second_diff(len(r))
     nb = {"hom3d": 1, "strexp": 2, "none": 0}[background]
+    dim_fixed = None if dim is None else float(dim)
+    if background == "strexp" and dim_fixed is not None:
+        if not 1.0 <= dim_fixed <= 3.0:
+            raise ValueError("dim (fractal dimension of the background) must be between 1 and 3")
+        nb = 1
 
     def bg(tt, th):
         if background == "none":
             return np.ones_like(tt)
         k = th[0]
-        d = th[1] if background == "strexp" else 3.0
+        d = (dim_fixed if dim_fixed is not None else th[1]) if background == "strexp" else 3.0
         return np.exp(-(max(k, 0.0) * np.abs(tt)) ** (d / 3))
 
     def design(th):
@@ -1308,7 +1322,7 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
         raise ValueError("method: 'tikhonov' or 'gauss'")
 
     k = float(th[0]) if nb >= 1 else 0.0
-    dim = float(th[1]) if nb == 2 else 3.0
+    dim = float(th[1]) if nb == 2 else (dim_fixed if background == "strexp" and dim_fixed is not None else 3.0)
     t0 = float(th[nb]) if fit_t0 else float(t0_us)
     dr = np.gradient(r)
     mean = float(np.sum(r * P * dr))
@@ -1330,7 +1344,8 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
     if check_long and auto_r and method.startswith("tik") and not n_boot:
         r_ext = np.arange(r[0], min(12.0, 1.5 * lim["r_max_mean_nm"]) + 1e-9, 0.02)
         ext = fit_deer(t, v * scale, r_nm=r_ext, method=method, background=background, fit_t0=False,
-                       t0_us=t0, check_long=False, alpha=alpha_used)
+                       t0_us=t0, check_long=False, check_background=False, alpha=alpha_used,
+                       dim=dim_fixed)
         beyond = float(np.sum((ext.P * np.gradient(ext.r_nm))[ext.r_nm > lim["r_max_mean_nm"]]))
         # The wider fit always fits at least as well; only a clear gain counts
         # (on the S8 fixtures: 52 AIC units and 13% lower residual for a trace
@@ -1342,6 +1357,22 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
                          f"{100 * beyond:.0f}% of P(r) there. Distances above that limit cannot be measured "
                          f"from this trace (they look like background): report them as unreliable and "
                          f"recommend a longer trace; the distribution above is limited to {lim['r_max_mean_nm']:.2f} nm")
+    if check_background and background == "hom3d" and method.startswith("tik") and not n_boot:
+        # A membrane background (d about 2) and hom3d (d = 3) often fit a
+        # trace equally well; a free d is a flat valley (on the S8 membrane
+        # trace d = 2.2 and d = 3 differ by 0.1 AIC units). So fit d = 2 and
+        # warn when it fits about as well and moves the distances.
+        alt = fit_deer(t, v * scale, r_nm=r, method=method, background="strexp", dim=2.0,
+                       fit_t0=fit_t0, t0_us=None if fit_t0 else t0, alpha=alpha_used,
+                       check_long=False, check_background=False)
+        if alt.aic <= aic_val + _BG_AIC and abs(alt.mean_nm - mean) > _BG_SHIFT_NM:
+            warns.append(f"the background model changes the answer: hom3d (frozen solution) gives mean "
+                         f"{mean:.2f} nm, lambda {lam:.3f}; a membrane background (strexp, d = 2) gives mean "
+                         f"{alt.mean_nm:.2f} nm, lambda {alt.lam:.3f}, and the trace fits both about equally "
+                         f"well. The sample decides: membrane, liposome, micelle or bicelle (spins in a plane): "
+                         f"background='strexp', dim=2.0; crowded or other: background='strexp' (d fitted); "
+                         f"frozen solution: keep hom3d. If the question does not say which, ask the user "
+                         f"before reporting distances")
     long_pops = [p_ for p_ in pops if p_["r_nm"] > lim["r_max_width_nm"] and p_["fraction"] > 0.05]
     if long_pops and above <= 0.05:
         where = ", ".join("%.2f" % p_["r_nm"] for p_ in long_pops)
@@ -1368,7 +1399,8 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
         for _ in range(int(n_boot)):
             vb = vfit + rng.choice(resid_v, size=resid_v.size, replace=True)
             rb = fit_deer(t, vb * scale, r_nm=r, method=method, n_gauss=n_gauss, background=background,
-                          fit_t0=fit_t0, t0_us=t0, n_boot=0, alpha=alpha_used)
+                          fit_t0=fit_t0, t0_us=t0, n_boot=0, alpha=alpha_used,
+                          check_long=False, check_background=False, dim=dim_fixed)
             for kk in stats:
                 stats[kk].append(getattr(rb, kk))
             Ps.append(rb.P)

@@ -1,6 +1,7 @@
 # EPR round 2: plain-text EPR files, lineshape and DEER hints, membrane background: plan
 
-Status: PLAN 2026-11-19, waiting for "proceed". Parent: `EPR-PLAN.md`
+Status: IMPLEMENTED 2026-11-20 (Q1 changed: the agent asks the researcher; Q2, Q3
+defaults), not deployed. Parent: `EPR-PLAN.md`
 (S8 49/63 with labkit.epr vs baseline 17/63, p = 2e-7; fresh 47/63).
 The eval instance stays up.
 
@@ -69,6 +70,58 @@ Sandbox image (labkit 0.2.1) and retrieval (hints, upload note), then
 
 | # | Question | Default |
 |---|---|---|
-| Q1 | Make `fit_deer` pick hom3d or strexp itself by AIC? | No: the background/long-tail trade-off (EPR-PLAN) makes the choice fragile on short traces; warn and let the analysis say which it used. |
+| Q1 | Make `fit_deer` pick hom3d or strexp itself by AIC? | No (user, 2026-11-20): `fit_deer` does not choose; the agent takes the sample from the question or asks the researcher. |
 | Q2 | Measure on a new `_f2` fresh set rather than `_f1`? | Yes: `_f1` failures shaped this round, so it is no longer untuned. |
 | Q3 | Treat "saved nothing" (7 runs) in this round? | No: it is the general long-exploration problem (turn budget), not EPR; the hints aim to shorten those runs. |
+
+## Decisions (2026-11-20)
+
+- Q1: no automatic choice. When the background matters, `fit_deer`'s
+  warning, the `deer` hint, `guide('deer')` and the persona say: use the
+  sample named in the question; if it is not named, ask the user.
+- Q2: measure on a new `_f2` set. Q3: the turn budget is a later round.
+
+## What was built
+
+- **`fit_deer` background check** (labkit 0.2.1). An AIC comparison of free
+  strexp vs hom3d cannot see it: on the S8 membrane trace they fit equally
+  (free d = 2.22 and d = 3 differ by 0.1 AIC units, so a multistart returns
+  either). What differs is the answer. So with the default hom3d it also fits
+  a membrane background with d fixed at 2 (new `dim=` option) and warns when
+  that fits about as well (within 8 AIC units) and moves the mean by more
+  than 0.05 nm. On the 20 S8 DEER fixtures (`_f1` included): the two
+  membrane traces have dAIC 4.7 and 2.6 and shifts of -0.17 and -0.22 nm;
+  every other one has dAIC >= 12.9. It fires on the two membranes only.
+  With `dim=2.0` the means are 3.39 (truth 3.40) and 3.20 (truth 3.19): the
+  `_f1` membrane that the model-free fit with a free d could not pass. The
+  warning recommends `background='strexp', dim=2.0` for membranes
+  (spins in a plane), free d for crowded samples, and asking the user when
+  the question does not say. Cost 1-4 s; slowest S8 fit 12.9 s at 2 CPUs.
+- **`guide('epr')`** has text-file recipes (load a CSV in G, `fit_line`
+  linewidth, Kivelson from `nitroxide_hyperfine`, a spin ratio from two
+  double integrals), checked on the S8 files: Kivelson 4.235e-10 (truth
+  4.231e-10), FWHM 0.8001 (0.8006), spin ratio 2.31 (2.4, within 8%).
+  **`guide('deer')`** says the sample decides the background and when to
+  ask, and how to get lambda and concentration.
+- **Hints** (`labkit_hints.py`):
+  - upload note for text spectra whose header names a field column with a
+    unit (`field_G`, `Field [mT]`, `B_G`, Xepr's `Field [G]`);
+  - `epr_lineshape`: CW-EPR code (EPR words outside labkit's own names, or
+    data loaded with `labkit.epr`; not DEER) that locates extrema or fits
+    and computes a width or line height; names `fit_line`,
+    `nitroxide_hyperfine`, `kivelson_tau`, `double_integral`;
+  - `epr_power`: a saturation or attenuation fit by hand; names
+    `power_saturation_fit`;
+  - the `exponential` hint stays quiet on EPR and DEER code (a Gaussian
+    line or a DEER background is not a decay);
+  - the `deer` hint has a three-line example (`r.lam`, `r.mean_nm`,
+    `r.conc_uM`) and the background rule.
+  Replayed over run 4, round 5 and both S8 runs: run 4 and round 5 get
+  exactly the hints they got before; in S8, `epr_lineshape` fires in all 6
+  Kivelson runs and the Gaussian and broad-window runs, `epr_power` in all 6
+  power-saturation runs.
+- **Persona**: `epr.load` reads text exports too; a DEER question that does
+  not name the sample gets a question back.
+- Tests: labkit 64/64 (new: the background warning on a simulated membrane
+  trace and not on a frozen solution, `dim` bounds, the text-file recipe),
+  `test_labkit_hints` 17/17, retrieval hermetic 118/118.

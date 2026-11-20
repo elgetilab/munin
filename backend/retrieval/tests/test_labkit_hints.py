@@ -467,6 +467,67 @@ def test_epr_hints():
                   f"{got} {covered} {json_load and json_load[0]} {up[:40]!r}")
 
 
+# Round 2 (LABKIT-015-PLAN.md): shapes of the S8 runs that measured lines by hand.
+KIVELSON_BY_HAND = """import pandas as pd, numpy as np
+from scipy.signal import find_peaks, savgol_filter
+df = pd.read_csv('inputs/label.csv'); B = df['B_G'].values; dI = df['dI/dB'].values
+pos, _ = find_peaks(savgol_filter(dI, 31, 3), height=0)
+h0 = dI[pos[1]] - dI.min(); h_p1 = 1.0; h_m1 = 0.8
+tau_c = 6.51e-10 * dB0 * (np.sqrt(h0/h_p1) + np.sqrt(h0/h_m1) - 2)
+"""
+GAUSS_LINE_BY_HAND = """import numpy as np
+from scipy.optimize import curve_fit
+x, y = np.loadtxt('inputs/defect.txt', skiprows=1, usecols=(1, 2), unpack=True)   # Field [G]
+def gderiv(B, A, B0, w):
+    return -A * (B - B0) * np.exp(-(B - B0)**2 / (2 * w**2))
+p, _ = curve_fit(gderiv, x, y, p0=[1, 3350, 3])
+fwhm = 2.3548 * p[2]   # EPR linewidth
+"""
+POWER_BY_HAND = """import numpy as np
+from scipy.optimize import curve_fit
+from labkit import epr
+d = epr.load('inputs/psat.DSC')
+P = 200 * 10 ** (-d.y2 / 10)   # attenuation dB -> mW
+A = d.real.max(axis=1) - d.real.min(axis=1)
+def sat(P, I, P_half, eps):
+    return I * np.sqrt(P) * (1 + (2**(1/eps) - 1) * P / P_half) ** (-eps)
+p, _ = curve_fit(sat, P, A, p0=[1, 10, 1.5])
+"""
+LABKIT_PLOT = """from labkit import epr
+d = epr.load('inputs/sample.DSC')
+i = np.argmax(d.real); print(d.field_mT[i])
+lf = epr.fit_line(d.field_mT, d.real, freq_GHz=d.freq_GHz); print(lf.fwhm_mT)
+"""
+NIST_GAUSS = """import numpy as np
+from scipy.optimize import curve_fit
+def f(x, b1, b2, b3, b4, b5, b6, b7, b8):
+    return b1*np.exp(-b2*x) + b3*np.exp(-(x-b4)**2/b5**2) + b6*np.exp(-(x-b7)**2/b8**2)
+p, _ = curve_fit(f, x, y, p0=p0)
+"""
+
+
+def test_epr_round2_hints():
+    got = {name: (fit_hint(code) or ("none",))[0] for name, code in (
+        ("kivelson", KIVELSON_BY_HAND), ("gauss", GAUSS_LINE_BY_HAND), ("power", POWER_BY_HAND),
+        ("labkit_plot", LABKIT_PLOT), ("nist", NIST_GAUSS))}
+    deer = fit_hint(DEER_BY_HAND)[1]
+    kiv = fit_hint(KIVELSON_BY_HAND)[1]
+    ups = {h: upload_hint("spec.csv", h.encode(), ["spec.csv"]) for h in (
+        "field_G,signal\n3100,1", "Field [mT],Intensity\n342,0", "B_G,dI/dB\n3323,0",
+        "Index\tField [G]\tIntensity []\n1\t3300\t0")}
+    quiet = [upload_hint("x.csv", h.encode(), ["x.csv"]) for h in (
+        "t_us,V\n0,1", "Well,OD600\nA1,0.1", "Time [min],Field strength\n0,1", "B,G,C\n1,2,3")]
+    return _check("EPR round 2: Kivelson and Gaussian linewidths by hand get epr_lineshape (not the "
+                  "exponential hint), a hand power-saturation fit gets epr_power, labkit code and a NIST "
+                  "Gaussian get no EPR hint; the DEER hint names dim=2.0 and asking the user; text "
+                  "spectra with a field column name labkit.epr.load, other text files get nothing",
+                  got == {"kivelson": "epr_lineshape", "gauss": "epr_lineshape", "power": "epr_power",
+                          "labkit_plot": "none", "nist": "exponential"}
+                  and "kivelson_tau" in kiv and "dim=2.0" in deer and "ask the user" in deer
+                  and all("labkit.epr.load" in v for v in ups.values()) and quiet == ["", "", "", ""],
+                  f"{got} {[v[:20] for v in ups.values()]} {quiet}")
+
+
 TESTS = [
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
@@ -484,6 +545,7 @@ TESTS = [
     test_a_given_model_hint_does_not_fall_through_to_custom_fit,
     test_competitive_hint_says_how_to_pass_x,
     test_epr_hints,
+    test_epr_round2_hints,
 ]
 
 
