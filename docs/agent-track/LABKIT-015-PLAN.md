@@ -1,7 +1,8 @@
 # EPR round 2: plain-text EPR files, lineshape and DEER hints, membrane background: plan
 
-Status: IMPLEMENTED 2026-11-20 (Q1 changed: the agent asks the researcher; Q2, Q3
-defaults), not deployed. Parent: `EPR-PLAN.md`
+Status: IMPLEMENTED and DEPLOYED 2026-11-20 (Q1 changed: the agent asks the
+researcher; Q2, Q3 defaults); targeted rerun 17/21 (round 1: 10/21, p = 0.013),
+fresh `_f2` 14/21. Parent: `EPR-PLAN.md`
 (S8 49/63 with labkit.epr vs baseline 17/63, p = 2e-7; fresh 47/63).
 The eval instance stays up.
 
@@ -134,3 +135,44 @@ of 10 DEER cases. The exception is `s8_deer_membrane_f2`: DeerLab with a
 free stretched background gives mean 3.35 nm (truth 3.17, atol 0.12), its
 Gaussian fit fails too. It needs the sample-based choice this round adds
 (d fixed at 2 for a membrane); left as generated.
+
+## Result: targeted rerun (2026-11-20, labkit 0.2.1 deployed)
+
+Tags `s8-r2-targeted` and `s8-r2-targeted-fresh`, 3 reps, v2 results request,
+`eval` instance (labkit 0.2.1 checked in `munin-sandbox`). Original set
+**17/21** vs round 1 (`s8-labkit`) 10/21 on the same runs: 12 fail->pass,
+2 pass->fail, exact McNemar p = 0.013 (vs the baseline `s8-pre-epr`: 12/1).
+Fresh `_f2` **14/21** (round 1's `_f1` on the same families: 9/21; other
+parameters, so not paired).
+
+| Family | Orig r2 | Orig r1 | `_f2` r2 | `_f1` r1 |
+|---|---|---|---|---|
+| Kivelson | 3/3 | 0/3 | 3/3 | 3/3 |
+| Gaussian FWHM | 0/3 | 1/3 | 0/3 | 0/3 |
+| Broad window | 3/3 | 0/3 | 3/3 | 0/3 |
+| Power saturation | 3/3 | 3/3 | 2/3 | 2/3 |
+| DEER labeling | 3/3 | 1/3 | 1/3 | 2/3 |
+| DEER concentration | 2/3 | 1/3 | 2/3 | 2/3 |
+| DEER membrane | 3/3 | 1/3 | 3/3 | 0/3 |
+
+- Membrane 6/6: every run passed `dim=2` (the questions name a liposome), so
+  the sample-based rule worked without the user being asked; `_f2`, which
+  DeerLab with a free stretched background fails, passes 3/3.
+- Kivelson 6/6 and broad window 6/6: all called `nitroxide_hyperfine` +
+  `kivelson_tau` or `double_integral`, most after `guide('epr')`.
+- Hints fired (eval log): deer 12, epr_lineshape 6, epr_power 2,
+  custom_fit 2, epr_integral 1, relaxation 1. The upload note is not logged;
+  it returns the CW-EPR text note for both `defect.txt` files and `label.csv`.
+
+What is left (7 failing runs of 42):
+
+| Failure | Runs | Cause |
+|---|---|---|
+| Gaussian FWHM | 6/6 | No run called `fit_line`. Hand peak picking: FWHM = dBpp x 1.665 (that is 2 sqrt(2 ln 2), the factor from sigma, not from dBpp = 2 sigma; right is 1.177), or the right factor on extrema read by eye from noisy data (1.013 vs 0.983); two runs used all 20 tool calls (`help(labkit.epr)`, rereading the file, `print('hello')`, web search); one answered 0.81 (right) without code and saved nothing. `epr_lineshape` fired in one of six: the others' code had no width word or EPR word |
+| Saved nothing | 4 (incl. 2 above) | Tool budget or answer without results.json (Q3) |
+| DEER hand fits | 2 | No `fit_deer` (concentration#3; concentration_f2#2 after the deer hint) |
+| Labelling formula | 1 | `fit_deer` used, lambda right, then divided by p(1-p) = 0.25 instead of the stated 0.50 (did not call `guide('deer')`) |
+
+None of these is a missing tool. The Gaussian family is the one place a
+hint could still help (it fires on width or EPR words that this code lacks);
+the rest is the turn-budget round (Q3).
