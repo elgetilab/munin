@@ -18,7 +18,7 @@ import sqlite3
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import asyncio
@@ -283,6 +283,13 @@ def init_db():
     cols = [r["name"] for r in conn.execute("PRAGMA table_info(user_activity)")]
     if "address" not in cols:
         conn.execute("ALTER TABLE user_activity ADD COLUMN address TEXT")
+    # Added 2026-11 for the publication-usage summary: the caller's primary
+    # group (X-Munin-Group) and the conversation a turn belonged to.
+    ucols = [r["name"] for r in conn.execute("PRAGMA table_info(usage_log)")]
+    for col in ("group_id", "conversation_id"):
+        if col not in ucols:
+            conn.execute(f"ALTER TABLE usage_log ADD COLUMN {col} TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_usage_group_time ON usage_log(group_id, timestamp)")
     conn.commit()
     conn.close()
 
@@ -338,6 +345,8 @@ class Caller:
     email: str
     name: str
     role: str | None = None
+    # Primary group from munin-auth (X-Munin-Group); browser sessions only.
+    group: str | None = None
 
 
 def browser_caller(request: Request) -> Caller | None:
@@ -352,6 +361,7 @@ def browser_caller(request: Request) -> Caller | None:
         email=address,
         name=request.headers.get("X-Munin-Name") or address.split("@")[0],
         role=request.headers.get("X-Munin-Role") or None,
+        group=(request.headers.get("X-Munin-Group") or "").strip() or None,
     )
 
 
@@ -466,24 +476,98 @@ def check_rate_limits(caller: Caller) -> dict | None:
 
 # ── Usage Logging ────────────────────────────────────────────────────────────
 
+class SseUsageScanner:
+    """Reads a relayed SSE stream for what usage_log records.
+
+    Buffers across chunks (an event split between two network reads used to
+    lose its usage), tracks the `event:` name, and takes:
+      done / any data with `usage`  -> prompt, completion and total tokens
+      done.model, or a chunk `model` -> the model that answered
+      conversation.id                -> conversation_id
+      routing.profile                -> persona
+      tool_call.name                 -> tools
+    Works for retrieval's named events and for raw OpenAI chunk streams.
+    """
+
+    def __init__(self) -> None:
+        self._buf = ""
+        self._event = ""
+        self.tokens_input = 0
+        self.tokens_output = 0
+        self.tokens_total = 0
+        self.model: str | None = None
+        self.conversation_id: str | None = None
+        self.persona: str | None = None
+        self.tools: list[str] = []
+
+    def feed(self, chunk: bytes) -> None:
+        try:
+            self._buf += chunk.decode("utf-8", "ignore")
+        except Exception:
+            return
+        while "\n" in self._buf:
+            line, self._buf = self._buf.split("\n", 1)
+            self._line(line.rstrip("\r"))
+
+    def _line(self, line: str) -> None:
+        if not line:
+            self._event = ""
+            return
+        if line.startswith("event:"):
+            self._event = line[6:].strip()
+            return
+        if not line.startswith("data:"):
+            return
+        raw = line[5:].strip()
+        if not raw or raw == "[DONE]":
+            return
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            return
+        if not isinstance(data, dict):
+            return
+        self.take(data, self._event)
+
+    def take(self, data: dict, event: str = "") -> None:
+        usage = data.get("usage")
+        if isinstance(usage, dict) and usage:
+            self.tokens_input = int(usage.get("prompt_tokens") or 0)
+            self.tokens_output = int(usage.get("completion_tokens") or 0)
+            self.tokens_total = int(usage.get("total_tokens") or 0) or (
+                self.tokens_input + self.tokens_output)
+        if isinstance(data.get("model"), str) and data["model"]:
+            self.model = data["model"]
+        if event == "conversation" and isinstance(data.get("id"), str):
+            self.conversation_id = data["id"]
+        elif event == "routing" and isinstance(data.get("profile"), str):
+            self.persona = data["profile"]
+        elif event == "tool_call" and isinstance(data.get("name"), str):
+            self.tools.append(data["name"])
+
+
 def log_usage(
     key: str, source: str, api_key_id: str | None, endpoint: str,
     tokens_input: int = 0, tokens_output: int = 0, tokens_total: int = 0,
     tools_invoked: list[str] | None = None, duration_ms: int = 0,
     status_code: int = 200, model: str | None = None, persona: str | None = None,
+    group_id: str | None = None, conversation_id: str | None = None,
 ):
+    if tokens_total == 0 and (tokens_input or tokens_output):
+        tokens_total = tokens_input + tokens_output
     conn = get_db()
     conn.execute(
         """INSERT INTO usage_log
            (id, user_email, timestamp, persona, source, api_key_id, endpoint,
-            tokens_input, tokens_output, tokens_total, tools_invoked, duration_ms, status_code, model)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            tokens_input, tokens_output, tokens_total, tools_invoked, duration_ms, status_code, model,
+            group_id, conversation_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             str(uuid.uuid4()), key, datetime.now(timezone.utc).isoformat(),
             persona, source, api_key_id, endpoint,
             tokens_input, tokens_output, tokens_total,
             json.dumps(tools_invoked) if tools_invoked else None,
-            duration_ms, status_code, model,
+            duration_ms, status_code, model, group_id, conversation_id,
         ),
     )
     conn.commit()
@@ -722,6 +806,355 @@ async def usage_admin(request: Request):
             for r in top_users
         ],
         "tools_usage": tools_usage,
+    }
+
+
+# ── System facts (public) ────────────────────────────────────────────────────
+# What the deployment runs, from the backend's /api/system (active model
+# profile, embeddings, hosted fallback, model history, references). Public and
+# unauthenticated: the docs pages render it through Caddy (`/_facts.json` ->
+# here), so nothing in the docs names a model by hand. Cached for a minute and
+# kept on disk, so the docs keep the last known facts while the cluster is
+# unreachable. Always answers 200: a template include of a failing URL
+# would fail the whole docs page.
+
+SYSTEM_FACTS_TTL_S = _env_num("SYSTEM_FACTS_TTL_S", 60)
+SYSTEM_FACTS_PATH = Path(os.environ.get("SYSTEM_FACTS_PATH", str(DB_PATH.parent / "system-facts.json")))
+_system_cache: dict = {}
+
+
+def _load_cached_facts() -> dict | None:
+    try:
+        return json.loads(SYSTEM_FACTS_PATH.read_text())
+    except (OSError, ValueError):
+        return None
+
+
+async def get_system_facts() -> dict:
+    now = time.monotonic()
+    facts = _system_cache.get("facts")
+    if facts and now - _system_cache.get("at", 0) < SYSTEM_FACTS_TTL_S:
+        return facts
+    try:
+        r = await backend_client().get("/api/system", timeout=5.0)
+        if r.status_code == 200:
+            fresh = r.json()
+            if isinstance(fresh, dict) and fresh.get("backbone") is not None:
+                fresh["available"] = True
+                fresh["stale"] = False
+                _system_cache.update(facts=fresh, at=now)
+                try:
+                    tmp = SYSTEM_FACTS_PATH.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(fresh))
+                    tmp.replace(SYSTEM_FACTS_PATH)
+                except OSError as e:
+                    log.warning("could not persist system facts: %s", e)
+                return fresh
+    except Exception as e:
+        log.info("system facts fetch failed: %s: %s", type(e).__name__, e)
+    old = facts or _load_cached_facts()
+    if old:
+        old = {**old, "stale": True}
+        # Retry the backend at most once a TTL, not on every docs request.
+        _system_cache.update(facts=old, at=now)
+        return old
+    return {"available": False, "stale": True}
+
+
+@app.get("/api/system")
+async def api_system():
+    facts = await get_system_facts()
+    return JSONResponse(content=facts, headers={"Cache-Control": "public, max-age=60"})
+
+
+# ── Publication usage summary ───────────────────────────────────────────────
+# "How do I credit Munin in a paper?" needs which model(s) answered, when,
+# and roughly how much. usage_log rows carry `model` since 2026-11; older
+# rows get the model that history says was serving at their timestamp,
+# flagged `inferred`. Deep Research tokens come from the backend (its jobs
+# run outside chat turns). Metadata only: no chat content is read.
+
+MUNIN_HOST_LINE = os.environ.get(
+    "MUNIN_HOST_LINE",
+    "the research assistant hosted by the Elgeti Lab, Leipzig University Medical Faculty")
+MUNIN_ACK_LINE = os.environ.get(
+    "MUNIN_ACK_LINE",
+    "We thank the Elgeti Lab (Leipzig University Medical Faculty) for providing the "
+    "Munin research assistant and the compute it runs on.")
+
+
+def _parse_day(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def _ts(value: str) -> datetime:
+    d = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+
+def _history_model_at(history: list[dict], ts: str) -> str | None:
+    hit = None
+    try:
+        t = _ts(ts)
+        for h in history:
+            if _ts(h["from"]) <= t:
+                hit = h.get("slug")
+            else:
+                break
+    except (KeyError, ValueError, TypeError):
+        return None
+    return hit
+
+
+def is_llm_row(row) -> bool:
+    return bool(row["tokens_total"]) or "chat/completions" in (row["endpoint"] or "")
+
+
+def summarize_usage(rows, dr_jobs: list[dict], facts: dict) -> list[dict]:
+    """Per-model usage: requests, conversations, tokens, first/last use."""
+    history = sorted(facts.get("history") or [], key=lambda h: h.get("from") or "")
+    by: dict[str, dict] = {}
+
+    def slot(model: str) -> dict:
+        return by.setdefault(model, {
+            "model": model, "requests": 0, "inferred_requests": 0, "conversations": set(),
+            "deep_research_jobs": 0, "tokens_input": 0, "tokens_output": 0,
+            "tokens_total": 0, "first_use": None, "last_use": None})
+
+    def touch(sl: dict, ts: str) -> None:
+        if sl["first_use"] is None or ts < sl["first_use"]:
+            sl["first_use"] = ts
+        if sl["last_use"] is None or ts > sl["last_use"]:
+            sl["last_use"] = ts
+
+    for r in rows:
+        if not is_llm_row(r):
+            continue
+        model, inferred = r["model"], False
+        if not model:
+            model, inferred = _history_model_at(history, r["timestamp"]) or "unknown", True
+        sl = slot(model)
+        sl["requests"] += 1
+        sl["inferred_requests"] += int(inferred)
+        if r["conversation_id"]:
+            sl["conversations"].add(r["conversation_id"])
+        sl["tokens_input"] += r["tokens_input"] or 0
+        sl["tokens_output"] += r["tokens_output"] or 0
+        sl["tokens_total"] += r["tokens_total"] or 0
+        touch(sl, r["timestamp"])
+    for j in dr_jobs:
+        try:
+            ts = datetime.fromtimestamp(float(j["created_at"]), timezone.utc).isoformat()
+        except (KeyError, TypeError, ValueError):
+            continue
+        model = j.get("model") or _history_model_at(history, ts) or "unknown"
+        sl = slot(model)
+        sl["deep_research_jobs"] += 1
+        sl["tokens_input"] += j.get("tokens_prompt") or 0
+        sl["tokens_output"] += j.get("tokens_completion") or 0
+        sl["tokens_total"] += j.get("tokens_total") or 0
+        touch(sl, ts)
+    catalog = facts.get("catalog") or {}
+    hist_by_slug = {h.get("slug"): h for h in history}
+    out = []
+    for model, sl in sorted(by.items(), key=lambda kv: kv[1]["first_use"] or ""):
+        info = catalog.get(model) or {}
+        h = hist_by_slug.get(model) or {}
+        sl["conversations"] = len(sl["conversations"])
+        sl.update({
+            "display": info.get("display") or h.get("display") or model,
+            "developer": info.get("developer"),
+            "checkpoint": info.get("checkpoint") or h.get("model_id"),
+            "revision": info.get("revision") or h.get("revision"),
+            "quantization": info.get("quantization"),
+            "vllm_version": info.get("vllm_version") or h.get("vllm"),
+            "hosted_by": info.get("hosted_by") or h.get("hosted"),
+            "reference": info.get("reference") or None,
+        })
+        out.append(sl)
+    return out
+
+
+def _day(ts: str | None) -> str:
+    return (ts or "")[:10]
+
+
+def build_statement(models: list[dict], facts: dict) -> dict:
+    """Disclosure text for Methods, a writing-only declaration, an
+    acknowledgment, and references. [PURPOSE] and [HOW CHECKED] are left
+    for the authors: only they know them."""
+    used = [m for m in models if m["model"] != "unknown"]
+    if not used:
+        return {}
+    first = min(_day(m["first_use"]) for m in used)
+    last = max(_day(m["last_use"]) for m in used)
+    local = [m for m in used if not m.get("hosted_by")]
+    hosted = [m for m in used if m.get("hosted_by")]
+    refs = (facts.get("references") or {})
+    names = ", ".join(m["display"] for m in used)
+    sentences = []
+    for m in local:
+        bits = [m["display"]]
+        meta = "; ".join(x for x in (m.get("developer"), m.get("quantization") and f"{m['quantization']} quantization") if x)
+        if meta:
+            bits.append(f"({meta})")
+        s = " ".join(bits)
+        ck = m.get("checkpoint")
+        if ck:
+            s += f", checkpoint {ck}"
+            if m.get("revision"):
+                s += f" at revision {m['revision'][:12]}"
+        if m.get("vllm_version"):
+            s += f", served locally with vLLM {m['vllm_version']} (Kwon et al., 2023)"
+        else:
+            s += ", served locally with vLLM (Kwon et al., 2023)"
+        s += f", between {_day(m['first_use'])} and {_day(m['last_use'])}"
+        sentences.append(s)
+    methods = (f"We used Munin, {MUNIN_HOST_LINE} (Fischer et al., 2026), between {first} and {last} "
+               f"to [PURPOSE]. Munin answered with the following language models: "
+               + "; ".join(sentences) + ("." if sentences else ""))
+    for m in hosted:
+        methods += (f" During a cluster outage, {m['requests'] + m['deep_research_jobs']} requests "
+                    f"({_day(m['first_use'])} to {_day(m['last_use'])}) were answered by {m['display']}, "
+                    f"accessed through the {m['hosted_by']}.")
+    methods += (" All outputs were checked by [WHO / HOW]; the authors take full responsibility "
+                "for the content of this work.")
+    writing = (f"During the preparation of this work the authors used Munin ({names}) to [REASON]. "
+               "After using this tool, the authors reviewed and edited the content as needed and "
+               "take full responsibility for the content of the publication.")
+    references = []
+    for key in ("munin",):
+        if refs.get(key):
+            references.append(refs[key])
+    for m in used:
+        if m.get("reference"):
+            references.append(m["reference"])
+    if local and refs.get("vllm"):
+        references.append(refs["vllm"])
+    return {
+        "methods": methods,
+        "writing_only": writing,
+        "acknowledgment": MUNIN_ACK_LINE,
+        "references_apa": [r.get("apa") for r in references if r.get("apa")],
+        "bibtex": "\n\n".join(r.get("bibtex") for r in references if r.get("bibtex")),
+    }
+
+
+def _summary_window(request: Request) -> tuple[str | None, str | None, str | None]:
+    q = request.query_params
+    start, end = _parse_day(q.get("from")), _parse_day(q.get("to"))
+    if (q.get("from") and not start) or (q.get("to") and not end):
+        return None, None, "from/to must be YYYY-MM-DD"
+    lo = start.isoformat() if start else "0000"
+    hi = (end + timedelta(days=1)).isoformat() if end else "9999"
+    return lo, hi, None
+
+
+def _csv_response(models: list[dict], name: str) -> Response:
+    import csv
+    import io
+    buf = io.StringIO()
+    cols = ["model", "display", "checkpoint", "revision", "vllm_version", "hosted_by", "first_use",
+            "last_use", "requests", "inferred_requests", "conversations", "deep_research_jobs",
+            "tokens_input", "tokens_output", "tokens_total"]
+    w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
+    w.writeheader()
+    for m in models:
+        w.writerow(m)
+    return Response(content=buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+async def _dr_usage(caller: Caller, lo: str, hi: str) -> list[dict]:
+    """The caller's Deep Research jobs in the window, from the backend."""
+    try:
+        since = _ts(lo).timestamp() if lo != "0000" else 0.0
+        until = _ts(hi).timestamp() if hi != "9999" else 1e11
+        r = await backend_client().get(
+            "/api/usage/research", params={"since": since, "until": until}, timeout=10.0,
+            headers={"X-Munin-User": header_safe(caller.key),
+                     "X-Munin-Email": header_safe(caller.email)})
+        if r.status_code == 200:
+            return r.json().get("jobs") or []
+    except Exception as e:
+        log.info("deep research usage fetch failed: %s: %s", type(e).__name__, e)
+    return []
+
+
+@app.get("/api/usage/me/summary")
+async def usage_me_summary(request: Request):
+    """The caller's usage per model in a date range, with a ready-to-edit
+    disclosure statement and references. ?from=YYYY-MM-DD&to=YYYY-MM-DD
+    (inclusive, both optional), ?format=csv for a spreadsheet."""
+    caller = browser_caller(request)
+    if not caller:
+        return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
+    lo, hi, err = _summary_window(request)
+    if err:
+        return JSONResponse(status_code=400, content={"error": {"code": "bad_date", "message": err}})
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT timestamp, endpoint, model, tokens_input, tokens_output, tokens_total, conversation_id "
+        "FROM usage_log WHERE user_email = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
+        (caller.key, lo, hi)).fetchall()
+    conn.close()
+    facts = await get_system_facts()
+    models = summarize_usage(rows, await _dr_usage(caller, lo, hi), facts)
+    if request.query_params.get("format") == "csv":
+        return _csv_response(models, "munin-usage.csv")
+    return {
+        "from": request.query_params.get("from"), "to": request.query_params.get("to"),
+        "models": models,
+        "totals": {k: sum(m[k] for m in models) for k in
+                   ("requests", "conversations", "deep_research_jobs", "tokens_total")},
+        "statement": build_statement(models, facts),
+        "notes": [
+            "Rows before 2026-11-21 did not record the answering model; their model is the "
+            "one the deployment history says was serving at the time (inferred_requests).",
+            "Dates of history entries marked approximate are known to the day, not the hour.",
+        ],
+    }
+
+
+@app.get("/api/usage/group/summary")
+async def usage_group_summary(request: Request):
+    """Group totals per model for a group leader (their primary group) or an
+    admin (?group=<id>). Totals only, no per-member breakdown. Rows carry a
+    group since 2026-11-21; earlier use is not attributed to a group."""
+    caller = browser_caller(request)
+    if not caller:
+        return JSONResponse(status_code=401, content={"error": {"code": "unauthorized", "message": "Authentication required."}})
+    admin = is_admin(request)
+    if not admin and caller.role != "group_leader":
+        return JSONResponse(status_code=403, content={"error": {"code": "forbidden", "message": "Group leaders and admins only."}})
+    group = (request.query_params.get("group") if admin else None) or caller.group
+    if not group:
+        return JSONResponse(status_code=400, content={"error": {"code": "no_group", "message": "No group given or known for this account."}})
+    lo, hi, err = _summary_window(request)
+    if err:
+        return JSONResponse(status_code=400, content={"error": {"code": "bad_date", "message": err}})
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT timestamp, endpoint, model, tokens_input, tokens_output, tokens_total, conversation_id, user_email "
+        "FROM usage_log WHERE group_id = ? AND timestamp >= ? AND timestamp < ? ORDER BY timestamp",
+        (group, lo, hi)).fetchall()
+    conn.close()
+    facts = await get_system_facts()
+    models = summarize_usage(rows, [], facts)
+    if request.query_params.get("format") == "csv":
+        return _csv_response(models, f"munin-usage-{re.sub(r'[^A-Za-z0-9_-]', '_', group)}.csv")
+    return {
+        "group": group, "from": request.query_params.get("from"), "to": request.query_params.get("to"),
+        "members_active": len({r["user_email"] for r in rows if is_llm_row(r)}),
+        "models": models,
+        "totals": {k: sum(m[k] for m in models) for k in ("requests", "conversations", "tokens_total")},
+        "statement": build_statement(models, facts),
+        "notes": ["Group attribution starts 2026-11-21; Deep Research jobs are counted per user, not per group."],
     }
 
 
@@ -1009,40 +1442,22 @@ async def proxy_api(request: Request, path: str):
             upstream_resp = await client.send(upstream_req, stream=True)
 
             async def stream_and_log():
-                tokens_total = 0
-                model = None
-                tools = []
+                scan = SseUsageScanner()
                 try:
                     async for chunk in upstream_resp.aiter_bytes():
                         yield chunk
-                        # Try to extract usage from SSE done event
-                        try:
-                            text = chunk.decode()
-                            for line in text.split("\n"):
-                                if line.startswith("data: ") and '"usage"' in line:
-                                    data = json.loads(line[6:])
-                                    usage = data.get("usage", {})
-                                    tokens_total = usage.get("total_tokens", 0) or (
-                                        usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)
-                                    )
-                                if line.startswith("data: ") and '"name"' in line and "tool_call" in text:
-                                    data = json.loads(line[6:])
-                                    if "name" in data:
-                                        tools.append(data["name"])
-                                if line.startswith("data: ") and '"model"' in line:
-                                    data = json.loads(line[6:])
-                                    model = data.get("model", model)
-                        except Exception:
-                            pass
+                        scan.feed(chunk)
                 finally:
                     await upstream_resp.aclose()
                     duration_ms = int((time.time() - start_time) * 1000)
                     if should_log:
                         log_usage(
                             caller.key, source, api_key_id, f"/api/{path}",
-                            tokens_total=tokens_total, tools_invoked=tools or None,
+                            tokens_input=scan.tokens_input, tokens_output=scan.tokens_output,
+                            tokens_total=scan.tokens_total, tools_invoked=scan.tools or None,
                             duration_ms=duration_ms, status_code=upstream_resp.status_code,
-                            model=model,
+                            model=scan.model, persona=scan.persona,
+                            group_id=caller.group, conversation_id=scan.conversation_id,
                         )
 
             return StreamingResponse(
@@ -1068,23 +1483,21 @@ async def proxy_api(request: Request, path: str):
             duration_ms = int((time.time() - start_time) * 1000)
 
             # Extract usage from response body
-            tokens_total = 0
-            model = None
+            scan = SseUsageScanner()
             try:
                 resp_json = upstream_resp.json()
-                usage = resp_json.get("usage", {})
-                tokens_total = usage.get("total_tokens", 0) or (
-                    usage.get("prompt_tokens", 0) + usage.get("completion_tokens", 0)
-                )
-                model = resp_json.get("model")
+                if isinstance(resp_json, dict):
+                    scan.take(resp_json)
             except Exception:
                 pass
 
             if should_log:
                 log_usage(
                     caller.key, source, api_key_id, f"/api/{path}",
-                    tokens_total=tokens_total, duration_ms=duration_ms,
-                    status_code=upstream_resp.status_code, model=model,
+                    tokens_input=scan.tokens_input, tokens_output=scan.tokens_output,
+                    tokens_total=scan.tokens_total, duration_ms=duration_ms,
+                    status_code=upstream_resp.status_code, model=scan.model,
+                    group_id=caller.group,
                 )
 
             if (path == "status" and request.method == "GET"
@@ -1141,7 +1554,12 @@ async def proxy_v1(request: Request, path: str):
                     return JSONResponse(content={"object": "list", "data": data})
         except Exception:
             pass
-        model_id = os.environ.get("VLLM_MODEL_NAME", "qwen3.8-27b")
+        # Cluster unreachable: the name it last reported (/api/system cache),
+        # else VLLM_MODEL_NAME, else "munin". Never a hardcoded model name,
+        # which is how this went stale before.
+        cached = _system_cache.get("facts") or {}
+        model_id = ((cached.get("backbone") or {}).get("served_name")
+                    or os.environ.get("VLLM_MODEL_NAME") or "munin")
         return JSONResponse(content={
             "object": "list",
             "data": [{
@@ -1188,23 +1606,17 @@ async def proxy_v1(request: Request, path: str):
 
             if is_sse:
                 async def stream_v1():
-                    tokens_total = 0
+                    scan = SseUsageScanner()
                     try:
                         async for chunk in upstream_resp.aiter_bytes():
                             yield chunk
-                            try:
-                                text = chunk.decode()
-                                for line in text.split("\n"):
-                                    if line.startswith("data: ") and '"usage"' in line:
-                                        u = json.loads(line[6:]).get("usage", {})
-                                        tokens_total = u.get("total_tokens", 0) or (
-                                            u.get("prompt_tokens", 0) + u.get("completion_tokens", 0)
-                                        )
-                            except Exception:
-                                pass
+                            scan.feed(chunk)
                     finally:
                         await upstream_resp.aclose()
-                        log_usage(caller.key, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
+                        log_usage(caller.key, source, api_key_id, f"/v1/{path}",
+                                  tokens_input=scan.tokens_input, tokens_output=scan.tokens_output,
+                                  tokens_total=scan.tokens_total, model=scan.model, persona=scan.persona,
+                                  tools_invoked=scan.tools or None,
                                   duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
 
                 return StreamingResponse(stream_v1(), status_code=upstream_resp.status_code,
@@ -1213,13 +1625,16 @@ async def proxy_v1(request: Request, path: str):
                 # JSON response (raw model, no persona) — read fully
                 resp_body = await upstream_resp.aread()
                 await upstream_resp.aclose()
-                tokens_total = 0
+                scan = SseUsageScanner()
                 try:
-                    u = json.loads(resp_body).get("usage", {})
-                    tokens_total = u.get("total_tokens", 0) or (u.get("prompt_tokens", 0) + u.get("completion_tokens", 0))
+                    resp_json = json.loads(resp_body)
+                    if isinstance(resp_json, dict):
+                        scan.take(resp_json)
                 except Exception:
                     pass
-                log_usage(caller.key, source, api_key_id, f"/v1/{path}", tokens_total=tokens_total,
+                log_usage(caller.key, source, api_key_id, f"/v1/{path}",
+                          tokens_input=scan.tokens_input, tokens_output=scan.tokens_output,
+                          tokens_total=scan.tokens_total, model=scan.model,
                           duration_ms=int((time.time() - start_time) * 1000), status_code=upstream_resp.status_code)
                 return Response(content=resp_body, status_code=upstream_resp.status_code,
                                 headers={k: v for k, v in upstream_resp.headers.items() if k.lower() != "transfer-encoding"})
