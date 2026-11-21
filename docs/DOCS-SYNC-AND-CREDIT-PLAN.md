@@ -1,6 +1,28 @@
 # Docs sync and crediting Munin: plan
 
-Status: PLAN, awaiting "proceed". Branch `varghele/credit-and-API-update`. Written 2026-11-21.
+Status: IMPLEMENTED on branch `varghele/credit-and-API-update` (2026-11-21, all defaults taken), NOT deployed. Written 2026-11-21.
+
+## Implementation notes (2026-11-21)
+
+- Done as planned: A1 profile keys, B1 history plus usage-row fields plus Deep Research usage, A2 `/api/system` (retrieval and a cached, public gateway copy), A3 docs, A4 `scripts/check_docs_drift.py` (in CI and the frontend deploy steps), B2 summary and the Settings panel, B3 `/cite` (landing site, public), B4 `CITATION.cff`. The README links the arXiv paper.
+- Found while building:
+  - Caddy's `httpInclude` runs the included body as a template, so a BibTeX `{{Title}}` failed the page. The gateway serves `/api/system` with every `{{` written as `{\u007b`.
+  - A failed include fails the whole page, so `handle_errors` answers `/_facts.json` with `{}`.
+  - The `munin` model alias was added to raw mode and `/v1/models`, so the examples name no backbone.
+  - `record_usage` dropped later calls from the total when a call had no `total_tokens`; fixed.
+  - `docs.css` moved to `/shared/docs.css`, so the landing-site cite page can use it.
+- Deviation: the `qwen3.8-27b` defaults in `backend/docker/docker-compose.yml`, `.env.example` and `database.py` stay as they are. They are the open-source install's reference configuration (the paper's model, used when an installer sets nothing), not text describing this deployment, and production overrides them from the active profile. Removing them would break a `--mode all` install. The gateway and Settings literals were removed.
+- Deploy, in order:
+  1. hugin: `sudo ./deploy.sh vllm` (installs the profiles with the new keys).
+  2. hugin: `sudo ./deploy.sh agents` (merges `model-history.jsonl`).
+  3. hugin: `sudo ./deploy.sh model activate sage-a1.5`, so `active-model.env` carries the citation keys. It is the same slug, so no history entry is added.
+  4. hugin: redeploy retrieval and llm-failover.
+  5. VPS: rsync `frontend/` and rebuild the gateway, then reload Caddy.
+
+  Until step 3, `/api/system` reports the model without citation fields.
+- Pre-existing, not touched:
+  - `ArtifactPanel.test.tsx` "reports a structure it cannot fetch" also fails on the base commit.
+  - `MetricsTab.tsx:99` groups by `direction`, but the label is `kind`.
 
 Two tasks:
 
