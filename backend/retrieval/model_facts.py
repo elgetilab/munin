@@ -330,6 +330,8 @@ def system_facts(*, served: Optional[bool], fallback: Optional[dict],
         "served": served,
         "fallback": {
             "model": fallback_model or None,
+            "display": (HOSTED_MODELS.get(fallback_model, (fallback_model,))[0]
+                        if fallback_model else None),
             "active": bool(fallback and fallback.get("active")),
             "since": (fallback or {}).get("since"),
             "hosted_by": "Anthropic API" if fallback_model else None,

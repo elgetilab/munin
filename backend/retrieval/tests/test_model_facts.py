@@ -80,8 +80,8 @@ def test_system_facts_shape(facts):
     f = mf.system_facts(served=True, fallback={"active": False, "standby_model": "claude-haiku-5-5"},
                         paper_encoder="bge-large", fallback_model="claude-haiku-5-5")
     assert f["embeddings"]["papers"] == {"model": "BGE-large-en-v1.5", "dims": 1024}
-    assert f["fallback"] == {"model": "claude-haiku-5-5", "active": False, "since": None,
-                             "hosted_by": "Anthropic API"}
+    assert f["fallback"] == {"model": "claude-haiku-5-5", "display": "Claude Haiku 5.5",
+                             "active": False, "since": None, "hosted_by": "Anthropic API"}
     assert {"sage-a1.5", "qwen3.8-27b", "claude-haiku-5-5"} <= set(f["catalog"])
     assert f["references"]["vllm"]["doi"] == "10.1145/3600006.3613165"
     assert f["references"]["munin"]["arxiv"] == "2610.23480"

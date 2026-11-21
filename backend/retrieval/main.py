@@ -1378,6 +1378,9 @@ def _halve_for_retry(forward: dict) -> bool:
     return True
 
 
+MODEL_ALIAS = "munin"
+
+
 async def _raw_chat_proxy(
     request: Request, body: dict, user_email: str
 ) -> Response:
@@ -1389,7 +1392,9 @@ async def _raw_chat_proxy(
     # Build the forwarded body. Default model to whatever vLLM is
     # serving if the client didn't specify one.
     forward: dict = {k: v for k, v in body.items() if k not in _MUNIN_ONLY_FIELDS}
-    if not forward.get("model"):
+    # "munin" is the stable alias the docs and client configs use, so they
+    # never name a backbone and survive a `model activate` unchanged.
+    if not forward.get("model") or forward.get("model") == MODEL_ALIAS:
         forward["model"] = VLLM_MODEL_NAME
     # Apply Munin's reasoning-effort default (database.LLM_REASONING_EFFORT,
     # "medium") ONLY when the client has not sent its own chat_template_kwargs.
