@@ -83,6 +83,10 @@ def files():
             rel = p.relative_to(ROOT).as_posix()
             if "/node_modules/" in rel or ".test." in p.name or "/test/" in rel:
                 continue
+            # The built chat bundle (gitignored output of webui/src, which is
+            # scanned); an old build would otherwise fail the deploy check.
+            if rel.startswith("frontend/static/chat/"):
+                continue
             yield rel, p
 
 
