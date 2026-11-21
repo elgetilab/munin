@@ -78,7 +78,8 @@ def test_oversized_document_is_truncated_with_note():
     content = [{"type": "document", "document_id": "doc_big", "filename": "big.txt"}]
     blocks, _ = _resolve(content, big)
     joined = _text_of(blocks)
-    assert "[document truncated to fit the context window]" in joined
+    assert "[document truncated to fit the context window" in joined
+    assert "search_user_docs finds passages]" in joined
     # the injected text (minus the header/note) is capped near the limit
     assert len(joined) <= cs.MAX_DOC_INLINE_CHARS + 200
 

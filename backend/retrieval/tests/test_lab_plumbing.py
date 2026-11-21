@@ -225,6 +225,77 @@ def test_text_only_model_gets_a_note_instead_of_an_attached_image():
     assert len(calls) == 1 and atts and atts[0]["source"] == "inline"
 
 
+
+# --- 2026-11-21: numeric text is a data file (LABKIT-016-PLAN.md) -------------
+
+_DEFECT = "Index\tField [G]\tIntensity []\n" + "".join(
+    f"{i + 1}\t{3300 + i * 0.1:.3f}\t{(-1) ** i * 1.139363:e}\n" for i in range(1400))
+
+
+def test_numeric_table_detection():
+    assert document_store.looks_like_numeric_table(_DEFECT)
+    csv = "# exported\nwavelength,abs\n" + "".join(f"{200 + i},{0.01 * i:.3f}\n" for i in range(50))
+    assert document_store.looks_like_numeric_table(csv)
+    prose = "\n".join(f"Line {i} of a letter about the 2024 budget, page {i}." for i in range(60))
+    assert not document_store.looks_like_numeric_table(prose)
+    assert not document_store.looks_like_numeric_table("1 2\n3 4\n")   # too short to tell
+    mixed = "\n".join(["Results: 1 2 3"] * 30 + ["1 2 3"] * 30)
+    assert not document_store.looks_like_numeric_table(mixed)
+
+
+def test_numeric_txt_is_a_data_file_with_a_preview():
+    content = [{"type": "document", "document_id": "doc_n", "filename": "defect.txt"}]
+    blocks, atts, calls = _resolve(content, stored_name="defect.txt",
+                                   data=_DEFECT.encode(), doc_text=_DEFECT)
+    joined = _text_of(blocks)
+    assert "[Attached data file: defect.txt" in joined
+    assert "It has 1401 lines; the first 8:" in joined and "Field [G]" in joined
+    assert "3300.000" in joined and "3399.900" not in joined     # head only
+    assert len(joined) < 2500
+    assert atts[0]["kind"] == "data" and len(calls) == 1
+
+
+def test_numeric_txt_in_a_temporary_chat_is_still_inlined_but_capped():
+    # No sandbox in a temporary chat, so the text is the only way in; the
+    # token cap keeps it well below the window.
+    content = [{"type": "document", "document_id": "doc_t", "filename": "defect.txt"}]
+    saved = cs.chat_context.approx_tokens
+    cs.chat_context.approx_tokens = lambda text: len(text)        # ~1 token per char
+    try:
+        blocks, _, calls = _resolve(content, stored_name="defect.txt", data=_DEFECT.encode(),
+                                    doc_text=_DEFECT, ephemeral=True)
+    finally:
+        cs.chat_context.approx_tokens = saved
+    joined = _text_of(blocks)
+    assert calls == []
+    assert "[document truncated to fit the context window" in joined
+    assert len(joined) <= cs._inline_cap_tokens() + 500
+
+
+def test_csv_data_file_note_has_a_preview():
+    data = b"t_s,signal\n" + b"".join(f"{i},{i * 2}\n".encode() for i in range(100))
+    content = [{"type": "document", "document_id": "doc_c", "filename": "decay.csv"}]
+    blocks, _, _ = _resolve(content, stored_name="decay.csv", data=data)
+    joined = _text_of(blocks)
+    assert "It has 101 lines; the first 8:" in joined and "t_s,signal" in joined
+
+
+def test_binary_data_file_gets_no_preview():
+    content = [{"type": "document", "document_id": "doc_b", "filename": "spec.DTA"}]
+    blocks, _, _ = _resolve(content, stored_name="spec.DTA", data=b"\x00\x01\x02" * 100)
+    assert "lines; the first" not in _text_of(blocks)
+
+
+def test_long_prose_is_capped_in_tokens():
+    prose = "The committee met on Tuesday and discussed the budget. " * 4000   # ~220K chars
+    content = [{"type": "document", "document_id": "doc_p", "filename": "minutes.txt"}]
+    blocks, atts, _ = _resolve(content, stored_name="minutes.txt", doc_text=prose)
+    joined = _text_of(blocks)
+    assert "The committee met" in joined and atts[0].get("kind") != "data"
+    assert "[document truncated to fit the context window; the whole file is in the code sandbox" in joined
+    assert cs.chat_context.approx_tokens(joined) <= cs._inline_cap_tokens() + 300
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for t in tests:

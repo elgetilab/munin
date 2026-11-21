@@ -528,7 +528,56 @@ def test_epr_round2_hints():
                   f"{got} {[v[:20] for v in ups.values()]} {quiet}")
 
 
+def test_labkit_source_reading_gets_the_guide() -> bool:
+    """LABKIT-016: reading labkit's source or help() points to guide()."""
+    pos = ["import labkit\nhelp(labkit.epr)",
+           "import inspect, labkit\nprint(inspect.getsource(labkit.fit))",
+           "import labkit\nprint(open(labkit.nmr.__file__).read()[:3000])",
+           "import inspect\nfrom labkit import epr\nprint(inspect.signature(labkit.epr.fit_deer))"]
+    neg = ["import labkit\nlabkit.guide('epr')\nhelp(labkit.epr.fit_line)",   # guide already
+           "import numpy as np\nhelp(np.polyfit)",
+           "import labkit\nr = labkit.fit('one_phase_decay', t, y)\nprint(r)"]
+    got_pos = [(fit_hint(c, labkit_in_use=True) or ("", ""))[0] for c in pos]
+    got_neg = [(fit_hint(c, labkit_in_use=True) or ("", ""))[0] for c in neg]
+    text = (fit_hint(pos[0], True) or ("", ""))[1]
+    ok = (got_pos[:3] == ["labkit_source"] * 3 and "labkit_source" not in got_neg
+          and "labkit.guide('<topic>')" in text and "epr, deer" in text)
+    return _check("reading labkit source or help() gets the guide hint", ok,
+                  f"pos={got_pos} neg={got_neg}")
+
+
+def test_audit_flag_and_labkit_tool_message() -> bool:
+    """LABKIT-016: audit ok=True on "error": None; calling labkit as a tool
+    says it goes inside run_python."""
+    import logging
+    from hooks import audit_log
+    from mcp import executor
+    records = []
+
+    class H(logging.Handler):
+        def emit(self, r):
+            records.append(r.getMessage())
+
+    h = H()
+    audit_log.logger.addHandler(h)
+    audit_log.logger.setLevel(logging.INFO)
+    try:
+        ctx = type("C", (), {"user_email": "u", "conversation_id": "c", "persona_id": "code"})()
+        for res in ({"stdout": "1", "error": None}, {"error": "NameError: x"}):
+            asyncio.run(audit_log.audit_sensitive_tools(ctx, "run_python", {}, res, 3))
+    finally:
+        audit_log.logger.removeHandler(h)
+    oks = ["ok=True" in m for m in records]
+    res = asyncio.run(executor._dispatch_mcp_tool("labkit.guide", {"topic": "fit"}))
+    ok = (oks == [True, False] and res["error"].startswith("Unknown tool")
+          and "inside run_python" in res["error"])
+    return _check("audit flags only real errors; labkit-as-a-tool explains", ok,
+                  f"{records} {res}")
+
+
 TESTS = [
+    test_labkit_source_reading_gets_the_guide,
+    test_audit_flag_and_labkit_tool_message,
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
     test_general_code_gets_nothing,

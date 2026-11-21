@@ -156,6 +156,15 @@ def _calls_any(*funcs: str) -> re.Pattern:
     return re.compile(rf"\bepr\.(?:{alt})\s*\(|from\s+labkit\.epr\s+import[^\n]*\b(?:{alt})\b")
 
 
+# Reading labkit's own source or help() to learn a call: 20.5% of the calls in
+# runs that hit the turn budget, 7.6% elsewhere (LABKIT-016-PLAN.md).
+_LABKIT_SOURCE = re.compile(
+    r"inspect\.(?:getsource|getsourcelines|getfile|signature)\s*\(\s*labkit"
+    r"|\blabkit(?:\.\w+)*\.__file__"
+    r"|open\([^)\n]*labkit[^)\n]*\.py"
+    r"|\bhelp\(\s*labkit")
+_GUIDE_CALL = re.compile(r"\bguide\s*\(")
+
 _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
     ("epr_read", lambda c: bool(_EPR_FILE.search(c) and _EPR_READ_BY_HAND.search(c)),
      _calls_any("load", "load_bes3t", "load_esp", "load_ascii"),
@@ -225,6 +234,11 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      _calls("kd_fit"), _NMR_HINTS[0][1]),
     ("relaxation", lambda c: bool(_ANY_FIT.search(c) and _is_relaxation(c) and re.search(r"\bexp\s*\(", c)),
      _calls("relaxation_fit"), _NMR_HINTS[1][1]),
+    ("labkit_source", lambda c: bool(_LABKIT_SOURCE.search(c)), _GUIDE_CALL,
+     "This reads labkit's source or help() to learn a call. labkit.guide('<topic>') is "
+     "shorter and has the call signatures and a worked example for each task: topics fit, "
+     "read, nmr, stats, cd, plot, epr, deer (labkit.guide() for the overview). help() on a "
+     "whole module is long and gets cut in the tool result."),
 ]
 
 _CUSTOM_HINT = (

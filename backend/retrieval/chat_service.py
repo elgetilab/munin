@@ -201,6 +201,22 @@ SANDBOX_ARTIFACT_TOOLS = ("run_python", "edit_python", "compute", "compile_latex
 # quality-vs-calls sweep. Env-overridable via CHAT_MAX_TOOL_CALLS.
 MAX_TOOL_CALLS_PER_MESSAGE = int(os.getenv("CHAT_MAX_TOOL_CALLS", "30"))
 
+# The save round (LABKIT-016-PLAN.md): when a turn that used the sandbox ends
+# on the turn budget, the repeat guard or the call cap, it gets one more round
+# with only these tools before the tools-off wrap-up, so it can still write
+# the file it was asked for. 27 lab runs had their numbers and no results.json
+# because the wrap-up cannot run code.
+SAVE_ROUND_TOOLS = frozenset({"run_python", "edit_python"})
+SAVE_ROUND_MESSAGE = (
+    "You have one tool call left. If the task asks for a file (for example "
+    "results.json), write it now from the values you already have, with "
+    "run_python; then give your answer."
+)
+ROUNDS_LEFT_NOTE = (
+    "\n\n[2 tool rounds left in this turn: finish up. If the task asks for "
+    "a file (for example results.json), write it now.]"
+)
+
 
 def _human_size(n: int) -> str:
     for unit in ("bytes", "KB", "MB", "GB"):
@@ -208,6 +224,54 @@ def _human_size(n: int) -> str:
             return f"{n} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
         n /= 1024
     return f"{n} bytes"
+
+
+# Text exports whose first lines are shown in the data-file note, so the first
+# code cell need not be "print the head" (94.5% of lab runs started with one).
+_PREVIEW_EXT = {".csv", ".tsv", ".txt", ".dat", ".asc", ".list", ".xy", ".prn", ""}
+PREVIEW_MAX_CHARS = 1500
+PREVIEW_LINES = 8
+
+
+def _text_preview(path: str, filename: str) -> str:
+    """The first lines of a delimited text file and its line count, for the
+    data-file note; '' for binary or other files."""
+    ext = os.path.splitext(filename or path)[1].lower()
+    if ext not in _PREVIEW_EXT:
+        return ""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(65536)
+            n_lines = head.count(b"\n")
+            while chunk := f.read(1 << 20):
+                n_lines += chunk.count(b"\n")
+    except OSError:
+        return ""
+    if not head or b"\0" in head:
+        return ""
+    try:
+        text = head.decode("utf-8")
+    except UnicodeDecodeError:
+        text = head.decode("latin-1")
+    lines = text.splitlines()[:PREVIEW_LINES]
+    shown = "\n".join(ln[:300] for ln in lines)[:PREVIEW_MAX_CHARS]
+    return f" It has {n_lines} lines; the first {len(lines)}:\n```\n{shown}\n```\n"
+
+
+def _data_file_block(filename: str, size: int, sandbox_note: str, preview: str) -> dict:
+    return vision.text_block(
+        f"[Attached data file: {filename} ({_human_size(size)}). Its "
+        f"contents are not shown here; read it with run_python. "
+        f"{sandbox_note}{preview}]"
+    )
+
+
+def _inline_cap_tokens() -> int:
+    """Token cap for a document pasted into the prompt: half the turn-start
+    budget (about 15K tokens), so the turn's tool results still fit. Before
+    2026-11-21 the cap was 50,000 characters, which a numeric text export
+    (about a token per character) overshot (LABKIT-016-PLAN.md)."""
+    return max(2000, chat_context.turn_start_budget() // 2)
 
 
 async def _attach_to_sandbox(user_email: str, conversation_id: str, ephemeral: bool,
@@ -304,11 +368,8 @@ async def _resolve_user_content_images(
                 # Data files are never inlined: they can be large or binary,
                 # and the model must read them with code, not by eye.
                 size = os.path.getsize(stored_path)
-                resolved_blocks.append(vision.text_block(
-                    f"[Attached data file: {filename} ({_human_size(size)}). Its "
-                    f"contents are not shown here; read it with run_python. "
-                    f"{sandbox_note}]"
-                ))
+                resolved_blocks.append(_data_file_block(
+                    filename, size, sandbox_note, _text_preview(stored_path, filename)))
                 attachments.append({
                     "document_id": doc_id,
                     "filename": filename,
@@ -320,15 +381,37 @@ async def _resolve_user_content_images(
             text = await document_store.get_document_text(user_email, doc_id)
             if text is None:
                 raise vision.VisionError(f"document not found: {doc_id!r}")
+            if (sandbox_note and stored_path
+                    and document_store.looks_like_numeric_table(text)):
+                # A table of numbers saved as .txt: an instrument export, not
+                # prose. Same path as a data file (LABKIT-016-PLAN.md).
+                size = os.path.getsize(stored_path)
+                resolved_blocks.append(_data_file_block(
+                    filename, size, sandbox_note, _text_preview(stored_path, filename)))
+                attachments.append({
+                    "document_id": doc_id,
+                    "filename": filename,
+                    "content_type": block.get("content_type") or "text/plain",
+                    "source": "document",
+                    "kind": "data",
+                })
+                continue
             if sandbox_note:
                 filename_note = f"{filename}. {sandbox_note}"
             else:
                 filename_note = filename
             if text.strip():
-                if len(text) > MAX_DOC_INLINE_CHARS:
+                cap = _inline_cap_tokens()
+                n_tok = chat_context.approx_tokens(text)
+                if len(text) > MAX_DOC_INLINE_CHARS or n_tok > cap:
+                    keep = min(MAX_DOC_INLINE_CHARS,
+                               int(len(text) * min(1.0, cap / max(1, n_tok))))
+                    where = ("; the whole file is in the code sandbox (see above) and "
+                             "search_user_docs finds passages" if sandbox_note
+                             else "; search_user_docs finds passages")
                     text = (
-                        text[:MAX_DOC_INLINE_CHARS]
-                        + "\n\n[document truncated to fit the context window]"
+                        text[:keep]
+                        + f"\n\n[document truncated to fit the context window{where}]"
                     )
                 resolved_blocks.append(
                     vision.text_block(f"[Attached document: {filename_note}]\n\n{text}")
@@ -1070,11 +1153,32 @@ def _fit_prompt_for_call(
     messages, _elided = chat_context.budget_loop_messages(
         messages, extra_tokens=schema_tokens
     )
-    if _elided["results"] or _elided["pending"]:
+    if _elided["results"]:
         logger.info(
             "budgeted %d earlier tool result(s) out of the prompt to fit the "
-            "context window", _elided["results"] + _elided["pending"],
+            "context window", _elided["results"],
         )
+    if _elided["pending"]:
+        # The newest results had to be cut: the prompt before them is already
+        # near the window (a large pasted document, say). Say what fills it.
+        logger.warning(
+            "cut %d of %d newest tool result(s) to fit the context window "
+            "(%d to the stub, purpose=%s); composition %s",
+            _elided["pending"], _elided["pending_total"],
+            _elided["pending_stub"], purpose,
+            chat_context.prompt_composition(
+                messages, extra_tokens=schema_tokens, history_end=history_end),
+        )
+    if (_elided["pending_total"] and "wrap_up" not in purpose
+            and _elided["pending_stub"] >= _elided["pending_total"]):
+        # Every result of the step the model just took would be the stub: it
+        # would call tools it cannot see (the print('hello') runs,
+        # LABKIT-016-PLAN.md). End the loop the context_full way instead.
+        logger.warning(
+            "context full: none of the %d newest tool result(s) fits; not "
+            "calling vLLM (purpose=%s)", _elided["pending_total"], purpose,
+        )
+        return None
     if _elided["args"]:
         logger.info(
             "budgeted the arguments of %d earlier tool call(s) out of the "
@@ -1128,10 +1232,11 @@ async def _stream_vllm_once(
     *,
     purpose: str = "chat_turn",
     history_end: Optional[int] = None,
+    only_tools: Optional[frozenset] = None,
 ) -> AsyncIterator[tuple[str, dict, _StreamAccumulator]]:
     """
     Make one streaming call to vLLM and yield (event_name, payload, acc)
-    tuples. The accumulator is the same object across all yields so the
+    tuples. ``only_tools`` limits the tools offered (the save round). The accumulator is the same object across all yields so the
     caller can read the finalized state once the iterator finishes.
     """
     acc = _StreamAccumulator()
@@ -1143,6 +1248,9 @@ async def _stream_vllm_once(
     # unbudgeted and was half of why heavy turns overflowed the window with
     # every guard reporting room to spare.
     tools_payload = _openai_tools_schema(persona) if enable_tools else None
+    if tools_payload and only_tools:
+        tools_payload = [t for t in tools_payload
+                         if (t.get("function") or {}).get("name") in only_tools] or None
     schema_tokens = chat_context.tools_schema_tokens(tools_payload)
 
     messages = _fit_prompt_for_call(
@@ -1411,12 +1519,27 @@ REPEAT_GUARDED_TOOLS = SANDBOX_ARTIFACT_TOOLS
 MAX_BLOCKED_REPEATS = 2
 
 
+def _code_identity(code: str) -> str:
+    """Code without blank lines, full-line comments and trailing spaces."""
+    keep = []
+    for ln in code.splitlines():
+        t = ln.rstrip()
+        if t.strip() and not t.lstrip().startswith("#"):
+            keep.append(t)
+    return "\n".join(keep)
+
+
 def _call_key(tc: dict) -> Optional[str]:
     """Identity of a guarded call: tool name plus canonical arguments."""
     if tc.get("name") not in REPEAT_GUARDED_TOOLS:
         return None
+    a = tc.get("arguments") or {}
+    if isinstance(a, dict) and isinstance(a.get("code"), str):
+        # Code that differs only in comments or blank lines runs the same
+        # (29 S8 cells got past the guard that way, LABKIT-016-PLAN.md).
+        a = {**a, "code": _code_identity(a["code"])}
     try:
-        args = json.dumps(tc.get("arguments") or {}, sort_keys=True, default=str)
+        args = json.dumps(a, sort_keys=True, default=str)
     except Exception:
         return None
     return f"{tc.get('name')}:{args}"
@@ -1485,14 +1608,41 @@ def _repeated_call_skips(
             else:
                 reason = (
                     f"Not run: this is exactly the {tc.get('name')} call you "
-                    f"made in call {prev[2]}, with nothing run since, so it "
-                    f"would give the same result shown there. Change the "
-                    f"code, or answer with what you have."
+                    f"made in call {prev[2]} (comments and blank lines aside), "
+                    f"with nothing run since, so it would give the same result "
+                    f"as then. If that result was cut or not shown, print only "
+                    f"the part you need instead; otherwise change the code, or "
+                    f"answer with what you have."
                 )
             skips[tc["id"]] = {"skipped": True, "repeated_call": True, "reason": reason}
             continue
         prev = (key, None, number)
     return skips, prev
+
+
+def _log_calls_not_run(results: list[dict]) -> None:
+    """One line per sandbox call whose code did not run, with the reason:
+    6.4% of lab run_python calls left no run and nothing said why
+    (LABKIT-016-PLAN.md)."""
+    for res in results or []:
+        if res.get("name") not in SAVE_ROUND_TOOLS:
+            continue
+        r = res.get("result")
+        if not isinstance(r, dict):
+            continue
+        err = str(r.get("error") or "")
+        if r.get("skipped"):
+            reason = "repeat_guard" if r.get("repeated_call") else "skipped"
+        elif err.startswith("invalid arguments"):
+            reason = "invalid_arguments"
+        elif err.startswith("Unknown tool"):
+            reason = "unknown_tool"
+        elif err.startswith("tool execution failed"):
+            reason = "tool_failed"
+        else:
+            continue
+        logger.info("%s call %s not run (reason=%s)", res.get("name"),
+                    str(res.get("id"))[:12], reason)
 
 
 async def _run_tool_calls(
@@ -2811,6 +2961,9 @@ async def stream_chat_completion(
         # as (key, result, number) and the count of blocked reruns.
         last_call: Optional[tuple] = None
         blocked_repeats = 0
+        # Set when the guard or the call cap ends the loop early: the next
+        # round is the save round (SAVE_ROUND_TOOLS), then the wrap-up.
+        save_round_next = False
         # The answer: text of the final step (no tool calls) plus the wrap-up.
         # Text of steps that called tools is narration, kept on the step's
         # first tool call as step_text (TURN-RESULTS-PLAN.md).
@@ -2854,6 +3007,12 @@ async def stream_chat_completion(
             stream_error: Optional[str] = None
             recovery_used_this_turn = False
             acc_transferred = False  # reset per-turn
+            used_sandbox = any(tc.get("name") in SAVE_ROUND_TOOLS
+                               for tc in final_tool_calls)
+            is_save_round = used_sandbox and (save_round_next or turn == turn_budget - 1)
+            if is_save_round:
+                logger.info("save round (turn %d of %d)", turn + 1, turn_budget)
+                messages.append({"role": "user", "content": SAVE_ROUND_MESSAGE})
 
             # Consume one streaming pass. An *empty* completion (the
             # iterator yields nothing, so `acc` stays None, yet no error
@@ -2891,6 +3050,7 @@ async def stream_chat_completion(
                     enable_tools=True,
                     persona=persona,
                     history_end=history_end,
+                    only_tools=SAVE_ROUND_TOOLS if is_save_round else None,
                 ):
                     acc = accumulator
                     if (event_name == "error" and payload.get("reason")
@@ -3277,6 +3437,7 @@ async def stream_chat_completion(
                         break
                     yield item
                 results = await run_task
+                _log_calls_not_run(results)
             finally:
                 # Always tear down both helpers. Reached on:
                 #   - normal completion (run_task done → no-op)
@@ -3480,16 +3641,30 @@ async def stream_chat_completion(
                         )
                 last_call = next_last_call
             total_tool_calls += len(tool_calls)
+            if is_save_round:
+                break  # the save round ran; the wrap-up answers
+            if turn == turn_budget - 3:
+                for m in reversed(messages):
+                    if m.get("role") == "tool" and isinstance(m.get("content"), str):
+                        m["content"] += ROUNDS_LEFT_NOTE
+                        break
+            stop_reason = None
             if blocked_repeats >= MAX_BLOCKED_REPEATS:
                 logger.info(
                     "%d verbatim reruns blocked - forcing wrap-up", blocked_repeats,
                 )
-                break
-            if total_tool_calls >= MAX_TOOL_CALLS_PER_MESSAGE:
+                stop_reason = "guard"
+            elif total_tool_calls >= MAX_TOOL_CALLS_PER_MESSAGE:
                 logger.info(
                     "tool-call budget reached (%d >= %d, persona=%s) - forcing wrap-up",
                     total_tool_calls, MAX_TOOL_CALLS_PER_MESSAGE, persona_id,
                 )
+                stop_reason = "call_cap"
+            if stop_reason:
+                if (any(tc.get("name") in SAVE_ROUND_TOOLS for tc in final_tool_calls)
+                        and turn < turn_budget - 1):
+                    save_round_next = True
+                    continue
                 break
 
         # --- 5b. Wrap-up: force a final synthesis if the loop exhausted its

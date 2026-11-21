@@ -1,6 +1,6 @@
 # Turn budget in lab analysis: plan
 
-Status: PLAN, awaiting "proceed". Parent: `LABKIT-015-PLAN.md` (S8 round 2
+Status: IMPLEMENTED 2026-11-21 ("proceed", Q1-Q6 defaults), not deployed. Parent: `LABKIT-015-PLAN.md` (S8 round 2
 17/21, fresh `_f2` 14/21; Q3 there left "saved nothing" and the turn budget
 to this round). The eval instance stays up.
 
@@ -223,6 +223,60 @@ outside the repo; revisit after change 1 if the Gaussian case still fails.
 
 Not changed: the 20-round budget (Q1), plan tools counting against it
 (Q3), the eval's results.json request (Q2).
+
+## What was built
+
+All in retrieval plus one persona line; the sandbox image is unchanged.
+
+1. `document_store.looks_like_numeric_table` (80% of the first 200
+   non-comment lines are delimited numbers, at least 20 lines). Such a text
+   upload takes the data-file path when the chat has a sandbox; a temporary
+   chat (no sandbox) still gets the text, capped. Any pasted document is
+   capped at `_inline_cap_tokens()` = half of `turn_start_budget()` (about
+   15K tokens) as well as 50,000 chars, and the note says the whole file is
+   in the sandbox.
+2. `budget_loop_messages(hard_tokens=...)`: the pending pass runs only over
+   the window minus `MIN_USEFUL_OUTPUT_TOKENS`, cuts each result to a
+   1,500-char head first (`"_trimmed": true`), and to the stub only if the
+   heads still do not fit. The stub says to print less or save to a file,
+   not to re-run (the old stub is still recognised). `_fit_prompt_for_call`
+   logs a warning with the prompt composition when a newest result is cut,
+   and refuses a tool-enabled call where every newest result is a stub
+   (context_full); this replaces "two rounds in a row", which needed state
+   for the same effect. Wrap-up calls are exempt.
+3. Save round: a sandbox turn's last round (budget end), or one extra
+   round after the repeat guard or the call cap ends the loop, offers only
+   `run_python` and `edit_python` with `SAVE_ROUND_MESSAGE`; then the
+   tools-off wrap-up. Turns that never ran code are unchanged.
+4. `ROUNDS_LEFT_NOTE` is appended to the last tool result two rounds before
+   the end (the round before the save round).
+5. The data-file note shows the line count and the first 8 lines (at most
+   1,500 chars) of a text file (`.csv`, `.tsv`, `.txt`, `.dat`, `.asc`,
+   `.list`, `.xy`, `.prn`, no extension); binary files get none.
+6. Hint `labkit_source` (help() on labkit, `inspect.getsource`/`signature`
+   on labkit, `labkit...__file__`, opening a labkit `.py`), placed last
+   among the domain hints so a specific hint in the same cell wins; quiet
+   when the code calls `guide(`. Persona: the guide, not help() or the
+   source; labkit goes inside run_python. A tool call named `labkit...`
+   gets "Unknown tool: ... labkit is a Python library, not a tool: call it
+   inside run_python".
+7. Repeat guard: run_python/edit_python code is compared without blank
+   lines, full-line comments and trailing spaces; the block message says
+   "if that result was cut or not shown, print only the part you need".
+8. `_log_calls_not_run`: one line per sandbox call that did not run
+   (repeat_guard, invalid_arguments, unknown_tool, tool_failed). Audit
+   `ok = not result.get("error")`.
+
+Tests: `test_chat_context_fit` 39/39 (new: pending result kept over the soft
+target, head kept over the hard limit, stub only when the head cannot fit,
+stub wording); `test_lab_plumbing` 19/19 (numeric detection, `defect.txt` as
+a data file with a preview, temporary chat capped, CSV preview, binary none,
+long prose capped in tokens); `test_repeat_calls` 15/15 (save round after
+the guard, save round and warning at the budget end, none without the
+sandbox, comment-only reruns blocked); `test_labkit_hints` 19/19 (source
+hint, audit flag, labkit-as-a-tool); retrieval hermetic 118/118. Hint replay
+over all 2,424 bundles: 235 gain `labkit_source`, no other hint changes (an
+earlier placement first in the list displaced 3 Sparky hints; moved last).
 
 ## Test, then rerun
 
