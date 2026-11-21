@@ -62,8 +62,12 @@ public):
 | `shard:batch:N`  | N/8 of GPU 0 specifically                          | (unused) |
 | `shard:vllm:N`   | N/8 of GPU 1 specifically (only when vLLM is down) | (unused) |
 
-Production runs `qwen3.8-27b` on the `tp2` profile (tensor parallel
-across both GPUs), so between 6am and 2am no GPU is free. SLURM
+Which backbone production runs is not written here, because it changes:
+`sudo ./deploy.sh model status` shows it, and `GET /api/system` (also
+rendered on the docs pages) reports it with its citation fields and the
+history of what served when (`/opt/munin/config/model-history.jsonl`).
+On the `tp2` profile (tensor parallel across both GPUs) no GPU is free
+between 6am and 2am. SLURM
 refuses to mix whole-GPU and shard allocations on the same physical
 GPU, so shard jobs only fit when vLLM is down or on `single` (then on
 GPU 0). The profile is chosen with `vllm-service start single|tp2`
@@ -283,8 +287,11 @@ both SLURM scripts source the active profile at job start, so the 6 AM cron
 comes up on it too. After the restart read `GPU KV cache size` in the job
 `.out`: the pool must cover `VLLM_MAX_NUM_SEQS_* x VLLM_MAX_MODEL_LEN`.
 
-Shipped profiles: `qwen3.8-27b` (production), `gpt-oss-20b`,
-`qwen3.6-35b-a3b` (record). To add a model, copy the closest profile and
+Shipped profiles: `sage-a1.5`, `qwen3.8-27b` (the paper's backbone),
+`gpt-oss-20b`, `qwen3.6-35b-a3b` (record). Each also carries display and
+citation keys (`MODEL_DISPLAY`, `MODEL_REF_*`), which the docs and the
+publication-usage summary read; `model activate` appends the switch to
+`model-history.jsonl`. To add a model, copy the closest profile and
 change every line; `config/models/README.md` documents each key. The
 values that differ per model, and used to be scattered, are the checkpoint
 and served name, `--quantization`, both parsers, `LLM_THINKING_MODE` (how
