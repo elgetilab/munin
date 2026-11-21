@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-80 committed scorecard JSONs, copied verbatim from
+84 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 124 JSON plus 76 Markdown twins; the remainder are mostly the
+The full set is 128 JSON plus 80 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -146,6 +146,10 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-19_s8-labkit-fresh.json` | S8 tuning check on the 21 fresh cases (`s8.VARIANT = 1`, generated after labkit 0.2.0 was frozen) x 3, same system: 47/63 (0.746); 47/57 without the two cases model-free fitting cannot pass (short trace and membrane; DeerLab's model-free fit gives the same values as labkit). CW 25/33, DEER 22/30; `labkit.epr` in 52/63 runs. Kivelson 3/3 here; broad window and Gaussian FWHM 0/3 | none yet |
 | `2026-11-20_s8-r2-targeted.json` | S8 round 2 (`LABKIT-015-PLAN.md`), `labkit` 0.2.1 (membrane background warning with `dim=2`, text-spectrum upload note, EPR lineshape and power hints, DEER hint example), targeted: the 7 families round 1 failed most (Kivelson, Gaussian FWHM, broad window, power saturation, DEER labeling, concentration, membrane) x 3 on the original set: 17/21 (round 1 on the same runs: 10/21). Paired vs `s8-labkit`: 12 fail->pass, 2 pass->fail, exact McNemar p = 0.013. Kivelson, broad window, membrane 3/3 (round 1: 0, 0, 1); Gaussian FWHM 0/3 (hand work, tool budget) | none yet |
 | `2026-11-20_s8-r2-targeted-fresh.json` | Same 7 families on the fresh `_f2` set (`s8.VARIANT = 2`, generated after `labkit` 0.2.1 was frozen) x 3: 14/21. Round 1's fresh `_f1` on the same families: 9/21 (other parameters, not paired). Membrane 3/3, all with `dim=2` (DeerLab with a free stretched background fails this case); broad window, Kivelson 3/3; Gaussian FWHM 0/3 | none yet |
+| `2026-11-21_lk16-targeted.json` | Turn-budget round (`LABKIT-016-PLAN.md`): numeric text uploads as data files, the newest tool result never blanked (the `print('hello')` runs were blind), a save round before the wrap-up; retrieval only. Gaussian FWHM 3/3 (`s8-r2-targeted` 0/3) and the four cases that hit the 20-call limit most (`s2_bruker_1d`, both HSQC titrations, NOESY buildup) 11/12 vs `r4-suffix-v2` 10/12 (2/1); mean calls 16.2 vs 20.0, runs at 20+ 3 vs 8 | none yet |
+| `2026-11-21_lk16-targeted-fresh.json` | Same round, Gaussian FWHM `_f1` and `_f2`: 6/6 (`s8-labkit-fresh` `_f1` 0/3, `s8-r2-targeted-fresh` `_f2` 0/3) | none yet |
+| `2026-11-21_lk16-control.json` | Same round, control: the round-5 cases (competitive s1-s5, JASCO CD, ANOVA, fit) x 3: 22/24 (`r5b-targeted` 24/24). Both failures are a `reproduces` check: a run that wrote an output file and then raised is left out of `analysis.py`, so the bundle cannot remake that file (an existing `bundle.py` defect) | none yet |
+| `2026-11-21_lk16-control-fresh.json` | Same round, control fresh (competitive s6-s8) x 3: 8/9 (`r5b-targeted-fresh` 9/9). The failure used all 20 calls; its save round ran more checks instead of writing results.json | none yet |
 
 ## Cautions when regenerating figures
 

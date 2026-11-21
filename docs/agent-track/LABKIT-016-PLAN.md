@@ -1,6 +1,7 @@
 # Turn budget in lab analysis: plan
 
-Status: IMPLEMENTED 2026-11-21 ("proceed", Q1-Q6 defaults), not deployed. Parent: `LABKIT-015-PLAN.md` (S8 round 2
+Status: IMPLEMENTED and DEPLOYED 2026-11-21 ("proceed", Q1-Q6 defaults); Gaussian
+FWHM 9/9 (before: 0/9), budget cases 11/12 (10/12), control 30/33 (33/33). Parent: `LABKIT-015-PLAN.md` (S8 round 2
 17/21, fresh `_f2` 14/21; Q3 there left "saved nothing" and the turn budget
 to this round). The eval instance stays up.
 
@@ -315,3 +316,40 @@ still save its file.
 | Q4 | Numeric-text threshold for change 1? | 80% of the first 200 non-empty lines are delimited numbers; a header and comment lines are allowed. |
 | Q5 | Inline cap for documents? | Half of `turn_start_budget()` in tokens (about 15,000 today), not 50,000 chars. |
 | Q6 | Run the save step (change 3) in every chat that used the sandbox, or only when a file was asked for? | Every chat that used the sandbox: the product cannot know what the prompt asked, and the message says "if the task asks for a file". |
+
+## Result: targeted rerun (2026-11-21, deployed)
+
+Tags `lk16-targeted`, `lk16-targeted-fresh`, `lk16-control`,
+`lk16-control-fresh`, 3 reps, v2 results request, `eval` instance (new code
+checked in the container).
+
+| Set | lk16 | Before | Calls (mean) |
+|---|---|---|---|
+| Gaussian FWHM, original | 3/3 | 0/3 (`s8-r2-targeted`), 1/3 (`s8-labkit`) | 13.0 (before 13.3-20.0) |
+| Gaussian FWHM `_f1`, `_f2` | 6/6 | 0/3, 0/3 | 11.3 |
+| `s2_bruker_1d`, HSQC s1/s2, NOESY | 11/12 | 10/12 (`r4-suffix-v2`, paired 2/1) | 16.2 vs 20.0; at 20+: 3 vs 8 |
+| Control (round-5 cases) | 30/33 | 33/33 (`r5b-targeted*`) | 7.1 |
+
+- No blind turns: the eval log since the deploy has no "cut ... newest
+  tool result" and no refused call; older results were budgeted out in two
+  conversations only. All 9 Gaussian runs read `defect.txt` as a data file
+  (preview in the note) and saved results.json.
+- Save round: fired 3 times (all at round 20). Two of the runs wrote
+  results.json in it (HSQC s1#3, s2#3, both passed); one
+  (`s1_competitive_s8#2`) spent it on another check of its fit, and the
+  wrap-up answer ("Let me write the results file.") had no numbers.
+- Hints fired: `labkit_source` 7, plus the usual competitive, EPR, CD, Bruker
+  and Sparky hints. No "call not run" lines.
+
+What failed:
+
+| Run | Cause | Related to this round? |
+|---|---|---|
+| `s5_anova#3`, `s5_fit#2` | `reproduces`: a run wrote `tukey.csv` / `fit_params.csv` and then raised; `bundle.py` leaves failed runs out of `analysis.py`, so the bundle cannot remake the file (a later ok run reads it, or it is in outputs/) | No: an existing bundle defect; round 5 avoided it by chance |
+| `s1_competitive_s8#2` | 20 calls of checks; the save round ran one more | Partly: the save round fired but did not save |
+| `s6_hsqc_titration_s1#2` | Stopped after 6 calls saying it ran out of time (it had 14 rounds left); no tool error, no budget event | No: the model gave up early |
+
+Next, if wanted: (a) `bundle.py` keeps a failed run that produced files
+another run or outputs/ depends on (sandbox); (b) the save round's message
+names the values to write ("write results.json now; do not run more
+checks"), or the wrap-up asks for the final numbers as a JSON block.
