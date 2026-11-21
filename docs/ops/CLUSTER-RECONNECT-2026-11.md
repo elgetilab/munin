@@ -47,7 +47,7 @@ clean card) and "GPU1 engine" means gres `gpu:batch` (the shared card).
 
 | # | Decision | Default | Why |
 |---|---|---|---|
-| D1 | Promote Sage-A1.5 as the production backbone now, or only after a full suite run | **Gate on `scripts/run_suite.sh sage-a1.5` first; keep Qwen3.8 meanwhile** | n=30 shows 22 vs 20 correct, p=0.42: parity, not a clear gain. A backbone switch changes the paper's numbers. |
+| D1 | Promote Sage-A1.5 as the production backbone now, or only after a full suite run | **Gate on `scripts/run_suite.sh sage-a1.5` first; keep Qwen3.8 meanwhile** | n=30 shows 22 vs 20 correct, p=0.42: parity, not a clear gain. A backbone switch changes the paper's numbers.  Outcome: Sage-A1.5 went live at the 2026-11-12 cutover and its suite ran 2026-11-14; it is the production backbone (`model-history.jsonl`). |
 | D2 | If Sage is held back: Qwen3.8 on the old vLLM 0.20.2 venv or on the new 0.33.0 | **Old venv** (the profile has no `VLLM_VENV`, so this is the no-change path) | Qwen3.8 on 0.33.0 was never measured. Moving it needs `VLLM_VENV` in its profile plus a probe + 30-question run (est. 30 GPU-min). |
 | D3 | vLLM serving mode | **single on `gpu:vllm`** | Frees the batch card for the GPU1 engine. TP=2 blocks step 4 entirely. Qwen3.8 single measured at 80 tok/s decode, 206,802-token KV pool. |
 | D4 | Sage tool parser | **qwen3_coder** (model card, profile default) | Both qwen3_coder and qwen3_xml scored 13/14 on the probe. |

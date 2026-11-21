@@ -54,14 +54,14 @@ describe('DemoDeck event notes', () => {
   it('adds the benchmark note from demo.json, and only then', async () => {
     renderDeck(1, vi.fn(), { benchmarkNote: 'This demo uses a different model.' });
     expect(await screen.findByText(/This demo uses a different model\./)).toHaveTextContent(
-      /in preparation\. This demo uses a different model\. Citations are always worth checking\.$/,
+      /arXiv:2610\.23480\. This demo uses a different model\. Citations are always worth checking\.$/,
     );
   });
 
   it('keeps the benchmark source plain without a note', async () => {
     renderDeck(1);
     const source = screen.getByText(/LitQA2, 199 questions/);
-    await waitFor(() => expect(source).toHaveTextContent(/in preparation\. Citations are always worth checking\.$/));
+    await waitFor(() => expect(source).toHaveTextContent(/arXiv:2610\.23480\. Citations are always worth checking\.$/));
     expect(source).not.toHaveTextContent(/tonight/i);
   });
 });

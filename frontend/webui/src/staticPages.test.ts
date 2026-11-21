@@ -466,6 +466,23 @@ describe('docs and landing pages', () => {
   const landing = () => page('landing/index.html');
   const guide = () => page('docs/guide.html');
 
+  // Model names are rendered from the deployment (/_facts.json), never typed
+  // into the pages; scripts/check-docs-drift.sh guards the same in CI.
+  it.each(['docs/index.html', 'docs/architecture.html', 'docs/guide.html', 'landing/cite.html'])(
+    '%s reads its model facts from the deployment', (path) => {
+      const html = readStatic(path);
+      expect(html).toContain('httpInclude "/_facts.json"');
+      expect(html).not.toMatch(/qwen3\.8|Qwen3\.8|SPECTER|Sage-A1\.5/);
+    });
+
+  it('links every footer Cite Munin to the public cite page', () => {
+    for (const path of ['landing/index.html', 'landing/cite.html', 'docs/index.html', 'docs/guide.html',
+      'docs/architecture.html', 'search/index.html', 'upload/index.html', 'maintenance/index.html']) {
+      const cite = [...page(path).querySelectorAll('footer a')].find((a) => a.textContent === 'Cite Munin')!;
+      expect(cite.getAttribute('href'), path).toBe('https://munin_url_home.example.org/cite');
+    }
+  });
+
   it('wraps every architecture table, so only the table scrolls on a phone', () => {
     const doc = page('docs/architecture.html');
     const tables = [...doc.querySelectorAll('table')];
@@ -751,7 +768,7 @@ describe('static theme toggle', () => {
     expect(root.getAttribute('data-theme')).toBe('light');
   });
 
-  const pages = ['landing/index.html', 'search/index.html', 'upload/index.html',
+  const pages = ['landing/index.html', 'landing/cite.html', 'search/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html'];
 
   it.each(pages)('%s loads the toggle and has a header for it', (path) => {
@@ -761,11 +778,24 @@ describe('static theme toggle', () => {
     expect(doc.querySelector('header .header-content > nav')).not.toBeNull();
   });
 
-  it.each(pages)('%s keeps every Caddy directive an env lookup', (path) => {
+  // Every `{{` must be a template action Caddy is meant to run: an env
+  // lookup, or (on the pages that render deployment facts) the small set of
+  // actions they use. A stray `{{` in page text, such as one in a code
+  // sample, would fail the page at serve time.
+  const ACTION = /\{\{-?\s*(?:env "[A-Z_]+"|\/\*|\$[a-z]|if |else|end|with |dig |printf |substr |\.)(?:(?!\{\{)[\s\S])*?\}\}/g;
+  it.each(pages)('%s keeps every Caddy directive a known template action', (path) => {
     const html = readStatic(path);
     const opened = html.split('{{').length - 1;
-    const directives = html.match(/\{\{env "[A-Z_]+"\}\}/g) ?? [];
-    expect(directives).toHaveLength(opened);
+    const actions = html.match(ACTION) ?? [];
+    expect(actions).toHaveLength(opened);
+    if (!html.includes('httpInclude')) {
+      expect(html.match(/\{\{env "[A-Z_]+"\}\}/g) ?? []).toHaveLength(opened);
+    }
+  });
+
+  it('rejects a stray directive the action pattern would not run', () => {
+    const stray = '<pre>{{"a": 1}}</pre> {{env "MUNIN_DOMAIN"}}';
+    expect((stray.match(ACTION) ?? []).length).toBe(1);
   });
 
   it('has nothing Caddy templates would read as a directive', () => {
@@ -810,7 +840,7 @@ describe('upload page theme', () => {
 describe('self-hosted fonts', () => {
   const pages = ['landing/index.html', 'search/index.html', 'upload/index.html',
     'maintenance/index.html', 'docs/index.html', 'docs/architecture.html', 'docs/guide.html',
-    'shared/site.css', 'shared/auth.css', 'docs/docs.css', '../auth/templates/login.html', '../auth/templates/verify.html'];
+    'landing/cite.html', 'shared/site.css', 'shared/auth.css', 'shared/docs.css', '../auth/templates/login.html', '../auth/templates/verify.html'];
 
   it.each(pages)('%s asks no font host', (path) => {
     expect(readStatic(path)).not.toMatch(/fonts\.googleapis\.com|fonts\.gstatic\.com/);

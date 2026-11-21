@@ -253,6 +253,61 @@ export async function revokeApiKey(id: string): Promise<void> {
   if (!res.ok) throw new Error('Failed to revoke API key');
 }
 
+/** One model's share of a user's usage (gateway /api/usage/me/summary). */
+export interface ModelUsage {
+  model: string;
+  display: string;
+  developer?: string | null;
+  checkpoint?: string | null;
+  revision?: string | null;
+  quantization?: string | null;
+  vllm_version?: string | null;
+  /** Set for a hosted model (the Claude fallback during an outage). */
+  hosted_by?: string | null;
+  first_use: string | null;
+  last_use: string | null;
+  requests: number;
+  /** Rows from before the model was recorded; model taken from history. */
+  inferred_requests: number;
+  conversations: number;
+  deep_research_jobs: number;
+  tokens_total: number;
+}
+
+export interface UsageSummary {
+  from: string | null;
+  to: string | null;
+  models: ModelUsage[];
+  totals: { requests: number; conversations: number; deep_research_jobs: number; tokens_total: number };
+  statement: {
+    methods?: string;
+    writing_only?: string;
+    acknowledgment?: string;
+    references_apa?: string[];
+    bibtex?: string;
+  };
+  notes: string[];
+}
+
+function summaryQuery(from: string, to: string, extra: Record<string, string> = {}): string {
+  const q = new URLSearchParams(extra);
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
+  const s = q.toString();
+  return s ? `?${s}` : '';
+}
+
+export async function fetchUsageSummary(from: string, to: string): Promise<UsageSummary> {
+  const res = await apiFetch(`${API}/usage/me/summary${summaryQuery(from, to)}`);
+  if (!res.ok) throw new Error('Failed to fetch usage summary');
+  return res.json();
+}
+
+/** Link for the CSV export of the same summary (a plain download). */
+export function usageSummaryCsvUrl(from: string, to: string): string {
+  return `${API}/usage/me/summary${summaryQuery(from, to, { format: 'csv' })}`;
+}
+
 export async function fetchUsageStats(): Promise<UsageStats> {
   const res = await apiFetch(`${API}/usage/me`);
   if (!res.ok) throw new Error('Failed to fetch usage stats');

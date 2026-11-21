@@ -45,6 +45,21 @@
 	}
 }
 
+# Model and system facts for the docs templates; see the production Caddyfile.
+(facts) {
+	handle /_facts.json {
+		rewrite * /api/system
+		reverse_proxy 127.0.0.1:8070
+	}
+}
+
+(facts-errors) {
+	handle_errors {
+		@facts path /_facts.json
+		respond @facts `{}` 200
+	}
+}
+
 (shared-assets) {
 	handle_path /shared/* {
 		root * /srv/static/shared
@@ -151,17 +166,26 @@
 
 :8082 {
 	import shared-assets
-	root * /srv/static/docs
-	import static-templates
-	file_server
+	import facts
+	handle {
+		root * /srv/static/docs
+		import static-templates
+		file_server
+	}
+	import facts-errors
 }
 
 :8083 {
 	# Public landing page, no auth, same as production.
 	import shared-assets
-	root * /srv/static/landing
-	import static-templates
-	file_server
+	import facts
+	handle {
+		root * /srv/static/landing
+		try_files {path} {path}.html
+		import static-templates
+		file_server
+	}
+	import facts-errors
 }
 
 :8084 {

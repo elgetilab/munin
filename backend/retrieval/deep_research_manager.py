@@ -26,6 +26,8 @@ from typing import Any, Optional
 
 import deep_research_agent as _dr
 import research_store
+from usage_tracker import (aggregate_totals, current_model_tally,
+                           current_usage_aggregator, primary_model)
 
 MAX_CONCURRENT = int(os.getenv("DEEP_RESEARCH_MAX_CONCURRENT", "1"))
 
@@ -78,6 +80,14 @@ async def start_job(question: str, *, conversation_id: Optional[str] = None,
 async def _run(job_id: str, question: str, depth: str,
                conv: Optional[str], user: Optional[str], kw: dict) -> None:
     started = time.time()
+    # This task's own usage aggregator: every LLM call of the job (its own
+    # planning/synthesis and the source agent's reads) folds into it, and the
+    # total is written to the job row at the end. A task copies the context
+    # at creation, so binding here cannot leak into the caller's turn.
+    usage_agg: dict[str, dict] = {}
+    model_tally: dict[str, int] = {}
+    current_usage_aggregator.set(usage_agg)
+    current_model_tally.set(model_tally)
 
     async def _progress(event: str, data: dict) -> None:
         # Every agent milestone becomes a render-ready event in the durable log.
@@ -114,6 +124,12 @@ async def _run(job_id: str, question: str, depth: str,
                                         error=f"{type(exc).__name__}: {exc}")
     finally:
         _tasks.pop(job_id, None)
+        if usage_agg or model_tally:
+            try:
+                await research_store.set_usage(job_id, aggregate_totals(usage_agg),
+                                               model_tally, primary_model(model_tally))
+            except Exception:  # noqa: BLE001 - accounting must not fail the job
+                pass
 
 
 async def _deliver(job_id: str, conv: Optional[str], user: Optional[str],

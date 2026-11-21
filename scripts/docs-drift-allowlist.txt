@@ -1,0 +1,9 @@
+# Lines in served pages that may name a model, for scripts/check_docs_drift.py.
+# Format: path, two or more spaces, a substring of the line, then  # reason.
+# Only results tied to the model they were measured on belong here; anything
+# describing what runs today must come from /_facts.json instead.
+frontend/static/landing/index.html  data-model="0">Qwen3.8-27B</button>  # paper results tab: measured on this backbone
+frontend/static/landing/index.html  data-model="1">Qwen3.6-35B-A3B</button>  # paper results tab: measured on this backbone
+frontend/static/landing/index.html  data-model="2">gpt-oss-20b</button>  # paper results tab: measured on this backbone
+frontend/static/landing/index.html  Munin against naive RAG (Qwen3.8-27B)  # paper faithfulness result, measured on this backbone
+frontend/webui/src/components/DemoDeck.tsx  Qwen3.8-27B on the cluster with the full collection (the paper's  # paper benchmark provenance

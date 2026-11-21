@@ -175,8 +175,9 @@ function SlideWhy({ benchmarkNote }: { benchmarkNote: string | null }) {
         />
       </div>
       <p className="text-sm text-text-secondary">
-        LitQA2, 199 questions; Qwen3.8-27B on the cluster with the full collection. MuninAI paper, in
-        preparation.{benchmarkNote && ` ${benchmarkNote}`} Citations are always worth checking.
+        LitQA2, 199 questions; Qwen3.8-27B on the cluster with the full collection (the paper's
+        benchmark run, not necessarily today's model). MuninAI paper, arXiv:2610.23480.
+        {benchmarkNote && ` ${benchmarkNote}`} Citations are always worth checking.
       </p>
     </div>
   );

@@ -1,6 +1,9 @@
 # Munin
 
+[![arXiv](https://img.shields.io/badge/arXiv-2610.23480-b31b1b.svg)](https://arxiv.org/abs/2610.23480)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23191403.svg)](https://doi.org/10.5281/zenodo.23191403)
+
+**Paper:** [MuninAI: A Self-Hosted Agentic Framework for independent Research Groups](https://arxiv.org/abs/2610.23480) (arXiv:2610.23480)
 
 Munin is an open-source AI research platform built for scientific groups: a
 private chat, retrieval and deep-research stack over your own paper collection,
@@ -184,8 +187,25 @@ resolves to the newest version; v1.0.0 is
 [10.5281/zenodo.23191404](https://doi.org/10.5281/zenodo.23191404). If you use
 Munin, please cite the accompanying paper, *MuninAI: A Self-Hosted Agentic
 Framework for independent Research Groups* (M. Fischer, J. Meiler, M. Elgeti;
-in preparation). GitHub's "Cite this repository" gives both entries from
-[CITATION.cff](CITATION.cff).
+[arXiv:2610.23480](https://arxiv.org/abs/2610.23480)). GitHub's "Cite this
+repository" gives both entries from [CITATION.cff](CITATION.cff).
+
+```bibtex
+@misc{munin2026,
+  title = {MuninAI: A Self-Hosted Agentic Framework for independent Research Groups},
+  author = {Fischer, Markus and Meiler, Jens and Elgeti, Matthias},
+  year = {2026},
+  eprint = {2610.23480},
+  archivePrefix = {arXiv},
+  url = {https://arxiv.org/abs/2610.23480},
+}
+```
+
+If you *used* a Munin deployment in your research (rather than the
+software), also disclose the language model that answered you, which a
+deployment changes over time. A deployment's `/cite` page has templates and
+publisher rules, and Settings, "Credit Munin in a paper", lists the models,
+dates and references for your own usage.
 
 ## Contributing
 

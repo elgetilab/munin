@@ -172,6 +172,10 @@ jobs:
         # The history was rewritten before release, which changed every hash;
         # this fails as soon as a cited commit no longer resolves.
         run: python3 backend/scripts/ci/check_commit_refs.py
+      - name: No served page names a model by hand (docs render it from /api/system)
+        # docs/DOCS-SYNC-AND-CREDIT-PLAN.md: the docs said Qwen3.8-27B and
+        # SPECTER long after both were replaced. Terms come from the profiles.
+        run: python3 scripts/check_docs_drift.py
       - name: Compose config resolves, and the invariants hold
         # Cheap (no images pulled) and guards the properties the whole
         # single-host setup rests on: cluster defaults stay production, local

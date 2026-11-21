@@ -76,6 +76,10 @@ ships alongside `frontend/`; the auth compose mount references
 `../shared/config/contributors.yml`).
 
 ```bash
+# No served page may name a model by hand (the docs render it from the
+# deployment); fails with the offending lines.
+python3 scripts/check_docs_drift.py
+
 # Build frontend first
 cd frontend/webui && npm run build && cd ../..
 

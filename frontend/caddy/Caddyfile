@@ -40,6 +40,27 @@
 	}
 }
 
+# What the deployment runs (model, embeddings, fallback, references), for the
+# docs pages: `{{ httpInclude "/_facts.json" | fromJson }}` in a template
+# makes a sub-request to this route, which is the gateway's public, cached
+# /api/system. Public on purpose (the landing page's cite page uses it too):
+# it holds nothing the docs do not print. facts-errors answers `{}` when the
+# gateway cannot, because a failed include fails the whole page; templates
+# fall back to neutral wording on an empty object.
+(facts) {
+	handle /_facts.json {
+		rewrite * /api/system
+		reverse_proxy 127.0.0.1:8070
+	}
+}
+
+(facts-errors) {
+	handle_errors {
+		@facts path /_facts.json
+		respond @facts `{}` 200
+	}
+}
+
 (shared-assets) {
 	handle_path /shared/* {
 		root * /srv/static/shared
@@ -51,9 +72,15 @@
 # ── Landing Page (public, NO auth) ──────────────────────────────────────────
 {$MUNIN_DOMAIN} {
 	import shared-assets
-	root * /srv/static/landing
-	import static-templates
-	file_server
+	import facts
+	handle {
+		root * /srv/static/landing
+		# /cite serves cite.html (the "Cite Munin" page every footer links).
+		try_files {path} {path}.html
+		import static-templates
+		file_server
+	}
+	import facts-errors
 }
 
 # ── Auth Portal (munin-auth login UI) ───────────────────────────────────────
@@ -81,10 +108,14 @@ api.{$MUNIN_DOMAIN} {
 # ── Documentation ────────────────────────────────────────────────────────────
 docs.{$MUNIN_DOMAIN} {
 	import shared-assets
-	import auth
-	root * /srv/static/docs
-	import static-templates
-	file_server
+	import facts
+	handle {
+		import auth
+		root * /srv/static/docs
+		import static-templates
+		file_server
+	}
+	import facts-errors
 }
 
 # ── Chat (custom web UI) ────────────────────────────────────────────────────

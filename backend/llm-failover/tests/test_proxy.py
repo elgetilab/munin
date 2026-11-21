@@ -177,6 +177,7 @@ def test_models_reports_fallback(env):
     r = c.get("/v1/models").json()
     assert r["data"][0]["id"] == "qwen3.8-27b"
     assert r["munin_llm"]["fallback_active"] is False
+    assert r["munin_llm"]["secondary_model"], "the standby is named even while idle"
     ups.primary = "down"
     state.observe_primary(False)
     state.observe_primary(False)

@@ -9,11 +9,19 @@
     <link rel="icon" type="image/svg+xml" href="/shared/munin_logo_without_script.svg">
     <link rel="stylesheet" href="/shared/style.css?v=3">
     <link rel="stylesheet" href="/shared/site.css?v=1">
-    <link rel="stylesheet" href="docs.css?v=1">
+    <link rel="stylesheet" href="/shared/docs.css?v=2">
     <script src="/shared/theme.js?v=2" defer></script>
     <style>        /* The index: one column of hairline rows, each with its own button. */
         .doc-index > * { max-width: 800px; }
         .doc-index .lede { margin-bottom: 44px; }
+        /* "Currently running": hairline rows, like the doc list below it. */
+        .running { margin: 0 0 40px; }
+        .running dl { margin: 0 0 10px; border-top: 1px solid var(--line); }
+        .running dl > div { display: grid; grid-template-columns: 9em minmax(0, 1fr); gap: 4px 20px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+        .running dt { color: var(--text-3); font-size: 14px; font-weight: 600; }
+        .running dd { margin: 0; color: var(--text-2); font-size: 15px; line-height: 1.6; }
+        .running dd strong { color: var(--text); font-weight: 600; }
+        @media (max-width: 600px) { .running dl > div { grid-template-columns: minmax(0, 1fr); } }
         .group-h { font-size: 13px; font-weight: 600; color: var(--text-3); margin: 0 0 4px; letter-spacing: 0; }
         .doc-rows { list-style: none; margin: 0 0 40px; padding: 0; border-top: 1px solid var(--line); }
         .doc-rows li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; margin: 0; padding: 20px 0; border-bottom: 1px solid var(--line); }
@@ -49,6 +57,25 @@
     <div class="wrap doc-index">
         <h1>Documentation</h1>
         <p class="lede">Technical documentation for the Munin research assistant.</p>
+{{- /* "Currently running": read from the deployment (/_facts.json, see
+     architecture.html), so it changes when the model does. */ -}}
+{{- $f := (httpInclude "/_facts.json" | fromJson) -}}{{- if not (kindIs "map" $f) }}{{ $f = dict }}{{ end -}}
+{{- $b := dig "backbone" dict $f -}}
+{{- $fb := dig "fallback" dict $f -}}
+{{- if $b.slug }}
+        <section class="running" aria-labelledby="running-h">
+            <h2 id="running-h" class="group-h">Currently running</h2>
+            <dl>
+                <div><dt>Model</dt><dd><strong>{{ $b.display }}</strong>{{ with $b.developer }} by {{ . }}{{ end }}{{ with $b.base }}, fine-tuned from {{ . }}{{ end }}{{ with $b.since }} &middot; since {{ substr 0 10 . }}{{ end }}</dd></div>
+                <div><dt>Details</dt><dd>{{ with $b.architecture }}{{ . }}; {{ end }}{{ with $b.quantization }}{{ . }}; {{ end }}{{ with $b.context_window }}{{ printf "%.0f" . }}-token context; {{ end }}served with vLLM{{ with $b.vllm_version }} {{ . }}{{ end }}</dd></div>
+                <div><dt>Embeddings</dt><dd>Papers: {{ dig "embeddings" "papers" "model" "?" $f }}. Your files: {{ dig "embeddings" "uploads" "model" "?" $f }}.</dd></div>
+                {{- with $fb.model }}
+                <div><dt>Fallback</dt><dd>{{ if $fb.active }}<strong>Active now:</strong> the cluster model is down and {{ dig "display" . $fb }} is answering through the {{ $fb.hosted_by }}.{{ else }}{{ dig "display" . $fb }} through the {{ $fb.hosted_by }}, only while the cluster model is down.{{ end }}</dd></div>
+                {{- end }}
+            </dl>
+            <p class="note">Read from the running deployment{{ if $f.stale }} (last known state: the cluster is not answering right now){{ end }}. <a href="architecture.html#model">Model details</a> &middot; <a href="{{env "MUNIN_URL_HOME"}}/cite">How to cite</a></p>
+        </section>
+{{- end }}
 
         <h2 class="group-h">Guides</h2>
         <ul class="doc-rows">
@@ -109,7 +136,7 @@
                     <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
                     <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
                     <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
-                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                    <li><a href="{{env "MUNIN_URL_HOME"}}/cite">Cite Munin</a></li>
                 </ul>
             </div>
             <div class="f-col">

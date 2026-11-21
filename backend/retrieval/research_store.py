@@ -64,6 +64,16 @@ async def _ensure_tables() -> None:
             )
             """
         )
+        # Token usage and the answering model of the job, written once at the
+        # end (set_usage). Deep Research runs outside any chat turn, so the
+        # gateway's usage_log never sees these tokens; the publication-usage
+        # summary reads them from here (usage_for_user).
+        cur = await db.execute("PRAGMA table_info(research_jobs)")
+        cols = {r["name"] for r in await cur.fetchall()}
+        for col, typ in (("tokens_prompt", "INTEGER"), ("tokens_completion", "INTEGER"),
+                         ("tokens_total", "INTEGER"), ("model", "TEXT"), ("models", "TEXT")):
+            if col not in cols:
+                await db.execute(f"ALTER TABLE research_jobs ADD COLUMN {col} {typ}")
     _tables_ready = True
 
 
@@ -145,4 +155,30 @@ async def list_jobs(user_email: str) -> list[dict]:
         "SELECT job_id, conversation_id, question, status, created_at, updated_at "
         "FROM research_jobs WHERE user_email = ? ORDER BY created_at DESC LIMIT 50",
         (user_email,))
+    return [_job_row_to_dict(r) for r in await cur.fetchall()]
+
+
+async def set_usage(job_id: str, totals: dict, models: dict[str, int],
+                    model: Optional[str]) -> None:
+    """Record the job's summed token usage and which model(s) answered."""
+    await _ensure_tables()
+    async with write_txn() as db:
+        await db.execute(
+            "UPDATE research_jobs SET tokens_prompt = ?, tokens_completion = ?, "
+            "tokens_total = ?, model = ?, models = ? WHERE job_id = ?",
+            (int(totals.get("prompt_tokens") or 0), int(totals.get("completion_tokens") or 0),
+             int(totals.get("total_tokens") or 0), model,
+             json.dumps(models) if models else None, job_id))
+
+
+async def usage_for_user(user_email: str, since: float, until: float) -> list[dict]:
+    """The caller's Deep Research jobs created in [since, until) (epoch
+    seconds) with their usage, for the publication-usage summary."""
+    await _ensure_tables()
+    db = await get_db()
+    cur = await db.execute(
+        "SELECT job_id, status, created_at, tokens_prompt, tokens_completion, "
+        "tokens_total, model FROM research_jobs "
+        "WHERE user_email = ? AND created_at >= ? AND created_at < ? ORDER BY created_at",
+        (user_email, since, until))
     return [_job_row_to_dict(r) for r in await cur.fetchall()]

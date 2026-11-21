@@ -47,7 +47,9 @@ import site_config
 from database import VLLM_MODEL_NAME, reasoning_effort_fields, thinking_budget_fields
 from vllm_client import vllm_post_json, vllm_post_stream, VLLMRequestError
 from usage_tracker import (
+    current_model_tally,
     current_usage_aggregator,
+    primary_model,
     record_usage,
     aggregate_totals,
 )
@@ -880,7 +882,7 @@ async def _force_clarification_retry(
                 attempt + 1, max_attempts, e,
             )
             continue
-        record_usage("forced_clarification", d.get("usage"))
+        record_usage("forced_clarification", d.get("usage"), d.get("model"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
@@ -972,7 +974,7 @@ async def _wrap_up_repeat_retry(
     except Exception as e:  # never let the retry break the turn
         logger.warning("wrap-up repeat retry failed: %s", e)
         return None
-    record_usage("wrap_up_retry", d.get("usage"))
+    record_usage("wrap_up_retry", d.get("usage"), d.get("model"))
     msg = (d.get("choices") or [{}])[0].get("message") or {}
     content = msg.get("content") or ""
     if not content.strip() or has_repeats(content):
@@ -1052,7 +1054,7 @@ async def _force_required_tool_retry(
                 attempt + 1, max_attempts, e,
             )
             continue
-        record_usage("forced_required", d.get("usage"))
+        record_usage("forced_required", d.get("usage"), d.get("model"))
         msg = (d.get("choices") or [{}])[0].get("message") or {}
         tcs = msg.get("tool_calls") or []
         if not tcs:
@@ -1091,6 +1093,8 @@ class _StreamAccumulator:
         self.tool_calls: dict[int, dict] = {}
         self.finish_reason: Optional[str] = None
         self.usage: Optional[dict] = None
+        # The answering model, from the chunks' own `model` field.
+        self.model: Optional[str] = None
 
     @property
     def content(self) -> str:
@@ -1343,6 +1347,8 @@ async def _stream_vllm_once(
 
                     if chunk.get("usage"):
                         acc.usage = chunk["usage"]
+                    if chunk.get("model"):
+                        acc.model = chunk["model"]
 
                     choices = chunk.get("choices") or []
                     if not choices:
@@ -2916,6 +2922,8 @@ async def stream_chat_completion(
     # invoked from assemble_context (history summarisation).
     usage_agg: dict[str, dict] = {}
     usage_token = current_usage_aggregator.set(usage_agg)
+    model_tally: dict[str, int] = {}
+    model_tally_token = current_model_tally.set(model_tally)
     try:
         messages, compact_info = await chat_context.assemble_context(
             conversation=conversation,
@@ -3109,7 +3117,7 @@ async def stream_chat_completion(
             final_thinking += acc.thinking
             final_content += acc.content
             acc_transferred = True
-            record_usage("main_turn", acc.usage)
+            record_usage("main_turn", acc.usage, acc.model)
             finish_reason = acc.finish_reason
 
             tool_calls = acc.finalized_tool_calls()
@@ -3711,7 +3719,7 @@ async def stream_chat_completion(
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_acc.content
                 answer_raw += wrap_acc.content
-                record_usage("wrap_up", wrap_acc.usage)
+                record_usage("wrap_up", wrap_acc.usage, wrap_acc.model)
                 finish_reason = wrap_acc.finish_reason or finish_reason
             if not final_content.strip():
                 final_content = f"_({chat_context.CONTEXT_FULL_MESSAGE})_"
@@ -3762,7 +3770,7 @@ async def stream_chat_completion(
                 final_thinking += wrap_acc.thinking
                 final_content += wrap_content
                 answer_raw += wrap_content
-                record_usage("wrap_up", wrap_acc.usage)
+                record_usage("wrap_up", wrap_acc.usage, wrap_acc.model)
                 finish_reason = wrap_acc.finish_reason or finish_reason
 
         # Drop stray <answer> tags and collapse looped paragraphs before the
@@ -3933,6 +3941,11 @@ async def stream_chat_completion(
             {
                 "usage": aggregate_totals(usage_agg),
                 "usage_by_purpose": usage_agg,
+                # Which model answered (the hosted fallback's name when it
+                # served the turn) and how many calls each model answered.
+                # The gateway records `model` in usage_log.
+                "model": primary_model(model_tally),
+                "models": model_tally,
                 "finish_reason": finish_reason or "stop",
                 # Distinct from finish_reason (which is "stop" even after the
                 # turn-budget wrap-up). Lets the client tell a budget-capped
@@ -4062,6 +4075,8 @@ async def stream_chat_completion(
         # was already reset by an outer scope.
         with contextlib.suppress(ValueError, LookupError):
             current_usage_aggregator.reset(usage_token)
+        with contextlib.suppress(ValueError, LookupError):
+            current_model_tally.reset(model_tally_token)
         # P1 #12 turn-counter. Always emit, including the "error" default
         # when an unhandled exception punched out of the try without
         # classification. Persona name is best-effort.

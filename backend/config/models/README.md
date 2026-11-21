@@ -8,7 +8,7 @@ file, so the model is named in exactly one place. `sudo ./deploy.sh instance up
 <slug> ...` serves a second profile beside production on another GPU and port.
 
 To add a model: copy the closest file, change every line, run `deploy.sh
-model validate <slug>`. Every key is required unless marked optional; the
+model validate <slug>`. Every key is required unless marked optional (the display and citation keys feed the public docs and the citation helper, so a new profile cannot ship without them); the
 switch refuses a file with a missing key rather than guessing.
 
 | key | meaning |
@@ -32,6 +32,13 @@ switch refuses a file with a missing key rather than guessing.
 | `VLLM_REASONING_END_STR` | optional; the text vLLM forces when a thinking budget runs out, passed as `--reasoning-config` by the start scripts. `\n` escapes are decoded. Blank or absent = vLLM's default (the parser's bare end token) |
 | `KV_KIB_PER_TOKEN` | fp8 KV bytes per token, for the memory arithmetic and the gate |
 | `SAMPLING_DEFAULT`, `SAMPLING_CODE` | JSON, the vendor's recommended sampling per persona class |
+| `MODEL_DISPLAY`, `MODEL_DEVELOPER` | the name people read ("Sage-A1.5") and who made the weights; shown in the docs, `/api/system` and the publication statement |
+| `MODEL_BASE` | blank, or the model this one is fine-tuned from |
+| `MODEL_ARCH`, `MODEL_QUANT` | one line each, for the docs ("Mixture of experts, 35B total / 3B active parameters"; "AWQ-INT4 g32 (cyankiwi)") |
+| `MODEL_REVISION` | the HF commit of the served checkpoint (`MODEL_ID`), read from `.cache/huggingface/download/*.metadata` after the download |
+| `MODEL_LICENSE`, `MODEL_URL` | the weights' license and the upstream model card |
+| `MODEL_REF_AUTHOR`, `MODEL_REF_TITLE`, `MODEL_REF_YEAR`, `MODEL_REF_URL` | the reference people cite for the model, from its card's BibTeX |
+| `MODEL_REF_ARXIV` | blank, or the arXiv id of that reference |
 | `LLM_VISION` | optional; `0` for a text-only backbone (Sage-A1.5, gpt-oss), which the backend then sends no images: plot feedback relies on the text `figure_summary`, attached images become a note and an input file for code. Blank decides from `VLLM_EXTRA_ARGS` (`--language-model-only` means text-only) |
 
 The sampling values are part of the system under test: every committed

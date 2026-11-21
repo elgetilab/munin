@@ -27,10 +27,15 @@ keywords:
 preferred-citation:
   # The paper that accompanies the software. Its authors are the paper's
   # authors; the software itself is the Elgeti Lab's (authors above).
-  # Venue and DOI follow once the paper has a reference.
+  # A preprint on arXiv; venue and DOI follow once it is published.
   type: article
-  status: in-preparation
   title: "MuninAI: A Self-Hosted Agentic Framework for independent Research Groups"
+  year: 2026
+  url: "https://arxiv.org/abs/2610.23480"
+  identifiers:
+    - type: other
+      value: "arXiv:2610.23480"
+      description: arXiv preprint
   authors:
     - given-names: Markus
       family-names: Fischer
