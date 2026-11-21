@@ -67,6 +67,7 @@ Routes that do **not** check identity:
 
 - `GET /api/status`
 - `GET /api/models`
+- `GET /api/system`
 - `GET /api/personas`
 - `GET /api/personas/{id}/icon`
 - `GET /api/tags`
@@ -248,6 +249,50 @@ routed through the gateway.
   shape as `/api/status`'s `llm_fallback`. `id` does not change during a
   failover, so API clients keep sending the same `model`; responses then
   carry the Claude model's name in their own `model` field.
+
+### 4.1b `GET /api/system`
+
+Public facts about what the deployment runs, read from the active model
+profile and `/app/config/model-history.jsonl` (`model_facts.py`), never from
+literals. The VPS gateway caches it (60 s, kept on disk) and serves it
+unauthenticated at `/api/system`; Caddy renders it into the docs pages as
+`/_facts.json`. Holds no hostnames, ports or secrets.
+
+```json
+{
+  "backbone": {"slug": "sage-a1.5", "served_name": "sage-a1.5", "display": "Sage-A1.5",
+               "developer": "...", "base": "...", "architecture": "...", "quantization": "...",
+               "checkpoint": "cyankiwi/Sage-A1.5-AWQ-INT4", "revision": "<40-hex>",
+               "license": "Apache-2.0", "url": "...", "context_window": 65536, "vision": false,
+               "thinking_budget": 8192, "since": "2026-11-12T17:46:00Z", "vllm_version": "0.33.0",
+               "reference": {"author": "...", "title": "...", "year": "2026", "url": "...",
+                             "arxiv": "...", "apa": "...", "bibtex": "..."}},
+  "served": true,
+  "fallback": {"model": "claude-haiku-5-5", "display": "Claude Haiku 5.5", "active": false,
+               "since": null, "hosted_by": "Anthropic API"},
+  "embeddings": {"papers": {"model": "BGE-large-en-v1.5", "dims": 1024},
+                 "uploads": {"model": "BGE-base-en-v1.5", "dims": 768}},
+  "history": [{"slug": "...", "display": "...", "model_id": "...", "revision": "...",
+               "vllm": "...", "from": "...", "to": null, "approximate": true, "hosted": null}],
+  "catalog": {"<served name>": {"display": "...", "reference": {}}},
+  "references": {"munin": {"apa": "...", "bibtex": "..."}, "vllm": {"apa": "...", "bibtex": "..."}},
+  "generated_at": "..."
+}
+```
+
+`backbone` is `{}` when no profile is active. The gateway adds
+`available` and `stale` (true while it serves its last cached copy) and
+writes every `{{` as `{\u007b`, because Caddy's `httpInclude` executes the
+included body as a template.
+
+### 4.1c `GET /api/usage/research?since=<epoch>&until=<epoch>`
+
+The caller's Deep Research jobs created in `[since, until)` with token usage
+and the answering model: `{"jobs": [{"job_id", "status", "created_at",
+"tokens_prompt", "tokens_completion", "tokens_total", "model"}]}`. Deep
+Research runs outside chat turns, so the gateway's `usage_log` never sees
+these tokens; its publication-usage summary (`/api/usage/me/summary`, gateway
+only) merges them in. Requires the identity header (401 without).
 
 ### 4.2 `GET /api/personas`
 
@@ -1774,7 +1819,7 @@ data: <minified json>
 | ~~`artifact`~~ | ~~*deprecated, removed in §22 Stage C*~~ | ~~The old standalone sandbox-artifact event has been removed. Consume `artifact_created` with `source: "sandbox_generated"` instead.~~ |
 | `clarification` | `{"tool_call_id": "tc-1", "conversation_id": "...", "what_i_understood": "...", "questions": [{"id": "q1", "text": "...", "options": ["a","b","c"], "allow_custom": true}, ...]}` | §14. Fires exactly once per turn when the model calls `ask_clarification` on an ambiguous request. The turn is short-circuited: no `tool_result`, no wrap-up synthesis, no other tool calls from the same turn run, and `done` follows immediately with `finish_reason: "clarification"`. Frontend renders an inline card with 1-5 multiple-choice questions (2-6 options each, plus optional free-text field when `allow_custom: true`). The user's answers should be posted as a normal follow-up user message on the next `/api/chat/completions` request - no special-case API |
 | `token` | `{"content": "partial response text"}` | Many. Accumulate into the visible answer. Sourced from vLLM `delta.content` |
-| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "finish_reason": "stop", "terminal_reason": "done", "message_ids": {"user": "...", "assistant": "..."}}` | Always the last event on success. `message_ids` are the saved ids of this turn's user message and reply (empty on ephemeral chats), so the client can name them in a later `replace_from` without reloading the conversation; the clarification `done` carries them too. `usage` is the **aggregate across every vLLM call this turn**, not just the last one - the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`. Purposes with zero calls are omitted. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` - distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
+| `done` | `{"usage": {"prompt_tokens": N, "completion_tokens": N, "total_tokens": N}, "usage_by_purpose": {"main_turn": {...}, "wrap_up": {...}, ...}, "model": "sage-a1.5", "models": {"sage-a1.5": 3}, "finish_reason": "stop", "terminal_reason": "done", "message_ids": {"user": "...", "assistant": "..."}}` | Always the last event on success. `message_ids` are the saved ids of this turn's user message and reply (empty on ephemeral chats), so the client can name them in a later `replace_from` without reloading the conversation; the clarification `done` carries them too. `usage` is the **aggregate across every vLLM call this turn**, not just the last one - the gateway records `total_tokens` from here for quota. `usage_by_purpose` is the same numbers broken down by call site for debugging: `main_turn`, `wrap_up`, `forced_clarification`, `forced_required`, `summary`, `title`. Purposes with zero calls are omitted. `model` is the model that answered most of the turn's LLM calls, from the responses' own `model` field (the Claude model when the hosted fallback served it); `models` counts calls per model. The gateway stores `model` in `usage_log` for the publication-usage summary. `terminal_reason` ∈ `done` / `max_turns` / `stream_error` / `cancelled` - distinct from `finish_reason` (which is `stop` even after the turn-budget wrap-up). The frontend uses `terminal_reason == "max_turns"` to render a **Continue** affordance so the user can resume a task that hit its (auto-extended) tool-use budget without retyping "keep going" |
 | `retrying` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0, "reason": "vllm 503"}` | A vLLM call hit a transient error (5xx / 429 / connection drop / pre-first-byte stream drop) and is about to retry. Fires before the backoff sleep. `attempt` is 1-indexed. `reason` is a short tag (e.g. `vllm 503`, `vllm ConnectError`). Multiple may fire per turn. Frontend should render a transient "reconnecting" indicator and reset it once any other event resumes |
 | `reconnecting` | `{"attempt": N, "max_attempts": M, "delay_s": 1.0}` | **Synthetic, client-side only** (P1 #10). Not emitted by the server - the frontend's SSE consumer dispatches it when an SSE connection drops and a `GET /api/chat/completions/resume` is being attempted with `Last-Event-ID`. Renders the same "reconnecting" indicator as `retrying`; cleared on the first real event from the resumed connection |
 | `stream_gone` | `{"reason": "..."}` (fields optional) | **Synthetic, client-side only** (background turns). Dispatched by `resumeChat` when a resume GET returns `410 Gone`. Because the turn's outcome - completed answer or save-always partial - is already persisted, the store reacts by **reloading the conversation transcript**, not by showing an error banner. The mid-stream reconnect loop in `streamChat` deliberately does NOT use this: there the user is watching a live bubble die, and an error banner is the honest signal |
