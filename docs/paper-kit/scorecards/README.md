@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-84 committed scorecard JSONs, copied verbatim from
+86 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 128 JSON plus 80 Markdown twins; the remainder are mostly the
+The full set is 130 JSON plus 82 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -150,6 +150,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-21_lk16-targeted-fresh.json` | Same round, Gaussian FWHM `_f1` and `_f2`: 6/6 (`s8-labkit-fresh` `_f1` 0/3, `s8-r2-targeted-fresh` `_f2` 0/3) | none yet |
 | `2026-11-21_lk16-control.json` | Same round, control: the round-5 cases (competitive s1-s5, JASCO CD, ANOVA, fit) x 3: 22/24 (`r5b-targeted` 24/24). Both failures are a `reproduces` check: a run that wrote an output file and then raised is left out of `analysis.py`, so the bundle cannot remake that file (an existing `bundle.py` defect) | none yet |
 | `2026-11-21_lk16-control-fresh.json` | Same round, control fresh (competitive s6-s8) x 3: 8/9 (`r5b-targeted-fresh` 9/9). The failure used all 20 calls; its save round ran more checks instead of writing results.json | none yet |
+| `2026-11-21_lk17-control.json` | Bundle and save-round round (`LABKIT-017-PLAN.md`): `analysis.py` also replays a failed run that wrote files (reports its error and goes on), firmer save-round text, a code turn's wrap-up states its values. Same cases as `lk16-control` x 3: 24/24 (`lk16-control` 22/24, `r5b-targeted` 24/24). Two bundles (`s5_anova#3`, `s5_fit#3`) have an output that only a failed run wrote and reproduce through the replay, the case both `lk16-control` failures hit; mean calls 5.9, no run near the limit, so no save round fired | none yet |
+| `2026-11-21_lk17-control-fresh.json` | Same round, competitive s6-s8 fresh x 3: 9/9 (`lk16-control-fresh` 8/9, `r5b-targeted-fresh` 9/9) | none yet |
 
 ## Cautions when regenerating figures
 

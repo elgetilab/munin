@@ -1,6 +1,6 @@
 # Bundles that keep failed runs' files, and a save round that saves: plan
 
-Status: IMPLEMENTED 2026-11-21 ("proceed", Q1-Q3 defaults), not deployed. Parent: `LABKIT-016-PLAN.md` (Gaussian FWHM
+Status: DONE 2026-11-21 ("proceed", Q1-Q3 defaults), deployed (sandbox, retrieval, eval instance), rerun 33/33. Parent: `LABKIT-016-PLAN.md` (Gaussian FWHM
 9/9, budget cases 11/12, control 30/33). The eval instance stays up.
 
 ## What LABKIT-016 left (checked in the bundles)
@@ -100,3 +100,24 @@ numbers.
   `groups.png`, `fit_params.csv` and `fit.png` byte for byte (the
   `plot_00N_1.png` files are inline-figure captures, which no script writes
   and the `reproduces` check does not compare).
+
+## Result
+
+Rerun 2026-11-21 on the deployed eval instance (sage-a1.5, git `6851b4e`), the
+same cases as the LABKIT-016 control x 3: `lk17-control` 24/24 and
+`lk17-control-fresh` 9/9, so 33/33 (`lk16-control*` 30/33, `r5b-targeted*`
+33/33). Paired vs LABKIT-016: 3 fail->pass, 0 pass->fail; exact McNemar
+p = 0.25, so the count alone does not show the fix; the bundles do.
+
+- **Bundles.** 3 of the 6 S5 bundles hold a replayed failed run. In
+  `s5_anova#3` only the failed run 9 wrote `tukey.csv`, in `s5_fit#3` only
+  the failed run 4 wrote `fit_params.csv`: the old `bundle.py` would have
+  failed `reproduces` in both, the pattern of both LABKIT-016 failures. All
+  6 S5 bundles reproduce. In `s5_anova#1` a later ok run rewrites the file, so
+  the replay was not needed there.
+- **Save round and wrap-up.** Not exercised: mean calls 5.9 (LABKIT-016 7.2,
+  round 5 8.3), at most 12, no run near the 20-round limit, no save round in
+  the eval log, no calls-not-run lines. The new texts are covered by the unit
+  tests only; the next run that reaches the limit is the field test.
+- Mean time per run 35 s (LABKIT-016 41 s, round 5 55 s); 3 auto-continues,
+  all finished.
