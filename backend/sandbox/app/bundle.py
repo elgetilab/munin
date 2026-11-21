@@ -7,8 +7,9 @@ Layout (README.txt in the zip says the same):
     MANIFEST.json      every file below with sha256, size, artifact id, version
     SHA256SUMS         the same checksums, for `sha256sum -c SHA256SUMS`
     README.txt
-    analysis.py        all successful runs up to the last selected artifact,
-                       in order; run from this directory to regenerate outputs
+    analysis.py        all successful runs, and failed runs that wrote files,
+                       up to the last selected artifact, in order; run from
+                       this directory to regenerate outputs
     code/run_NNN.py    every run (including failed ones), as executed
     inputs/...         the uploaded inputs, byte-identical
     outputs/...        the selected artifacts (several versions of one file
@@ -48,7 +49,9 @@ inputs/         the input files the analysis read, exactly as uploaded
 analysis.py     the code of every successful run, in order. To reproduce the
                 outputs, run it from this directory:  python analysis.py
                 Each run starts with _munin_seed(run number), as in the
-                sandbox, so unseeded random numbers come out the same.
+                sandbox, so unseeded random numbers come out the same. A run
+                that wrote files and then raised an error is in it too: it
+                runs to the same error, says so, and the script goes on.
 code/           every run as it was executed, including failed ones
 labkit/         when the code uses labkit: the exact version it ran with
                 (Apache-2.0, license in labkit/LICENSE). analysis.py imports
@@ -78,6 +81,26 @@ def _munin_seed(n):
         pass
 """
 
+
+# A run that wrote files and then raised (run 5 writes tukey.csv, then fails
+# on a print) is part of what the conversation showed: a later run read the
+# file, or it is a selected output. analysis.py used to keep only ok runs, so
+# the replay could not remake it (LABKIT-017-PLAN.md). Such a run is replayed
+# through this helper, which reports the error and goes on, as the
+# conversation did. The code is embedded with repr(), so its quotes and
+# indentation cannot break the script.
+_FAILED_HELPER = """
+
+def _munin_failed_run(n, code):
+    # This run raised an error in the conversation, after writing files that
+    # later runs or the outputs use. It runs to the same error here, and the
+    # script goes on.
+    try:
+        exec(compile(code, "run_%03d.py" % n, "exec"), globals())
+    except Exception as e:
+        print("run %d raised %s: %s in the conversation too; continuing"
+              % (n, type(e).__name__, e))
+"""
 
 # A bundle whose analysis.py imports labkit carries the exact labkit it ran
 # with, as labkit/ next to analysis.py, so `python analysis.py` works where
@@ -129,6 +152,11 @@ def _versioned(filename: str, version: int) -> str:
     stem, ext = os.path.splitext(filename)
     return f"{stem}.v{version}{ext}"
 
+
+def _failed_with_files(rec: dict) -> bool:
+    """A run that raised (not one that timed out) after producing artifacts."""
+    return (not rec.get("ok") and not rec.get("timed_out")
+            and bool(rec.get("artifacts")))
 
 def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
                  latex_entries: list[dict]) -> str:
@@ -210,11 +238,15 @@ def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
             last = max(seqs) if seqs else (store.execs[-1]["seq"] if store.execs else 0)
             script_parts = [
                 "# Reproduces the outputs of a Munin conversation.\n"
-                "# Successful runs, in the order they were executed. Run from the\n"
-                "# bundle directory so relative paths such as inputs/ resolve.\n"
+                "# Successful runs, and failed runs that wrote files, in the order\n"
+                "# they were executed. Run from the bundle directory so relative\n"
+                "# paths such as inputs/ resolve.\n"
             ]
             if any(r.get("seed") is not None for r in store.execs if r["seq"] <= last):
                 script_parts.append(_SEED_HELPER)
+            if any(_failed_with_files(r) for r in store.execs if r["seq"] <= last):
+                script_parts.append(_FAILED_HELPER)
+            replayed_code: list[str] = []
             for rec in store.execs:
                 if rec["seq"] > last:
                     break
@@ -231,12 +263,18 @@ def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
                 manifest["runs"].append({"seq": rec["seq"], "status": status,
                                          "code_sha": rec.get("code_sha"),
                                          "path": f"code/run_{rec['seq']:03d}.py"})
+                seed = (f"_munin_seed({int(rec['seed'])})\n"
+                        if rec.get("seed") is not None else "")
                 if rec.get("ok"):
-                    seed = (f"_munin_seed({int(rec['seed'])})\n"
-                            if rec.get("seed") is not None else "")
                     script_parts.append("\n" + header + seed + code.rstrip("\n") + "\n")
+                    replayed_code.append(code)
+                elif _failed_with_files(rec):
+                    script_parts.append(
+                        "\n" + header + seed
+                        + f"_munin_failed_run({int(rec['seq'])}, {code!r})\n")
+                    replayed_code.append(code)
             add_bytes("analysis.py", "".join(script_parts).encode())
-            if _LABKIT_IMPORT.search("".join(script_parts)):
+            if _LABKIT_IMPORT.search("\n".join(replayed_code)):
                 files = _labkit_files()
                 for arc, data in files:
                     add_bytes(arc, data)

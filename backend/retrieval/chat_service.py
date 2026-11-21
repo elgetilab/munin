@@ -208,9 +208,17 @@ MAX_TOOL_CALLS_PER_MESSAGE = int(os.getenv("CHAT_MAX_TOOL_CALLS", "30"))
 # because the wrap-up cannot run code.
 SAVE_ROUND_TOOLS = frozenset({"run_python", "edit_python"})
 SAVE_ROUND_MESSAGE = (
-    "You have one tool call left. If the task asks for a file (for example "
-    "results.json), write it now from the values you already have, with "
-    "run_python; then give your answer."
+    "This is your last tool call. Do not run more checks. If the task asks "
+    "for a file (for example results.json), write it now with run_python "
+    "from the values you already have; then give your answer."
+)
+# Added to the tools-off wrap-up of a turn that ran code: a turn that runs
+# out must still state its numbers (LABKIT-017-PLAN.md; one LABKIT-016 run
+# ended "Let me write the results file." with none).
+WRAP_UP_VALUES_LINE = (
+    " Give the final values you found, each number with its unit; if the "
+    "task asked for a file you did not write, put those values in a JSON "
+    "block."
 )
 ROUNDS_LEFT_NOTE = (
     "\n\n[2 tool rounds left in this turn: finish up. If the task asks for "
@@ -3718,6 +3726,9 @@ async def stream_chat_completion(
                         "tools. Be specific and cite sources (DOIs, URLs) from "
                         "the tool results where possible. Reply in plain "
                         "Markdown, no XML tags."
+                        + (WRAP_UP_VALUES_LINE
+                           if any(tc.get("name") in SAVE_ROUND_TOOLS
+                                  for tc in final_tool_calls) else "")
                     ),
                 }
             ]

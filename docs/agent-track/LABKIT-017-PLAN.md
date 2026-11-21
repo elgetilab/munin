@@ -1,6 +1,6 @@
 # Bundles that keep failed runs' files, and a save round that saves: plan
 
-Status: PLAN, awaiting "proceed". Parent: `LABKIT-016-PLAN.md` (Gaussian FWHM
+Status: IMPLEMENTED 2026-11-21 ("proceed", Q1-Q3 defaults), not deployed. Parent: `LABKIT-016-PLAN.md` (Gaussian FWHM
 9/9, budget cases 11/12, control 30/33). The eval instance stays up.
 
 ## What LABKIT-016 left (checked in the bundles)
@@ -75,3 +75,28 @@ numbers.
 | Q1 | Also keep timed-out runs that produced files? | No: a timed-out run can hang the replay for its whole length, and none of the failures was one. |
 | Q2 | Make the save round stricter still (refuse a save-round run that does not write a file)? | No: the product cannot tell which file a task wants. Firmer text first; measure. |
 | Q3 | Have the wrap-up always ask for the final values, also in non-lab chats? | Only in turns that used the sandbox: a literature answer has no "values", and its wrap-up text stays as it is. |
+
+## What was built
+
+- `bundle.py`: `_failed_with_files(rec)` (raised, not timed out, produced
+  artifacts); such a run goes into `analysis.py` as
+  `_munin_failed_run(n, <code repr>)` after its `_munin_seed(n)`, with the
+  helper written once at the top. labkit vendoring looks at the replayed
+  code itself (a repr'd string would hide `import labkit`). README and the
+  module docstring say failed runs that wrote files are included.
+- `SAVE_ROUND_MESSAGE`: "This is your last tool call. Do not run more
+  checks. ..."; `WRAP_UP_VALUES_LINE` appended to the tools-off wrap-up
+  prompt only when the turn ran code.
+- Tests: sandbox live tests in `munin-sandbox:r7-test` (standalone, no
+  network) 67/67, new: a run writes `tukey.csv` and raises, a failed run
+  writes nothing, an ok run reads `tukey.csv`; `analysis.py` holds the first
+  and not the second, exits 0, reports the replayed error, and remakes
+  `tukey.csv` and `summary.csv` byte for byte. `test_repeat_calls` 15/15
+  (the wrap-up carries the values line in a code turn, not in a
+  calculate-only turn); retrieval hermetic 118/118.
+- Replay: the code of `lk16-control/s5_anova#3` and `s5_fit#2` (every run,
+  failed ones included, from their bundles) re-executed in the test image;
+  the new bundles' `analysis.py` exit 0 and remake `tukey.csv`,
+  `groups.png`, `fit_params.csv` and `fit.png` byte for byte (the
+  `plot_00N_1.png` files are inline-figure captures, which no script writes
+  and the `reproduces` check does not compare).

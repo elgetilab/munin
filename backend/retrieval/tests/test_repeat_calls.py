@@ -256,7 +256,9 @@ def test_budget_end_gets_a_save_round_and_a_warning() -> bool:
     ok = (len(tool_rounds) >= 3 and tool_rounds[-1][0] == cs.SAVE_ROUND_TOOLS
           and all(x[0] is None for x in tool_rounds[:-1])
           and any(m.get("content") == cs.SAVE_ROUND_MESSAGE for m in last_msgs)
-          and len(notes) == 1 and seen[-1][1] is False)
+          and len(notes) == 1 and seen[-1][1] is False
+          and "Do not run more checks" in cs.SAVE_ROUND_MESSAGE
+          and cs.WRAP_UP_VALUES_LINE in str(seen[-1][2][-1].get("content")))
     return _check("the last round of a sandbox turn is a save round, warned 2 rounds ahead",
                   ok, f"rounds={len(tool_rounds)} only={[x[0] for x in tool_rounds][-3:]} notes={len(notes)}")
 
@@ -265,7 +267,8 @@ def test_no_save_round_without_the_sandbox() -> bool:
     seen = _budget_run("calculate")
     tool_rounds = [x for x in seen if x[1] is not False]
     return _check("a turn that never ran code gets no save round",
-                  all(x[0] is None for x in tool_rounds) and seen[-1][1] is False,
+                  all(x[0] is None for x in tool_rounds) and seen[-1][1] is False
+                  and cs.WRAP_UP_VALUES_LINE not in str(seen[-1][2][-1].get("content")),
                   str([x[0] for x in tool_rounds]))
 
 
