@@ -9,7 +9,7 @@
     <link rel="icon" type="image/svg+xml" href="/shared/munin_logo_without_script.svg">
     <link rel="stylesheet" href="/shared/style.css?v=3">
     <link rel="stylesheet" href="/shared/site.css?v=1">
-    <link rel="stylesheet" href="docs.css?v=1">
+    <link rel="stylesheet" href="/shared/docs.css?v=2">
     <script src="/shared/theme.js?v=2" defer></script>
 </head>
 <body>
@@ -51,12 +51,20 @@
                     <li><a href="#contributing">Contributing papers</a></li>
                     <li><a href="#api-access">API Access</a></li>
                     <li><a href="#opencode">Using Munin with opencode</a></li>
+                    <li><a href="#credit">Crediting Munin in a paper</a></li>
                     <li><a href="#tips">Tips</a></li>
                 </ol>
             </div>
         </details>
 
         <article class="prose">
+{{- /* Live facts: see architecture.html. API examples use the stable "munin"
+     model alias, so they never name a backbone. */ -}}
+{{- $f := (httpInclude "/_facts.json" | fromJson) -}}{{- if not (kindIs "map" $f) }}{{ $f = dict }}{{ end -}}
+{{- $b := dig "backbone" dict $f -}}
+{{- $model := dig "display" "the current model" $b -}}
+{{- $served := dig "served_name" "munin" $b -}}
+{{- $ctx := dig "context_window" 0.0 $b }}
             <p class="crumbs"><a href=".">Docs</a><span aria-hidden="true">/</span><span>User Guide</span></p>
             <h1>User Guide</h1>
             <p class="lede">How to use Chat, Paper Search, the Knowledge Browser and Upload, and how to reach Munin from your own code.</p>
@@ -180,7 +188,7 @@
             <h3>Available endpoints</h3>
             <dl class="defs wide">
                 <div><dt><code>POST /v1/chat/completions</code></dt><dd>Send a chat message. Accepts the same JSON body as the OpenAI API (model + messages array). Response format depends on the mode; see below.</dd></div>
-                <div><dt><code>GET /v1/models</code></dt><dd>List available models in OpenAI format. Clients that probe this on connect (Positron, Cursor, the OpenAI SDK) use it to validate the provider and populate the model picker. Returns a single model, <code>qwen3.8-27b</code>.</dd></div>
+                <div><dt><code>GET /v1/models</code></dt><dd>List available models in OpenAI format. Clients that probe this on connect (Positron, Cursor, the OpenAI SDK) use it to validate the provider and populate the model picker. Returns the served model, <code>{{ $served }}</code>, and the alias <code>munin</code>, which always means whichever model is serving. Use <code>munin</code> in configs so they survive model changes.</dd></div>
             </dl>
 
             <h3>Two modes</h3>
@@ -202,7 +210,7 @@
             <pre class="code">{
   "id": "chatcmpl-...",
   "object": "chat.completion",
-  "model": "qwen3.8-27b",
+  "model": "{{ $served }}",
   "choices": [{
     "index": 0,
     "message": {
@@ -218,7 +226,7 @@
     "total_tokens": 57
   }
 }</pre>
-            <p>The <code>reasoning</code> field contains the model's chain-of-thought (always-on). The model is Qwen3.8-27B, a dense 27B model with a hybrid Gated DeltaNet + attention architecture.</p>
+            <p>The <code>reasoning</code> field contains the model's chain-of-thought (always-on). The <code>model</code> field names the model that answered: currently <strong>{{ $model }}</strong>{{ with $b.architecture }} ({{ . }}){{ end }}. The <a href="architecture.html#model">architecture page</a> lists its details.</p>
 
             <h3>Munin mode: custom SSE response</h3>
             <p>When using persona mode, the response is a Server-Sent Events stream with these event types:</p>
@@ -242,7 +250,7 @@
             <p>There is no requests-per-minute limit and no cap on concurrent requests: send as many as you like and the server queues them. The monthly token quota is the only limit. When it is exhausted you'll receive a <code>429</code> response. Check your current usage in chat Settings.</p>
 
             <h3>Context window</h3>
-            <p>The model has a <strong>64k token</strong> context window (65,536 tokens, shared between your prompt and the generated response). If a request's prompt plus its <code>max_tokens</code> would exceed that, Munin automatically reduces <code>max_tokens</code> to fit and retries, so long sessions keep working. If the prompt <em>alone</em> exceeds the window you'll get a clear <code>400</code> error ("maximum context length is 65536 tokens..."). Trim the conversation or start a new chat.</p>
+            <p>The model has a {{ if $ctx }}<strong>{{ printf "%.0f" $ctx }}-token</strong>{{ else }}fixed{{ end }} context window, shared between your prompt and the generated response. If a request's prompt plus its <code>max_tokens</code> would exceed that, Munin automatically reduces <code>max_tokens</code> to fit and retries, so long sessions keep working. If the prompt <em>alone</em> exceeds the window you'll get a clear <code>400</code> error ("maximum context length is ... tokens"). Trim the conversation or start a new chat.</p>
             <div class="callout"><p><strong>Tip:</strong> some clients (e.g. Positron) default <code>max_tokens</code> to a large value like 16384, which reserves a quarter of the window for output and makes long sessions fail sooner. Lowering <code>max_tokens</code> (e.g. 2048–4096) leaves much more room for conversation history.</p></div>
 
             <h3>Python example: raw mode (OpenAI SDK)</h3>
@@ -254,7 +262,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="qwen3.8-27b",
+    model="munin",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 
@@ -272,7 +280,7 @@ with httpx.stream(
     f"{BASE_URL}/chat/completions",
     headers={"Authorization": f"Bearer {API_KEY}"},
     json={
-        "model": "qwen3.8-27b",
+        "model": "munin",
         "persona": "research",
         "messages": [{"role": "user", "content": "Find papers on lipid rafts"}],
     },
@@ -297,7 +305,7 @@ with httpx.stream(
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.8-27b",
+    "model": "munin",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
 
@@ -308,7 +316,7 @@ with httpx.stream(
   -H "Authorization: Bearer sk-munin-..." \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "qwen3.8-27b",
+    "model": "munin",
     "persona": "research",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'
@@ -336,7 +344,7 @@ npm install -g opencode-ai</pre>
             <p>
                 Before wiring up opencode, confirm the key works. Paste it into a quick <code>curl</code> against the model list:
             </p>
-            <pre class="code"># should return a JSON list containing qwen3.8-27b
+            <pre class="code"># should return a JSON list containing {{ $served }} and munin
 curl -s -H "Authorization: Bearer sk-munin-..." {{env "MUNIN_URL_API"}}/models</pre>
             <p>
                 If the model list comes back, the key is good and you'll paste it straight into <code>opencode.json</code> in the next step. A <code>401</code> means the key is wrong or expired; regenerate it before continuing, otherwise opencode will not see the model.
@@ -355,10 +363,10 @@ curl -s -H "Authorization: Bearer sk-munin-..." {{env "MUNIN_URL_API"}}/models</
         "apiKey": "APIKEYHERE"
       },
       "models": {
-        "qwen3.8-27b": {
-          "name": "Qwen 3.8 27B",
+        "munin": {
+          "name": "Munin",
           "limit": {
-            "context": 65536,
+            "context": {{ if $ctx }}{{ printf "%.0f" $ctx }}{{ else }}65536{{ end }},
             "output": 16384
           }
         }
@@ -369,7 +377,7 @@ curl -s -H "Authorization: Bearer sk-munin-..." {{env "MUNIN_URL_API"}}/models</
             <p>Notes:</p>
             <ul>
                 <li>Replace <code>APIKEYHERE</code> with the <code>sk-munin-</code> key from step 2. opencode reads the key literally, so paste it in directly. If you keep <code>opencode.json</code> in a project, don't commit it: the key grants access to your quota.</li>
-                <li>The <code>limit</code> block matches the current deployment: a <strong>65,536-token</strong> context window with up to <strong>16,384 tokens</strong> of output per turn. opencode uses these to manage its context and compaction.</li>
+                <li>The <code>limit</code> block matches the current deployment: a {{ if $ctx }}<strong>{{ printf "%.0f" $ctx }}-token</strong> {{ end }}context window with up to <strong>16,384 tokens</strong> of output per turn. opencode uses these to manage its context and compaction. The model id <code>munin</code> always points at the serving model ({{ $model }} today), so the file needs no edit when the model changes.</li>
                 <li>opencode uses standard OpenAI chat completions, so requests automatically hit Munin's <strong>raw mode</strong>: the underlying model with no Munin persona, no system prompt, and no Munin tools. Opencode injects its own coding agent prompt.</li>
                 <li>Munin's only API limit is <strong>100M tokens/month</strong>, with no request-rate or concurrency cap. Opencode can burn tokens fast on large repos, so keep an eye on usage in chat Settings.</li>
             </ul>
@@ -378,8 +386,16 @@ curl -s -H "Authorization: Bearer sk-munin-..." {{env "MUNIN_URL_API"}}/models</
             <pre class="code">cd your-project
 opencode</pre>
             <p>
-                On first launch, pick the <strong>Munin</strong> provider and the <strong>qwen3.8-27b</strong> model. You can switch model/provider any time inside the TUI with <code>/model</code>.
+                On first launch, pick the <strong>Munin</strong> provider and the <strong>munin</strong> model. You can switch model/provider any time inside the TUI with <code>/model</code>.
             </p>
+
+            <h2 id="credit">Crediting Munin in a paper</h2>
+            <p>Munin and its language model are tools, not authors. If Munin helped with your research or your writing, disclose it the way your journal asks (usually in Methods, or in an AI-use declaration for writing help), cite the Munin paper and the model, and acknowledge the lab that hosts it.</p>
+            <ul>
+                <li><strong>What answered you, and when:</strong> in Chat, open <strong>Settings</strong> and go to <strong>Credit Munin in a paper</strong>. Pick the date range of your project to see which models answered your requests, with checkpoint, revision and token counts, and a disclosure statement you can paste and complete. A CSV export is there too.</li>
+                <li><strong>Templates, references and publisher rules:</strong> the <a href="{{env "MUNIN_URL_HOME"}}/cite">Cite Munin</a> page.</li>
+                <li>Today the model is <strong>{{ $model }}</strong>{{ with $b.developer }} by {{ . }}{{ end }}; it changes over time, which is why the statement should come from your own usage and not from this page.</li>
+            </ul>
 
             <h2 id="tips">Tips</h2>
             <ul>
@@ -413,7 +429,7 @@ opencode</pre>
                     <li><a href="{{env "MUNIN_URL_DOCS"}}">Docs</a></li>
                     <li><a href="{{env "MUNIN_URL_DOCS"}}/guide.html#deep-research">Deep Research</a></li>
                     <li><a href="https://arxiv.org/abs/2610.23480">Paper</a></li>
-                    <li><a href="https://github.com/elgetilab/munin/blob/main/CITATION.cff">Cite Munin</a></li>
+                    <li><a href="{{env "MUNIN_URL_HOME"}}/cite">Cite Munin</a></li>
                 </ul>
             </div>
             <div class="f-col">

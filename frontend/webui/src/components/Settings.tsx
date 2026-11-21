@@ -1,5 +1,4 @@
 import { useId, useState, useRef, useEffect, useCallback } from 'react';
-import { useStatus } from '../hooks/useStatus';
 import { updateProfile, fetchApiKeys, createApiKey, revokeApiKey, fetchUsageStats, fetchMuninProfile, updateMuninProfile, deleteMuninProfile } from '../lib/api';
 import type { UserProfile, ApiKeyInfo, UsageStats } from '../lib/api';
 import type { MuninProfile } from '../lib/types';
@@ -10,6 +9,7 @@ import { ErrorNotice } from './ui/ErrorNotice';
 import { EmailAddresses } from './EmailAddresses';
 import { ThemePicker } from './ThemePicker';
 import { PageHeader } from './ui/PageHeader';
+import { CreditMunin } from './CreditMunin';
 
 interface SettingsProps {
   profile: UserProfile;
@@ -60,10 +60,8 @@ function deviceTimezone(): string {
 }
 
 export function Settings({ profile, onUpdate }: SettingsProps) {
-  // The served backbone for the quick-start snippet; /api/status already
-  // carries it. Falls back to the reference model while loading.
-  const status = useStatus(300000);
-  const servedModel = status?.vllm?.model || 'qwen3.8-27b';
+  // "munin" is the stable model alias (raw mode maps it to whatever model is
+  // serving), so the snippet names no backbone and never goes stale.
   const quickStart = `from openai import OpenAI
 
 client = OpenAI(
@@ -72,7 +70,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="${servedModel}",
+    model="munin",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 
@@ -688,6 +686,11 @@ print(response.choices[0].message.content)`;
             {snippetCopyState === 'failed' && 'Copy failed. Select the code above and copy it by hand.'}
           </p>
         </div>
+
+        {/* ── Divider ── */}
+        <div className="border-t border-border my-10" />
+
+        <CreditMunin />
       </div>
     </div>
   );

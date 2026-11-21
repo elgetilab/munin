@@ -19,7 +19,8 @@ FACTS = {
         "sage-a1.5": {"display": "Sage-A1.5", "developer": "InternScience",
                       "checkpoint": "cyankiwi/Sage-A1.5-AWQ-INT4", "revision": "12e664ccaf57a3c8",
                       "quantization": "AWQ-INT4 g32", "vllm_version": "0.33.0",
-                      "reference": {"apa": "Sage-A1.5 Team. (2026). Sage-A1.5.", "bibtex": "@misc{sage}"}},
+                      "reference": {"apa": "Sage-A1.5 Team. (2026). Sage-A1.5.", "bibtex": "@misc{sage}",
+                                    "author": "Sage-A1.5 Team", "year": "2026"}},
         "claude-haiku-5-5": {"display": "Claude Haiku 5.5", "hosted_by": "Anthropic API",
                              "reference": {"apa": "Anthropic. (2026). Claude Haiku 5.5.", "bibtex": "@misc{haiku}"}},
     },
@@ -102,7 +103,10 @@ def test_summary_infers_models_from_history(gw_env):
 
     st = gw_env.build_statement(models, FACTS)
     assert "[PURPOSE]" in st["methods"] and "[WHO / HOW]" in st["methods"]
-    assert "Sage-A1.5" in st["methods"] and "revision 12e664ccaf57" in st["methods"]
+    assert "Sage-A1.5 (Sage-A1.5 Team, 2026), as the AWQ-INT4 g32 checkpoint" in st["methods"]
+    assert "revision 12e664ccaf57" in st["methods"] and "vLLM 0.33.0," in st["methods"]
+    assert st["methods"].count("Kwon et al., 2023") == 1  # cited once, on the first model
+    assert "1 request (on 2026-11-01) was answered" in st["methods"]
     assert "Anthropic API" in st["methods"]
     assert st["references_apa"][0].startswith("Fischer")
     assert "@inproceedings{vllm}" in st["bibtex"]
@@ -156,3 +160,10 @@ def test_summary_endpoint_auth_and_csv(gw_env, client, monkeypatch):
 
 async def _async(v):
     return v
+
+
+def test_system_json_has_no_template_delimiters(gw_env):
+    facts = {"backbone": {"reference": {"bibtex": "title = {{Qwen3.8-Max}: x}},"}}, "x": {"y": {}}}
+    out = gw_env.template_safe_json(facts)
+    assert "{{" not in out
+    assert json.loads(out) == facts

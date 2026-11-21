@@ -861,10 +861,19 @@ async def get_system_facts() -> dict:
     return {"available": False, "stale": True}
 
 
+def template_safe_json(obj) -> str:
+    """JSON with no literal `{{`. Caddy's httpInclude runs the included body
+    as a template, so a BibTeX title like `{{Qwen3.8-Max}...` failed the
+    whole docs page. `{{` can only occur inside strings in compact JSON (an
+    object cannot open with an object), and `{\\u007b` decodes to the same text."""
+    return json.dumps(obj, separators=(",", ":")).replace("{{", "{\\u007b")
+
+
 @app.get("/api/system")
 async def api_system():
     facts = await get_system_facts()
-    return JSONResponse(content=facts, headers={"Cache-Control": "public, max-age=60"})
+    return Response(content=template_safe_json(facts), media_type="application/json",
+                    headers={"Cache-Control": "public, max-age=60"})
 
 
 # ── Publication usage summary ───────────────────────────────────────────────
@@ -984,6 +993,11 @@ def _day(ts: str | None) -> str:
     return (ts or "")[:10]
 
 
+def _span(m: dict) -> str:
+    a, b = _day(m["first_use"]), _day(m["last_use"])
+    return f"on {a}" if a == b else f"between {a} and {b}"
+
+
 def build_statement(models: list[dict], facts: dict) -> dict:
     """Disclosure text for Methods, a writing-only declaration, an
     acknowledgment, and references. [PURPOSE] and [HOW CHECKED] are left
@@ -999,28 +1013,26 @@ def build_statement(models: list[dict], facts: dict) -> dict:
     names = ", ".join(m["display"] for m in used)
     sentences = []
     for m in local:
-        bits = [m["display"]]
-        meta = "; ".join(x for x in (m.get("developer"), m.get("quantization") and f"{m['quantization']} quantization") if x)
-        if meta:
-            bits.append(f"({meta})")
-        s = " ".join(bits)
+        s = m["display"]
+        ref = m.get("reference") or {}
+        if ref.get("author"):
+            s += f" ({ref['author']}{', ' + ref['year'] if ref.get('year') else ''})"
         ck = m.get("checkpoint")
         if ck:
-            s += f", checkpoint {ck}"
+            s += f", as the {m['quantization']} checkpoint {ck}" if m.get("quantization") else f", checkpoint {ck}"
             if m.get("revision"):
                 s += f" at revision {m['revision'][:12]}"
-        if m.get("vllm_version"):
-            s += f", served locally with vLLM {m['vllm_version']} (Kwon et al., 2023)"
-        else:
-            s += ", served locally with vLLM (Kwon et al., 2023)"
-        s += f", between {_day(m['first_use'])} and {_day(m['last_use'])}"
+        cite = "" if sentences else " (Kwon et al., 2023)"
+        s += f", served locally with vLLM{' ' + m['vllm_version'] if m.get('vllm_version') else ''}{cite}"
+        s += ", " + _span(m)
         sentences.append(s)
     methods = (f"We used Munin, {MUNIN_HOST_LINE} (Fischer et al., 2026), between {first} and {last} "
                f"to [PURPOSE]. Munin answered with the following language models: "
                + "; ".join(sentences) + ("." if sentences else ""))
     for m in hosted:
-        methods += (f" During a cluster outage, {m['requests'] + m['deep_research_jobs']} requests "
-                    f"({_day(m['first_use'])} to {_day(m['last_use'])}) were answered by {m['display']}, "
+        n = m["requests"] + m["deep_research_jobs"]
+        methods += (f" During a cluster outage, {n} request{'' if n == 1 else 's'} "
+                    f"({_span(m)}) {'was' if n == 1 else 'were'} answered by {m['display']}, "
                     f"accessed through the {m['hosted_by']}.")
     methods += (" All outputs were checked by [WHO / HOW]; the authors take full responsibility "
                 "for the content of this work.")
@@ -1551,6 +1563,11 @@ async def proxy_v1(request: Request, path: str):
                          "created": m.get("created", 0), "owned_by": "munin"}
                         for m in d.get("data", []) if m.get("id")]
                 if data:
+                    # The stable alias: a client configured with "munin"
+                    # keeps working across backbone changes (raw mode maps
+                    # it to the served model).
+                    data.append({"id": "munin", "object": "model",
+                                 "created": data[0]["created"], "owned_by": "munin"})
                     return JSONResponse(content={"object": "list", "data": data})
         except Exception:
             pass
