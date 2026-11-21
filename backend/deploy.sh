@@ -392,6 +392,65 @@ deploy_personas() {
 }
 
 # ------------------------------------------------------------------------------
+# model history: $MUNIN_CONFIG/model-history.jsonl, one line per backbone
+# activation ({"at", "slug", "display", "model_id", "revision", "vllm", ...}).
+# Retrieval reads it (/app/config) to say which model served a date range, for
+# /api/system and the publication-usage summary. merge_model_history adds the
+# committed seed lines (config/model-history.jsonl) the installed file lacks;
+# record_model_activation appends one line per `model activate`. Append-only:
+# an entry ends where the next one starts.
+# ------------------------------------------------------------------------------
+MODEL_HISTORY_SRC=$REPO_DIR/config/model-history.jsonl
+MODEL_HISTORY_DST=$MUNIN_CONFIG/model-history.jsonl
+
+merge_model_history() {
+    [ -f "$MODEL_HISTORY_SRC" ] || return 0
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] merge $MODEL_HISTORY_SRC into $MODEL_HISTORY_DST"; return 0
+    fi
+    python3 - "$MODEL_HISTORY_SRC" "$MODEL_HISTORY_DST" <<'PY'
+import json, os, sys
+src, dst = sys.argv[1], sys.argv[2]
+def rows(p):
+    if not os.path.exists(p):
+        return []
+    return [json.loads(l) for l in open(p) if l.strip()]
+have = {(r.get("slug"), r.get("at")) for r in rows(dst)}
+new = [r for r in rows(src) if (r.get("slug"), r.get("at")) not in have]
+merged = sorted(rows(dst) + new, key=lambda r: r.get("at") or "")
+tmp = dst + ".tmp"
+with open(tmp, "w") as f:
+    for r in merged:
+        f.write(json.dumps(r) + "\n")
+os.chmod(tmp, 0o644)
+os.replace(tmp, dst)
+print(f"[model-history] {len(new)} seed line(s) added, {len(merged)} total")
+PY
+}
+
+record_model_activation() {
+    # $1 = ISO activation time; reads the loaded profile's variables.
+    local at=$1 vllm_version
+    vllm_version=$("$VLLM_VENV/bin/python" -c 'import vllm; print(vllm.__version__)' 2>/dev/null || echo "")
+    if [ "$DRY_RUN" = "1" ]; then
+        echo "  [dry-run] append $MODEL_SLUG@$at to $MODEL_HISTORY_DST"; return 0
+    fi
+    merge_model_history
+    AT="$at" VLLM_VERSION="$vllm_version" python3 - "$MODEL_HISTORY_DST" <<'PY'
+import json, os, sys
+row = {"at": os.environ["AT"], "slug": os.environ["MODEL_SLUG"],
+       "display": os.environ.get("MODEL_DISPLAY") or os.environ["MODEL_NAME"],
+       "model_id": os.environ["MODEL_ID"], "revision": os.environ.get("MODEL_REVISION") or None,
+       "vllm": os.environ.get("VLLM_VERSION") or None, "approximate": False,
+       "note": "deploy.sh model activate"}
+with open(sys.argv[1], "a") as f:
+    f.write(json.dumps(row) + "\n")
+os.chmod(sys.argv[1], 0o644)
+print(f"[model-history] recorded {row['slug']} at {row['at']}")
+PY
+}
+
+# ------------------------------------------------------------------------------
 # agents: copy faq.yml + munin.env.template into the mounted config dir.
 # The target keeps its historical name; the agents.yml registry it used to
 # install was retired with the invoke_agent tool.
@@ -410,6 +469,9 @@ deploy_agents() {
     if [ -f "$REPO_DIR/config/faq.yml" ]; then
         run "install -m 0644 $REPO_DIR/config/faq.yml $MUNIN_CONFIG/faq.yml"
     fi
+
+    # Which backbone served when (retrieval /api/system, publication usage).
+    merge_model_history
 
     # §28 / P1 #11: contributor allowlist. Bootstrap copy goes into
     # /opt/munin/data/contributors.yml (= /data inside the retrieval
@@ -1419,15 +1481,23 @@ deploy_model_activate() {
     if [ "$DRY_RUN" = "1" ]; then
         echo "  [dry-run] write $ACTIVE_MODEL_ENV from $src (previous: $prev)"
     else
+        local activated_at; activated_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
         {
             cat "$src"
             echo ""
             echo "# --- written by deploy.sh model activate; do not edit, edit config/models/ ---"
-            echo "ACTIVATED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "ACTIVATED_AT=$activated_at"
             echo "PREVIOUS_SLUG=$prev"
             echo "ACTIVATED_FROM=$src"
         } > "$ACTIVE_MODEL_ENV.tmp" && mv "$ACTIVE_MODEL_ENV.tmp" "$ACTIVE_MODEL_ENV"
         chmod 0644 "$ACTIVE_MODEL_ENV"
+        # Re-activating the same profile (e.g. after adding profile keys)
+        # changes no model, so it is not a new history entry.
+        if [ "$prev" != "$MODEL_SLUG" ]; then
+            record_model_activation "$activated_at"
+        else
+            merge_model_history
+        fi
     fi
     echo "[OK] active profile -> $ACTIVE_MODEL_ENV (was: $prev)"
 
