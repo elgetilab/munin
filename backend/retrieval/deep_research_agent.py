@@ -40,6 +40,7 @@ import httpx
 
 from agent_trace import AgentTrace
 from database import VLLM_MODEL_NAME, VLLM_URL, thinking_off, LLM_HEADERS
+from usage_tracker import record_usage
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,10 @@ async def _llm(system: str, user: str, *, max_tokens: int = 1500,
                               headers=LLM_HEADERS)
     if r.status_code != 200:
         raise RuntimeError(f"vLLM {r.status_code}: {r.text[:150]}")
-    choice = r.json()["choices"][0]
+    data = r.json()
+    # Counted into the job's aggregator (bound by deep_research_manager._run).
+    record_usage("deep_research", data.get("usage"), data.get("model"))
+    choice = data["choices"][0]
     if choice.get("finish_reason") == "length":
         logger.warning("Deep Research LLM reply was cut off at max_tokens=%d",
                        max_tokens)

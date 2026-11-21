@@ -76,6 +76,7 @@ from database import (
     get_qdrant, get_neo4j, get_specter, get_bge,
     is_specter_loaded, is_bge_loaded,
 )
+import model_facts
 import database  # for the runtime-configurable PAPERS_COLLECTION / paper encoder
 import tag_browse  # shared by /api/tags browse and the browse_tag_papers MCP tool
 from models import (
@@ -647,6 +648,8 @@ def llm_fallback_block(models_payload: dict) -> Optional[dict]:
         "active": active,
         "model": info.get("model") if active else None,
         "since": info.get("since") if active else None,
+        # The hosted model that answers while vLLM is down, active or not.
+        "standby_model": info.get("secondary_model"),
     }
 
 
@@ -692,6 +695,39 @@ async def api_models():
     except Exception:
         pass
     return {"object": "list", "data": [entry]}
+
+
+@app.get("/api/system")
+async def api_system():
+    """Public facts about what this deployment runs, for the docs and the
+    citation helper: the active backbone with its citation fields, the
+    embeddings, the hosted fallback, and which backbone served when.
+
+    Read from the active profile and the model history under /app/config
+    (model_facts), not from literals, so a `deploy.sh model activate` changes
+    what the docs say. The VPS gateway caches this and Caddy renders it into
+    the docs pages; it carries no hostnames, ports or secrets.
+    """
+    served: Optional[bool] = None
+    fallback: Optional[dict] = None
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(f"{VLLM_URL}/v1/models", timeout=3.0,
+                                 headers=LLM_HEADERS)
+        served = False
+        if r.status_code in (200, 503):
+            payload = r.json()
+            served = r.status_code == 200 and any(
+                m.get("id") == VLLM_MODEL_NAME for m in (payload.get("data") or []))
+            fallback = llm_fallback_block(payload)
+    except Exception:
+        served = False
+    # No fallback block: LLM_BASE_URL is not the llm-failover proxy, or the
+    # proxy did not answer, so no hosted model is named.
+    standby = (fallback or {}).get("standby_model")
+    return model_facts.system_facts(served=served, fallback=fallback,
+                                    paper_encoder=database.PAPER_ENCODER,
+                                    fallback_model=standby)
 
 
 @app.get("/api/status")
@@ -797,6 +833,17 @@ def _require_user_email(request: Request) -> str:
             detail={"error": {"message": "Missing authentication header"}},
         )
     return key
+
+
+@app.get("/api/usage/research")
+async def api_usage_research(request: Request, since: float, until: float):
+    """The caller's Deep Research jobs created in [since, until) (epoch
+    seconds) with token totals and the answering model. Deep Research runs
+    outside chat turns, so the gateway's usage_log never sees these tokens;
+    its publication-usage summary merges this in."""
+    user = _require_user_email(request)
+    import research_store
+    return {"jobs": await research_store.usage_for_user(user, since, until)}
 
 
 def _error_404(message: str) -> HTTPException:

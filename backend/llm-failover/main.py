@@ -291,6 +291,9 @@ def create_app(
             "since": s["since"] if s["fallback_active"] else None,
             "model": secondary_model if s["fallback_active"] else primary_model,
             "primary_model": primary_model,
+            # Named even while idle, so the docs can say which hosted model
+            # would answer during an outage (retrieval /api/system).
+            "secondary_model": secondary_model,
             "secondary_block": s["secondary_block"],
         }
 

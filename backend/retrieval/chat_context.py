@@ -768,7 +768,7 @@ async def _call_vllm(
         )
     except VLLMRequestError:
         return None
-    record_usage(purpose, data.get("usage"))
+    record_usage(purpose, data.get("usage"), data.get("model"))
     choices = data.get("choices") or []
     if not choices:
         return None

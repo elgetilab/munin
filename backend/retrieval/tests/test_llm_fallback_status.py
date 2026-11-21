@@ -26,15 +26,24 @@ def test_plain_vllm_has_no_block():
 
 
 def test_proxy_on_primary():
-    payload = {"data": [], "munin_llm": {"fallback_active": False, "model": "qwen3.8-27b", "since": None}}
-    assert llm_fallback_block(payload) == {"active": False, "model": None, "since": None}
+    payload = {"data": [], "munin_llm": {"fallback_active": False, "model": "sage-a1.5", "since": None,
+                                         "secondary_model": "claude-haiku-5-5"}}
+    assert llm_fallback_block(payload) == {"active": False, "model": None, "since": None,
+                                           "standby_model": "claude-haiku-5-5"}
 
 
 def test_proxy_on_secondary():
     payload = {"data": [], "munin_llm": {"fallback_active": True, "model": "claude-haiku-5-5",
                                          "since": "2026-11-12T10:00:00+00:00", "route": "secondary"}}
     assert llm_fallback_block(payload) == {
-        "active": True, "model": "claude-haiku-5-5", "since": "2026-11-12T10:00:00+00:00"}
+        "active": True, "model": "claude-haiku-5-5", "since": "2026-11-12T10:00:00+00:00",
+        "standby_model": None}
+
+
+def test_older_proxy_without_secondary_model():
+    # A proxy from before secondary_model was reported: no standby named.
+    payload = {"data": [], "munin_llm": {"fallback_active": False, "model": "sage-a1.5"}}
+    assert llm_fallback_block(payload)["standby_model"] is None
 
 
 def test_garbage_is_ignored():

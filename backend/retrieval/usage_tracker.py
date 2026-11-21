@@ -40,10 +40,34 @@ current_usage_aggregator: ContextVar[Optional[dict]] = ContextVar(
     "current_usage_aggregator", default=None
 )
 
+# Bound beside the aggregator: model name -> number of LLM calls it answered
+# in this request, from each response's own ``model`` field. A turn served
+# by the hosted fallback (llm-failover routing to llm-claude) reports the
+# Claude model there, so the done event, the gateway's usage_log and the
+# publication-usage summary say which model really answered.
+current_model_tally: ContextVar[Optional[dict]] = ContextVar(
+    "current_model_tally", default=None
+)
+
 _KEYS = ("prompt_tokens", "completion_tokens", "total_tokens")
 
 
-def record_usage(purpose: str, usage: Optional[dict]) -> None:
+def record_model(model: Optional[str]) -> None:
+    """Count one LLM call answered by ``model`` (no-op without a tally)."""
+    tally = current_model_tally.get()
+    if tally is None or not model or not isinstance(model, str):
+        return
+    tally[model] = tally.get(model, 0) + 1
+
+
+def primary_model(tally: Optional[dict]) -> Optional[str]:
+    """The model that answered most calls of the request (None if none)."""
+    if not tally:
+        return None
+    return max(tally.items(), key=lambda kv: kv[1])[0]
+
+
+def record_usage(purpose: str, usage: Optional[dict], model: Optional[str] = None) -> None:
     """Fold ``usage`` into the current request's aggregator under ``purpose``.
 
     No-op if no aggregator is bound, or if ``usage`` is empty / None.
@@ -56,6 +80,7 @@ def record_usage(purpose: str, usage: Optional[dict]) -> None:
     fires even without an aggregator bound — it's process-wide, not
     request-scoped.
     """
+    record_model(model)
     if not usage:
         return
     prompt = int(usage.get("prompt_tokens", 0) or 0)
@@ -68,10 +93,12 @@ def record_usage(purpose: str, usage: Optional[dict]) -> None:
     if agg is None:
         return
     slot = agg.setdefault(purpose, {k: 0 for k in _KEYS})
-    for k in _KEYS:
-        slot[k] += int(usage.get(k, 0) or 0)
-    if slot["total_tokens"] == 0 and (slot["prompt_tokens"] or slot["completion_tokens"]):
-        slot["total_tokens"] = slot["prompt_tokens"] + slot["completion_tokens"]
+    slot["prompt_tokens"] += prompt
+    slot["completion_tokens"] += completion
+    # Per call: a call without total_tokens adds prompt + completion. Summing
+    # first and filling in the total only while it was still 0 dropped every
+    # later call's tokens from the total.
+    slot["total_tokens"] += int(usage.get("total_tokens", 0) or 0) or (prompt + completion)
 
 
 def aggregate_totals(agg: dict) -> dict:
