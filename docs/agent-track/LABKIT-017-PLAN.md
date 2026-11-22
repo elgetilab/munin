@@ -121,3 +121,46 @@ p = 0.25, so the count alone does not show the fix; the bundles do.
   tests only; the next run that reaches the limit is the field test.
 - Mean time per run 35 s (LABKIT-016 41 s, round 5 55 s); 3 auto-continues,
   all finished.
+
+## Full-suite regression (2026-11-22)
+
+The whole lab suite after LABKIT-015 to 017, labkit arm, 3 reps, git
+`dea4a58` (no code change since `96dc4fe`): 532/555. Scorecards
+`2026-11-22_full-lk17{,-fresh}`.
+
+| Set | Now | Before (paired) | fail->pass / pass->fail | p |
+|---|---|---|---|---|
+| S1-S7 original | 280/285 | `phase4d-labkit` 280/285 | 5 / 5 | 1 |
+| S1-S7 fresh | 81/81 | `phase4d-fresh` 80/81 | 1 / 0 | 1 |
+| S8 original | 58/63 | `s8-labkit` 49/63 | 14 / 5 | 0.064 |
+| S8 `_f1` | 55/63 | `s8-labkit-fresh` 47/63 | 11 / 3 | 0.057 |
+| S8 `_f2` | 58/63 | (round-2 families: `s8-r2-targeted-fresh` 14/21, now 20/21) | 6 / 0 | 0.031 |
+
+No regression from LABKIT-015 to 017. The five S1-S7 pass->fail:
+
+- `s3_bars` x2 (a figure height, an unasked title change) and
+  `s6_noesy_buildup#1`: both cases have swung before (`s3_bars` 0/3 to 3/3
+  over earlier runs, NOESY 1/3 to 3/3). In the NOESY run the analysis keyed
+  the pairs wrongly, the repeat guard blocked two reruns, the save round came
+  at round 11, and the wrap-up said what it would have produced: no values
+  existed to state.
+- `s1_nist_misra1d#2`, `s1_nist_thurber#3` (3/3 in every earlier run): run 1
+  read the CSV and printed it, every later run retyped the data as array
+  literals from that output, and mistyped it (Thurber's y stops near 142,
+  the data go to about 1300). The final run retypes the data in 4 to 11 of
+  264 S1/S2/S5 bundles in every full run since `phase4-labkit`, and it failed
+  `lanczos2`/`lanczos3` there before. An existing habit, not new; a tooling
+  fix is a candidate for the next round (a hint when run_python code holds a
+  long numeric literal while an uploaded data file exists: read the file).
+
+Save round, first field test: 21 save rounds. 17 wrote results.json, 3 put
+the values in the answer, 1 had no values (the NOESY run above); 14 of the 21
+runs passed, the others on wrong values, not a missing file. No run ended
+with a promise instead of numbers.
+
+S8 failures left (13 of 189): DEER modulation depth and labeling
+efficiency (5 runs, values off by up to 100x or by 2x), `short_trace_f1`
+distance 3.18 vs 3.05 nm (3/3, the same value each time, so the method, not
+the model), `zero_time_f2` t0 176 vs 168 ns (2), CW linewidth or spin-count
+values (4), `overmodulation_f2#3` gave the right values as a list but no
+results.json or JSON block.

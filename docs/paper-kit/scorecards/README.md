@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-86 committed scorecard JSONs, copied verbatim from
+88 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 130 JSON plus 82 Markdown twins; the remainder are mostly the
+The full set is 132 JSON plus 84 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -152,6 +152,8 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-21_lk16-control-fresh.json` | Same round, control fresh (competitive s6-s8) x 3: 8/9 (`r5b-targeted-fresh` 9/9). The failure used all 20 calls; its save round ran more checks instead of writing results.json | none yet |
 | `2026-11-21_lk17-control.json` | Bundle and save-round round (`LABKIT-017-PLAN.md`): `analysis.py` also replays a failed run that wrote files (reports its error and goes on), firmer save-round text, a code turn's wrap-up states its values. Same cases as `lk16-control` x 3: 24/24 (`lk16-control` 22/24, `r5b-targeted` 24/24). Two bundles (`s5_anova#3`, `s5_fit#3`) have an output that only a failed run wrote and reproduce through the replay, the case both `lk16-control` failures hit; mean calls 5.9, no run near the limit, so no save round fired | none yet |
 | `2026-11-21_lk17-control-fresh.json` | Same round, competitive s6-s8 fresh x 3: 9/9 (`lk16-control-fresh` 8/9, `r5b-targeted-fresh` 9/9) | none yet |
+| `2026-11-22_full-lk17.json` | Full-suite regression after LABKIT-015 to 017 (labkit 0.2.1, `LABKIT-017-PLAN.md`), all 116 original cases x 3: 338/348. S1-S7 280/285, paired vs `phase4d-labkit` 280/285 (5/5, p = 1): the five are `s3_bars` x2 and `s6_noesy_buildup` x1 (both have swung before) and `s1_nist_misra1d`, `s1_nist_thurber`, whose last run retyped the data from printed output and mistyped it (a habit seen in 4-11 bundles per full run since `phase4-labkit`). S8 58/63 vs `s8-labkit` 49/63 (14/5, p = 0.064). 21 save rounds: 17 wrote results.json, 3 put the values in the answer, 1 had no values | none yet |
+| `2026-11-22_full-lk17-fresh.json` | Same run on the 69 fresh cases x 3: 194/207. S1-S7 fresh 81/81 (`phase4d-fresh` 80/81). S8 `_f1` 55/63 vs `s8-labkit-fresh` 47/63 (11/3, p = 0.057); `_f2` 58/63, its 7 round-2 families 20/21 vs `s8-r2-targeted-fresh` 14/21 (6/0, p = 0.031). Remaining S8 failures: DEER modulation depth and labeling efficiency (5), `short_trace_f1` distance 3.18 vs 3.05 nm (3/3, same value each time), `zero_time_f2` t0 176 vs 168 ns (2) | none yet |
 
 ## Cautions when regenerating figures
 
