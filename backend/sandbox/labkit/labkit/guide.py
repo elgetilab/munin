@@ -110,7 +110,7 @@ nmr.hetnoe(sat, ref, noise_sat=, noise_ref=) -> {res: {"hetNOE", "err"} or None}
 NOESY buildup:
 nmr.read_integrals("100ms.txt")  TopSpin integral list -> DataFrame (integral, f2_ppm,
        f1_ppm) in file order
-nmr.noe_buildup(mixing_s, {pair: [A at each t]}, {pair: A_ii(0)} or one number)
+nmr.noe_buildup(mixing_s, {pair: [A at each t]}, {pair or diagonal peak: A_ii(0)} or one number)
        A(t) = (A0/2)(1 - exp(-2 sigma t)) exp(-t/T), A(0) = 0 included, grid of starts
        -> {pair: {"sigma", "sigma_ci", "T", "T_ci", "warnings"} or None}; t in SECONDS
 Per-residue and per-pair results are dicts keyed by residue or pair: write them that
@@ -144,6 +144,7 @@ jitter(center, n, seed=0)  reproducible x scatter (an unseeded jitter makes a re
 
 TOPICS["epr"] = """\
 from labkit import epr          # field in mT, frequency in GHz, everywhere
+DEER/PELDOR traces (time axis, distances): guide('deer'). This topic is CW.
 d = epr.load("inputs/sample.DSC")   # Bruker BES3T (.DSC+.DTA), ESP (.par+.spc), ASCII (x_unit= if
                                     # the header has no unit). Converts G -> mT; print(d) shows it all
 d.field_mT, d.y (complex if both channels: use d.real), d.freq_GHz (from MWFQ, the MEASURED
@@ -154,6 +155,8 @@ One line:   lf = epr.fit_line(d.field_mT, d.real, shape="lorentzian"|"gaussian"|
             lf.g, lf.B0_mT, lf.dBpp_mT (derivative peak-to-peak), lf.fwhm_mT (absorption FWHM:
             Lorentzian sqrt(3)*dBpp, Gaussian 1.1774*dBpp), lf.area
             epr.g_value(B_mT, freq_GHz) = 71.447735 * nu / B; epr.peak_to_peak, epr.zero_crossing
+Spikes:     y_clean, idx = epr.despike(d.field_mT, d.real, max_width=3)   # 1-3 point glitches only
+            never mask by amplitude (abs(y) > K): in a derivative spectrum the largest points are the line
 Calibrate:  field_corr, offset = epr.calibrate_field(d.field_mT, B0_of_DPPH_mT, 2.0036, freq_GHz)
             epr.frequency_correct(field_mT, freq_GHz, target_GHz)   # scales, does not shift
 Spins:      sc = epr.spin_count(sample, standard, standard_amount=100, unit="uM",
@@ -191,6 +194,9 @@ r = epr.fit_deer(d.t_us, V)              # phases complex V, finds the zero time
 print(r)                                 # lambda, background (and t0) in ONE step
 r.mean_nm, r.std_nm (std, not FWHM), r.modal_nm, r.populations (modes with fractions),
 r.lam (= r.mod_depth), r.k_per_us, r.conc_uM (3D background), r.t0_ns, r.phase_deg, r.warnings
+r.main_nm: the main distance of the reliable part (when the trace is too short for a long
+         component, from a fit allowed past the limit; summary() says "main distance (reliable
+         part)"): report it as the main distance
 r.r_nm, r.P: the distribution; r.summary(): the block a report needs (white paper 2021)
 Background: the sample decides, not the fit (both often fit equally well):
          frozen solution: background="hom3d" (default; gives r.conc_uM)
@@ -204,7 +210,11 @@ Never take |V|; never subtract the background (fit_deer divides, in one step).
 The trace length limits what it can measure: epr.distance_limits(tmax_us) -> mean distance up
 to 3.73*tmax^(1/3) nm, width/shape up to 2.96*tmax^(1/3) nm. fit_deer limits P(r) to that
 range and WARNS when the trace seems to hold longer distances: report that as unreliable.
-Labelling efficiency = lambda / (pump inversion efficiency): r = epr.fit_deer(t_us, V); r.lam / 0.5
+Labelling efficiency: f = epr.labeling_efficiency(r.lam, inversion=p, scheme="both_equal")
+         p = pump inversion efficiency (from the question or the spectrometer, not assumed);
+         "both_equal": both sites labelled alike, f = lambda / p;
+         "one_full": site 1 fully labelled, f = lambda / (2p - lambda). Prints the formula.
+         lambda is r.lam from fit_deer, never 1 - V(end)/V(0) (that includes the background)
 Concentration (frozen solution): r.conc_uM from the hom3d rate, no hand fit of the decay.
 epr.simulate_deer(t_us, r_nm, P, lam, conc_uM=..., phase_deg=..., noise=...) for checks.
 """

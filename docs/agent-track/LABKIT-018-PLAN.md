@@ -1,6 +1,6 @@
 # Failures left after the full-suite run: plan
 
-Status: PLAN 2026-11-22, waiting for "proceed". Parent: `LABKIT-017-PLAN.md`
+Status: IMPLEMENTED 2026-11-22 ("proceed", Q1-Q6 defaults), not deployed. Parent: `LABKIT-017-PLAN.md`
 (full-suite regression 532/555, no regression from LABKIT-015 to 017). Root
 causes from two read-only investigations of the `full-lk17` bundles (scratch
 scripts in the session scratchpad, `lk18_deer/` and `lk18_cw/`), key claims
@@ -125,3 +125,68 @@ Production gets all of it: none of it is eval-specific.
 | Q4 | `short_trace`: report `main_nm` from the extended fit by default when `check_long` fires, or only offer it? | Report it, and say so in the summary: on the simulation it is the better estimate and leaves single-peak traces unchanged. |
 | Q5 | Add `epr.despike`, or only the hint? | Add it: real spectra do have spikes, and the model needs a correct tool to reach for. |
 | Q6 | Fresh `_f3` set for the DEER and CW families after the freeze? | Yes, so the S8 number is not tuned on the sets it was fixed on. |
+
+## What was built
+
+Retrieval:
+- `retype_check.py` (new, pure) and its state in `mcp/tools/sandbox.py`
+  (`RetypeState`: per conversation, in process, files up to 3 MB, at most 256
+  conversations and 4M numbers, least recently used dropped; after a restart
+  the hint does not fire). Uploads store their numeric columns (also text files
+  inside a .zip); `run_python` results carry a separate `data_hint`, so it
+  never displaces a `labkit_hint`; once per (file, column) per user message.
+  Replay over 2,019 bundles (14,246 runs): fires in 15 of the 16 departing
+  bundles (the miss is a rounding-only copy that passed), 0 false-positive
+  bundles, at run 2 in all 5 failures.
+- Preview: a file that fits in 1500 characters is shown whole ("37 data rows,
+  shown whole"); otherwise "the first 8 lines (the first 7 of 151 data rows)".
+- Named-file nudge (`NAMED_FILE_MESSAGE`, `unsaved_named_file`): a present-tense
+  save/write/export verb and a file name in the latest user message, the turn
+  used the sandbox, no file of that name in this turn's tool results, not the
+  last round. The first answer stays the answer: the save round's text is not
+  streamed (it becomes the step narration if it calls a tool, otherwise it is
+  dropped), no wrap-up follows. The answer is re-sent as a token after the
+  save round's tools, because the client moves the shown answer into that
+  step's narration; until a reload the work log also shows it under that step
+  (a small frontend change would avoid this). Offline over the lk17 bundles
+  the requested file is missing in 5 of 549 one-turn runs, including
+  `overmodulation_f2#3` and `deer_labeling_f1#2`.
+- DEER hints: `_deer_ish` (deer not after a letter, peldor, dipolar,
+  mod_depth, modulation depth, 52.0x/326 in a formula); silenced by any
+  `fit_deer`; in DEER code the relaxation, `epr_g`, `epr_integral`, Kd, NOE,
+  standard-curve and general fit hints are skipped; text adds the lambda
+  sentence, `r.main_nm` and `epr.labeling_efficiency`. CW: new `epr_mask` hint
+  (amplitude masks, unless `epr.despike` is called), the lineshape hint notes
+  grid quantisation. Replay over 189 S8 bundles: 13 of the failing runs now
+  get the DEER or mask hint, most at run 1 or 2; hint sets changed in 76
+  (only DEER code losing off-topic hints and gaining `deer`, 4 real masks);
+  S1-S7 negative control (732 bundles of lk17 and phase4d): 0 changed.
+
+labkit 0.2.2:
+- `fit_deer` runs `check_long` and `check_background` also with `n_boot`
+  (membrane with `n_boot=3` now warns on all three sets).
+- `DeerResult.main_nm`, `reliable_populations`, `long_fraction`: when
+  `check_long` fires, a wider fit with its own AIC alpha gives the short part
+  ("main distance (reliable part)" in `summary()`); otherwise `main_nm` is the
+  largest population. Short-trace fixtures: 3.000 (truth 3.000), f1 3.180 to
+  3.060 (3.053), f2 3.120 to 3.100 (3.095). Sweep of 16 traces: largest
+  long-trace error 0.138 to 0.071 nm (the 0.071 trace does not trigger
+  `check_long`, AIC gain 15.4 under the gate of 20, left as is); single-peak
+  controls identical. 27 of 30 S8 DEER fixtures identical in every field.
+- `epr.labeling_efficiency(lam, inversion, scheme)` (both_equal f = lam/p,
+  one_full f = lam/(2p - lam)), refuses p outside (0, 1].
+- `epr.despike(B, y, max_width=3)`: never touched a line over 225 test lines.
+- `nmr.noe_buildup`: diag0 by pair, by text, or by one part of the key;
+  otherwise `PairKeyError` naming the accepted keying.
+- Guide: `guide('epr')` points to `guide('deer')`, despike line; DEER recipe
+  uses `main_nm` and `labeling_efficiency` with p as a parameter.
+
+Fixture: `s8_deer_labeling` (and `_f1`, `_f2`) prompt now says both sites are
+labelled with the same efficiency; data and truth byte-identical, checksums
+updated. Earlier labeling scores were on the ambiguous wording.
+
+Tests: retrieval hermetic 121/121 (new `test_retype_check.py`; hints 21,
+repeat calls 20, plumbing 21); labkit 70/70 and sandbox live 67/67, fighook
+20/20, isolation 28/28 in `munin-sandbox:r8-test` (host labkit 69/70: nmrglue
+is not installed on the host). Fixture checks and replays are scratch scripts
+(`lk18_impl/`).

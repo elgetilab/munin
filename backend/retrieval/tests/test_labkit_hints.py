@@ -575,6 +575,98 @@ def test_audit_flag_and_labkit_tool_message() -> bool:
                   f"{records} {res}")
 
 
+# Round 3 (LABKIT-018-PLAN.md): shapes of the S8 runs the DEER hint missed
+# (file named deer_raw.csv, a trace with no DEER word but a dipolar constant
+# or mod_depth) and the CW runs that masked the lines away as "spikes".
+DEER_RAW_LOAD = """import pandas as pd
+df = pd.read_csv('inputs/deer_raw.csv')
+print(df.head())
+"""
+DEER_CONSTANT = """import numpy as np
+t, re_, im_ = np.loadtxt('inputs/quad.csv', delimiter=',', skiprows=1, unpack=True)
+V = re_ + 1j * im_
+nu = 0.41   # MHz, from the FFT
+r = (52.1 / nu) ** (1 / 3)
+"""
+DEER_MOD_DEPTH = """import numpy as np
+from scipy.optimize import curve_fit
+t, V = np.loadtxt('inputs/label.csv', delimiter=',', skiprows=1, unpack=True)
+mod_depth = 1 - V[-1] / V[0]
+def relax(t, A, T2, V_max):
+    return A * np.exp(-t / T2) + V_max
+p, _ = curve_fit(relax, t, V, p0=[1, 2, 0.5])
+"""
+DEER_WITH_FIT_DEER = """from labkit import epr
+import numpy as np
+from scipy.optimize import curve_fit
+d = epr.load('inputs/deer_raw.csv')
+r = epr.fit_deer(d.t_us, d.y)
+def relax(t, A, T2):
+    return A * np.exp(-t / T2)
+p, _ = curve_fit(relax, d.t_us, d.real, p0=[1, 2])
+"""
+DATA_WITH_52 = """import numpy as np
+from scipy.optimize import curve_fit
+x = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
+y = np.array([49.714, 49.287, 51.983, 53.930, 58.045, 52.004])
+popt, pcov = curve_fit(lambda x, a, b: a * x + b, x, y)
+print('b = 52.0', 327.60)
+"""
+CW_SPIKE_MASK = """from labkit import epr
+import numpy as np
+sample = epr.load('inputs/sample.txt', x_unit='G')
+spike_mask = np.abs(sample.y) > 1000
+y = np.where(spike_mask, 0, sample.y)
+di = epr.double_integral(sample.field_mT, y)
+"""
+NOT_EPR_MASK = """import numpy as np
+resid = y - model(x)
+keep = np.abs(resid) < 3
+print(keep.sum())
+"""
+
+
+def test_deer_round3_hints():
+    got = {name: (fit_hint(code) or ("none",))[0] for name, code in (
+        ("load", DEER_RAW_LOAD), ("constant", DEER_CONSTANT), ("mod_depth", DEER_MOD_DEPTH),
+        ("with_fit_deer", DEER_WITH_FIT_DEER), ("data_52", DATA_WITH_52),
+        ("guide", "import labkit\nprint(labkit.guide('deer'))\n"),
+        ("help", "from labkit import epr\nhelp(epr.fit_deer)\n"))}
+    text = fit_hint(DEER_MOD_DEPTH)[1]
+    st = HintState()
+    seq = [st.hint_for("d3", c) for c in (DEER_MOD_DEPTH, DEER_MOD_DEPTH, DEER_WITH_FIT_DEER)]
+    return _check("DEER round 3: deer_raw.csv, a dipolar constant in a formula and mod_depth get the "
+                  "DEER hint with or without a fit call; once fit_deer is named (call, help) it is "
+                  "silent and neither the relaxation nor the general fit hints fire in DEER code; "
+                  "52.0 in a data list is not DEER; the hint says lambda is never 1 - V(end)/V(0) "
+                  "or |V| and names labeling_efficiency and main_nm",
+                  got == {"load": "deer", "constant": "deer", "mod_depth": "deer", "with_fit_deer": "none",
+                          "data_52": "custom_fit", "guide": "none", "help": "none"}
+                  and "never 1 - V(end)/V(0)" in text and "never |V|" in text
+                  and "labeling_efficiency" in text and "main_nm" in text
+                  and seq[0][0] == "deer" and seq[1] is None and seq[2] is None,
+                  f"{got} {seq}")
+
+
+def test_cw_round3_hints():
+    mask = fit_hint(CW_SPIKE_MASK)
+    covered = fit_hint(CW_SPIKE_MASK.replace("spike_mask = np.abs(sample.y) > 1000",
+                                             "y, idx = epr.despike(sample.field_mT, sample.y)\n"
+                                             "spike_mask = np.abs(sample.y) > 1000"))
+    not_epr = fit_hint(NOT_EPR_MASK)
+    deer_mask = fit_hint("import numpy as np\nV = np.loadtxt('inputs/deer_raw.csv')\n"
+                         "m = np.abs(V) > 0.1\n")
+    line = fit_hint(KIVELSON_BY_HAND)[1]
+    return _check("CW round 3: an amplitude mask in EPR code gets epr_mask (despike, 1 to 3 points), "
+                  "not with despike called, not outside EPR code, not in DEER code; the lineshape "
+                  "hint says grid extrema are quantised",
+                  mask and mask[0] == "epr_mask" and "epr.despike" in mask[1]
+                  and "1 to 3 points wide" in mask[1] and "largest points are the line" in mask[1]
+                  and covered is None and not_epr is None and deer_mask and deer_mask[0] == "deer"
+                  and "quantised to the field step" in line and "epr.peak_to_peak or fit_line" in line,
+                  f"{mask and mask[0]} {covered} {not_epr} {deer_mask and deer_mask[0]}")
+
+
 TESTS = [
     test_labkit_source_reading_gets_the_guide,
     test_audit_flag_and_labkit_tool_message,
@@ -595,6 +687,8 @@ TESTS = [
     test_competitive_hint_says_how_to_pass_x,
     test_epr_hints,
     test_epr_round2_hints,
+    test_deer_round3_hints,
+    test_cw_round3_hints,
 ]
 
 

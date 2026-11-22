@@ -623,6 +623,32 @@ def test_noe_buildup():
           {k: (v["sigma"], v["T"]) for k, v in r.items()})
 
 
+def test_noe_buildup_diag0_keys():
+    from labkit import nmr
+    t = np.array([0.1, 0.2, 0.3, 0.5])
+    a0 = {"8.6": 4e9, "CH3": 9e9}
+    cross = {"8.6|CH3": list((4e9 / 2) * (1 - np.exp(-2 * 0.02 * t)) * np.exp(-t / 0.4)),
+             ("8.6", "Hb"): list((4e9 / 2) * (1 - np.exp(-2 * 0.05 * t)) * np.exp(-t / 0.4))}
+    by_group = nmr.noe_buildup(t, cross, {"8.6": 4e9, "7.1": 1e9})          # one part of each pair matches
+    by_pair = nmr.noe_buildup(t, cross, {"8.6|CH3": 4e9, ("8.6", "Hb"): 4e9})
+    msg = ""
+    try:
+        nmr.noe_buildup(t, cross, a0)                                       # '8.6|CH3': both parts match
+        amb = False
+    except KeyError as ex:
+        amb, msg = True, str(ex)
+    try:
+        nmr.noe_buildup(t, {"1.2-3.4": cross["8.6|CH3"]}, a0)
+        miss = False
+    except KeyError as ex:
+        miss = "no entry for pair '1.2-3.4'" in str(ex) and "one number" in str(ex)
+    check("noe_buildup: diag0 keyed by pair or by the diagonal peak's name; an ambiguous or missing key "
+          "raises a clear error",
+          close(by_group["8.6|CH3"]["sigma"], 0.02, 0.01) and close(by_group[("8.6", "Hb")]["sigma"], 0.05, 0.01)
+          and by_pair["8.6|CH3"]["sigma"] == by_group["8.6|CH3"]["sigma"] and amb
+          and "no entry for pair '8.6|CH3'" in msg and "by pair, by the diagonal peak's name" in msg and miss, msg)
+
+
 def test_stats():
     import pandas as pd
     from labkit import stats
@@ -914,6 +940,107 @@ def test_epr_deer_background_choice():
     except ValueError as ex:
         ok = "dim" in str(ex)
     check("fit_deer refuses a background dimension outside 1-3", ok)
+
+
+def test_epr_deer_checks_with_n_boot():
+    from labkit import epr
+    rs = np.arange(1.5, 8, 0.005)
+    t = np.arange(0, 3.0, 0.008)
+    V = epr.simulate_deer(t, rs, epr.gauss_P(rs, [3.4], [0.25]), 0.45, k_per_us=0.3, dim=2.0, noise=0.004,
+                          seed=5).real
+    r = epr.fit_deer(t, V, n_boot=3)
+    ts = np.arange(0, 1.5, 0.008)
+    Vs = epr.simulate_deer(ts, rs, epr.gauss_P(rs, [3.0, 5.5], [0.2, 0.4], [0.65, 0.35]), 0.4, k_per_us=0.08,
+                           noise=0.006, seed=4).real
+    rs_ = epr.fit_deer(ts, Vs, n_boot=3)
+    check("fit_deer with n_boot still runs the background and trace-length checks on the point fit",
+          any("background model" in w for w in r.warnings) and any("beyond" in w for w in rs_.warnings)
+          and "mean_nm" in r.ci and rs_.long_fraction is not None, " | ".join(r.warnings + rs_.warnings))
+
+
+def test_epr_deer_main_nm():
+    from labkit import epr
+    t = np.arange(0, 1.5001, 0.008)
+    R = np.arange(1.5, 8.0001, 0.005)
+    rng = np.random.default_rng(5)
+    errs = {True: [], False: []}
+    single_same = True
+    for i in range(8):
+        r1 = 3 + rng.uniform(-0.2, 0.2)
+        r2 = 5.5 + rng.uniform(-0.3, 0.3)
+        long = i % 2 == 0
+        comps = ([0.65, 0.35], [r1, r2], [0.2, 0.4]) if long else ([1.0], [r1], [0.2])
+        V = epr.simulate_deer(t, R, epr.gauss_P(R, comps[1], comps[2], comps[0]), 0.4, k_per_us=0.08,
+                              noise=0.006, seed=i).real
+        a = epr.fit_deer(t, V, check_background=False)
+        errs[long].append(abs(a.main_nm - r1))
+        if not long:
+            main = max(a.populations, key=lambda p: p["fraction"])["r_nm"]
+            single_same &= a.long_fraction is None and a.main_nm == main and a.reliable_populations == a.populations
+        else:
+            single_same &= a.long_fraction is not None and "main distance (reliable part)" in a.summary()
+    check("fit_deer main_nm: a short trace with a long component gives the short distance from the wider fit "
+          "(<= 0.05 nm); single-peak traces keep the main population of the normal fit",
+          max(errs[True]) <= 0.05 and max(errs[False]) <= 0.05 and single_same,
+          {k: [round(e, 3) for e in v] for k, v in errs.items()})
+
+
+def test_labeling_efficiency():
+    from labkit import epr
+    import contextlib
+    p, f = 0.5, 0.4
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        a = epr.labeling_efficiency(p * f, 0.5)                          # both sites f
+        b = epr.labeling_efficiency(2 * p * f / (1 + f), 0.5, scheme="one_full")
+        c = epr.labeling_efficiency(0.55, 0.5)
+    try:
+        epr.labeling_efficiency(0.2, 50)
+        pct = False
+    except ValueError:
+        pct = True
+    try:
+        epr.labeling_efficiency(0.2, 0.5, scheme="x")
+        bad = False
+    except ValueError:
+        bad = True
+    out = buf.getvalue()
+    check("labeling_efficiency: f = lambda / p (both sites alike), f = lambda / (2p - lambda) (site 1 full), "
+          "prints the formula, warns when lambda > p, refuses a percentage",
+          close(a, f, 1e-12) and close(b, f, 1e-12) and a.scheme == "both_equal" and "2p - lambda" in b.formula
+          and "lambda / p" in out and c.warnings and "WARNING" in out and pct and bad
+          and json_ok(float(a)), out)
+
+
+def json_ok(x):
+    import json
+    return json.loads(json.dumps({"f": x}))["f"] == x
+
+
+def test_despike():
+    from labkit import epr
+    rng = np.random.default_rng(3)
+    B = np.linspace(330, 340, 2048)
+
+    def dlor(b0, dpp):
+        x = (B - b0) / (dpp / 2 * math.sqrt(3))
+        return -x / (1 + x ** 2) ** 2
+
+    y = dlor(335.0, 0.15) + 0.4 * dlor(336.2, 0.3) + 0.003 * rng.standard_normal(B.size)
+    ys = y.copy()
+    ys[700:702] += 0.5
+    ys[1500] -= 0.3
+    clean, idx = epr.despike(B, ys)
+    c0, i0 = epr.despike(B, y)
+    ext = {int(np.argmax(y)), int(np.argmin(y))}
+    check("despike removes a 2-point and a 1-point spike and never touches the line's extrema",
+          sorted(idx.tolist()) == [700, 701, 1500] and i0.size == 0 and not ext & set(idx.tolist())
+          and np.max(np.abs(clean[700:702] - y[700:702])) < 0.02
+          and all(clean[i] == ys[i] for i in ext),
+          (idx.tolist(), i0.tolist()))
+    # a narrow line (4 points across dBpp) is not a spike either
+    yn = dlor(335.0, 4 * (B[1] - B[0])) + 0.003 * rng.standard_normal(B.size)
+    check("despike keeps a narrow derivative line", epr.despike(B, yn)[1].size == 0)
 
 
 def test_epr_guide_text_file_recipes():

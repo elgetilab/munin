@@ -249,7 +249,8 @@ def test_numeric_txt_is_a_data_file_with_a_preview():
                                    data=_DEFECT.encode(), doc_text=_DEFECT)
     joined = _text_of(blocks)
     assert "[Attached data file: defect.txt" in joined
-    assert "It has 1401 lines; the first 8:" in joined and "Field [G]" in joined
+    assert ("It has 1401 lines; the first 8 lines (the first 7 of 1400 data rows):" in joined
+            and "Field [G]" in joined)
     assert "3300.000" in joined and "3399.900" not in joined     # head only
     assert len(joined) < 2500
     assert atts[0]["kind"] == "data" and len(calls) == 1
@@ -273,11 +274,38 @@ def test_numeric_txt_in_a_temporary_chat_is_still_inlined_but_capped():
 
 
 def test_csv_data_file_note_has_a_preview():
-    data = b"t_s,signal\n" + b"".join(f"{i},{i * 2}\n".encode() for i in range(100))
+    data = b"t_s,signal\n" + b"".join(f"{i},{i * 2.5:.4f}\n".encode() for i in range(300))
     content = [{"type": "document", "document_id": "doc_c", "filename": "decay.csv"}]
     blocks, _, _ = _resolve(content, stored_name="decay.csv", data=data)
     joined = _text_of(blocks)
-    assert "It has 101 lines; the first 8:" in joined and "t_s,signal" in joined
+    assert "It has 301 lines; the first 8 lines (the first 7 of 300 data rows):" in joined
+    assert "t_s,signal" in joined and "6,15.0000" in joined and "7,17.5000" not in joined
+
+
+# 2026-11-22 (LABKIT-018-PLAN.md, change 2): the model copied the 8 rows the
+# preview showed and invented the rest. A file that fits the preview is shown
+# whole, and a cut preview says how many data rows it holds of how many.
+_THURBER_HEAD = "x,y\n-3.067E0,80.574E0\n-2.981E0,84.248E0\n"
+
+
+def test_small_file_is_shown_whole():
+    data = (_THURBER_HEAD + "".join(f"{-2.9 + i * 0.05:.3f}E0,{90 + i:.3f}E0\n" for i in range(35))).encode()
+    assert len(data) < cs.PREVIEW_MAX_CHARS
+    content = [{"type": "document", "document_id": "doc_w", "filename": "thurber.csv"}]
+    blocks, _, _ = _resolve(content, stored_name="thurber.csv", data=data)
+    joined = _text_of(blocks)
+    assert "It has 38 lines, 37 data rows, shown whole:" in joined
+    assert "-1.200E0,124.000E0" in joined          # the last row is there
+    assert "the first" not in joined
+
+
+def test_row_count_ignores_comments_and_a_missing_last_newline():
+    data = b"# exported by the reader\nconc,abs\n" + b"\n".join(
+        f"{i},{0.1 * i:.2f}".encode() for i in range(400))
+    content = [{"type": "document", "document_id": "doc_r", "filename": "std.csv"}]
+    blocks, _, _ = _resolve(content, stored_name="std.csv", data=data)
+    joined = _text_of(blocks)
+    assert "It has 402 lines; the first 8 lines (the first 6 of 400 data rows):" in joined, joined
 
 
 def test_binary_data_file_gets_no_preview():

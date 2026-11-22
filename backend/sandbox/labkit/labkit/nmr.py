@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import math
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -514,13 +515,48 @@ _NOE_STARTS = [(0.001, 0.4), (0.01, 0.4), (1, 1), (0.1, 0.4), (0.1, 7), (5, 0.5)
                (0.2, 0.9), (0.27, 0.42)]
 
 
+class PairKeyError(KeyError):
+    """A KeyError that prints its message plainly (KeyError quotes it)."""
+
+    def __str__(self):
+        return str(self.args[0]) if self.args else ""
+
+
+_PAIR_SPLIT = re.compile(r"\s*[|:/-]\s*")
+
+
+def _diag0_for(diag0: dict, key):
+    """A_ii(0) for one pair: diag0[pair], else the one part of the pair's key
+    (a tuple, or a string split on | : - /) that diag0 has."""
+    if key in diag0:
+        return diag0[key]
+    by_text = {str(k).strip(): k for k in diag0}
+    if str(key).strip() in by_text:
+        return diag0[by_text[str(key).strip()]]
+    if isinstance(key, (tuple, list)):
+        parts = [str(p).strip() for p in key]
+    else:
+        parts = [p for p in _PAIR_SPLIT.split(str(key).strip()) if p]
+    hits = list(dict.fromkeys(by_text[p] for p in parts if p in by_text))
+    if len(hits) == 1:
+        return diag0[hits[0]]
+    why = (f"both parts are in diag0 ({', '.join(repr(h) for h in hits)}), so it is not clear which "
+           f"diagonal peak normalises it" if hits else f"neither the pair nor a part of it is a key of diag0 "
+           f"(keys: {', '.join(repr(k) for k in list(diag0)[:8])}{', ...' if len(diag0) > 8 else ''})")
+    raise PairKeyError(f"diag0 has no entry for pair {key!r}: {why}. Key it by pair, by the diagonal peak's "
+                   f"name, or pass one number")
+
+
 def noe_buildup(mixing_s, cross: dict, diag0, *, include_origin: bool = True, level: float = 0.95) -> dict:
     """Cross-relaxation rates from NOESY buildup curves, one fit per pair.
 
     mixing_s        mixing times in SECONDS (convert ms first)
     cross           {pair: [cross-peak integral at each mixing time]}
     diag0           {pair: A_ii(0)} (the diagonal integral at the shortest
-                    mixing time), or one number for all pairs
+                    mixing time), or {diagonal peak: A_ii(0)} keyed by the
+                    peak's name (a pair '8.6|CH3' or ('8.6', 'CH3') then
+                    takes the part of its key that diag0 has, when exactly
+                    one part matches), or one number for all pairs
     include_origin  add the point A(0) = 0 (default, as in the usual analysis)
     Model: A(t) = (A0/2)*(1 - exp(-2*sigma*t))*exp(-t/T), fitted from a grid
     of starting points (the surface has local minima).
@@ -532,7 +568,7 @@ def noe_buildup(mixing_s, cross: dict, diag0, *, include_origin: bool = True, le
         raise ValueError("mixing_s looks like milliseconds (max > 20): pass seconds")
     out: dict[Any, Optional[dict]] = {}
     for key, vals in cross.items():
-        a0 = diag0[key] if isinstance(diag0, dict) else diag0
+        a0 = _diag0_for(diag0, key) if isinstance(diag0, dict) else diag0
         y = np.asarray([np.nan if v is None else v for v in vals], float)
         if y.size != t.size:
             raise ValueError(f"{key!r}: {y.size} integrals for {t.size} mixing times")

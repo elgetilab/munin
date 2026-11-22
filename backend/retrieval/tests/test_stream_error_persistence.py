@@ -336,6 +336,7 @@ def _drive_stream_chat(
     capture: dict,
     conversation_id: Optional[str] = "test-conv-1",
     stream_id: Optional[str] = None,
+    user_text: str = "Try the orchestrator",
 ) -> list[dict]:
     """
     Run `stream_chat_completion` with a comprehensive set of patches that
@@ -447,7 +448,7 @@ def _drive_stream_chat(
             conversation_id=(
                 conversation["id"] if conversation_id is not None else None
             ),
-            user_message={"content": "Try the orchestrator"},
+            user_message={"content": user_text},
             rag_config=None,
             ephemeral=False,
             stream_id=stream_id,

@@ -26,6 +26,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime
@@ -222,6 +223,82 @@ WRAP_UP_VALUES_LINE = (
     "task asked for a file you did not write, put those values in a JSON "
     "block."
 )
+# The named-file nudge (LABKIT-018-PLAN.md, change 3): a sandbox turn that
+# ends normally although the latest user message asked to save a named file
+# that no tool of this turn wrote gets one save round with this message. The
+# answer already written is kept (see stream_chat_completion).
+NAMED_FILE_MESSAGE = (
+    "You were asked to save '{name}'; it was not written. Write it now from "
+    "the values you have, then answer."
+)
+_FILE_EXT = (r"json|csv|tsv|txt|dat|xlsx|xls|png|svg|pdf|jpe?g|tiff?|md|html|tex|npy|npz"
+             r"|h5|hdf5|xml|ya?ml|parquet|pkl|zip|py")
+_FILE_NAME = rf"['\"`]?((?:[\w\-]+/)*[\w\-]+(?:\.[\w\-]+)*\.(?:{_FILE_EXT}))\b"
+# A verb asking for a file (not "saved", "written": those describe a file),
+# then the name right after it, or after "as", "to", "into", "in", "named" or
+# "called" in the same sentence ("save your final numbers with Python as
+# 'results.json'"). A name after "of" or "from" is a source, not a target.
+_NAMED_FILE_REQUEST = re.compile(
+    r"(?i)(?<!\w)(?P<neg>(?:don'?t|do\s+not|never|no\s+need\s+to|without)\s+)?"
+    r"(?:save|saving|write|writing|export|exporting|store|storing|dump|output)\s+"
+    rf"(?:(?:the\s+|a\s+)?{_FILE_NAME}"
+    rf"|[^.\n?!;]{{0,80}}?\b(?:as|to|into|in|named|called)\s+(?:a\s+|the\s+)?(?:file\s+)?{_FILE_NAME})")
+
+
+def requested_file_names(text: str, exclude: Optional[set] = None) -> list[str]:
+    """Base names of the files `text` asks to have saved, written or exported,
+    in order; names in `exclude` (the attached inputs) are left out."""
+    if not isinstance(text, str):
+        return []
+    skip = {n.lower() for n in exclude or ()}
+    out: list[str] = []
+    for m in _NAMED_FILE_REQUEST.finditer(text):
+        if m.group("neg"):
+            continue
+        name = (m.group(2) or m.group(3) or "").rsplit("/", 1)[-1]
+        if name and name.lower() not in skip and name not in out:
+            out.append(name)
+    return out
+
+
+def _turn_file_names(tool_calls: list[dict]) -> set[str]:
+    """Lower-case base names of the files this turn's tools wrote."""
+    names = set()
+    for tc in tool_calls:
+        res = tc.get("result")
+        if not isinstance(res, dict):
+            continue
+        for a in res.get("artifacts") or []:
+            if isinstance(a, dict) and isinstance(a.get("filename"), str):
+                names.add(a["filename"].rsplit("/", 1)[-1].lower())
+        if tc.get("name") in ("create_artifact",) and isinstance(res.get("title"), str):
+            names.add(res["title"].rsplit("/", 1)[-1].lower())
+    return names
+
+
+def unsaved_named_file(user_text: str, tool_calls: list[dict],
+                       inputs: Optional[set] = None) -> Optional[str]:
+    """The first file the latest user message asked for that this turn did
+    not write, when the turn used the sandbox; else None."""
+    if not any(tc.get("name") in SAVE_ROUND_TOOLS for tc in tool_calls):
+        return None
+    written = _turn_file_names(tool_calls)
+    for name in requested_file_names(user_text, inputs):
+        if name.lower() not in written:
+            return name
+    return None
+
+
+def _attached_names(content: Any) -> set[str]:
+    """File names attached to a user message (documents and data files)."""
+    out = set()
+    if isinstance(content, list):
+        for b in content:
+            if isinstance(b, dict) and isinstance(b.get("filename"), str):
+                out.add(b["filename"].rsplit("/", 1)[-1])
+    return out
+
+
 ROUNDS_LEFT_NOTE = (
     "\n\n[2 tool rounds left in this turn: finish up. If the task asks for "
     "a file (for example results.json), write it now.]"
@@ -243,9 +320,16 @@ PREVIEW_MAX_CHARS = 1500
 PREVIEW_LINES = 8
 
 
+# A data row starts with a number (header, comment and blank lines do not).
+_DATA_ROW = re.compile(rb"(?m)^[ \t]*[-+]?\.?\d")
+
+
 def _text_preview(path: str, filename: str) -> str:
-    """The first lines of a delimited text file and its line count, for the
-    data-file note; '' for binary or other files."""
+    """The first lines of a delimited text file, or all of it when it fits in
+    PREVIEW_MAX_CHARS, with its line and data-row counts, for the data-file
+    note; '' for binary or other files. The note says how many data rows it
+    shows out of how many: models copied the 8 rows shown and invented the
+    rest (LABKIT-018-PLAN.md, change 2)."""
     ext = os.path.splitext(filename or path)[1].lower()
     if ext not in _PREVIEW_EXT:
         return ""
@@ -253,8 +337,20 @@ def _text_preview(path: str, filename: str) -> str:
         with open(path, "rb") as f:
             head = f.read(65536)
             n_lines = head.count(b"\n")
+            last_nl = head.rfind(b"\n")
+            n_rows = len(_DATA_ROW.findall(head, 0, last_nl + 1)) if last_nl >= 0 else 0
+            carry = head[last_nl + 1:]
+            whole = len(head) < 65536
             while chunk := f.read(1 << 20):
+                whole = False
                 n_lines += chunk.count(b"\n")
+                buf = carry + chunk
+                cut = buf.rfind(b"\n")
+                n_rows += len(_DATA_ROW.findall(buf, 0, cut + 1)) if cut >= 0 else 0
+                carry = buf[cut + 1:] if cut >= 0 else buf
+            if carry.strip():
+                n_lines += 1   # a last line without a newline
+                n_rows += 1 if _DATA_ROW.match(carry) else 0
     except OSError:
         return ""
     if not head or b"\0" in head:
@@ -263,9 +359,18 @@ def _text_preview(path: str, filename: str) -> str:
         text = head.decode("utf-8")
     except UnicodeDecodeError:
         text = head.decode("latin-1")
-    lines = text.splitlines()[:PREVIEW_LINES]
-    shown = "\n".join(ln[:300] for ln in lines)[:PREVIEW_MAX_CHARS]
-    return f" It has {n_lines} lines; the first {len(lines)}:\n```\n{shown}\n```\n"
+    all_lines = text.splitlines()
+    if whole and len(text) <= PREVIEW_MAX_CHARS and all(len(ln) <= 300 for ln in all_lines):
+        rows = f", {n_rows} data rows" if n_rows else ""
+        return f" It has {n_lines} lines{rows}, shown whole:\n```\n{text.rstrip()}\n```\n"
+    shown = "\n".join(ln[:300] for ln in all_lines[:PREVIEW_LINES])[:PREVIEW_MAX_CHARS]
+    k = len(shown.splitlines())
+    if n_rows:
+        r = len(_DATA_ROW.findall(shown.encode("utf-8", "replace")))
+        what = f"the first {k} lines (the first {r} of {n_rows} data rows)"
+    else:
+        what = f"the first {k}"
+    return f" It has {n_lines} lines; {what}:\n```\n{shown}\n```\n"
 
 
 def _data_file_block(filename: str, size: int, sandbox_note: str, preview: str) -> dict:
@@ -306,6 +411,7 @@ async def _attach_to_sandbox(user_email: str, conversation_id: str, ephemeral: b
         logger.warning("attaching %s to sandbox failed: %s", doc_id, res["error"])
         return f"It could not be copied to the code sandbox ({res['error']})."
     paths = res.get("paths") or []
+    sandbox_tool.remember_input(conversation_id, filename or os.path.basename(path), data, paths)
     import labkit_hints
     reader = labkit_hints.upload_hint(filename or os.path.basename(path), data, paths)
     reader = f" {reader}" if reader else ""
@@ -2888,6 +2994,13 @@ async def stream_chat_completion(
     )
     # Artifact URLs earlier turns' tools produced, for the phantom-URL audits.
     prior_artifact_urls = _conversation_artifact_urls(conversation.get("messages"))
+    # The retyping hint fires at most once per file and column per turn.
+    if not ephemeral and conversation.get("id"):
+        try:
+            from mcp.tools import sandbox as _sandbox_tool
+            _sandbox_tool.new_turn(conversation["id"])
+        except Exception as e:  # never fail a turn over a hint
+            logger.info("retype new_turn skipped: %s", e)
 
     # --- Save-always wrapper (chat 3951063c, 2026-05-08) ---
     # Persist the assistant turn no matter how this function exits:
@@ -2980,6 +3093,15 @@ async def stream_chat_completion(
         # Set when the guard or the call cap ends the loop early: the next
         # round is the save round (SAVE_ROUND_TOOLS), then the wrap-up.
         save_round_next = False
+        # The named-file nudge (NAMED_FILE_MESSAGE): set when the turn ended
+        # normally without a file the user named. The next round is a save
+        # round with that message; the answer already written is kept, the
+        # save round's text is narration of its tool call (or dropped), and
+        # no wrap-up follows. Once per turn.
+        nudge_name: Optional[str] = None
+        nudge_answer: Optional[str] = None
+        nudge_content_before = ""
+        nudge_done = False
         # The answer: text of the final step (no tool calls) plus the wrap-up.
         # Text of steps that called tools is narration, kept on the step's
         # first tool call as step_text (TURN-RESULTS-PLAN.md).
@@ -3026,9 +3148,13 @@ async def stream_chat_completion(
             used_sandbox = any(tc.get("name") in SAVE_ROUND_TOOLS
                                for tc in final_tool_calls)
             is_save_round = used_sandbox and (save_round_next or turn == turn_budget - 1)
+            nudge_round = is_save_round and nudge_answer is not None
             if is_save_round:
-                logger.info("save round (turn %d of %d)", turn + 1, turn_budget)
-                messages.append({"role": "user", "content": SAVE_ROUND_MESSAGE})
+                logger.info("save round (turn %d of %d)%s", turn + 1, turn_budget,
+                            f" for named file {nudge_name!r}" if nudge_round else "")
+                messages.append({"role": "user", "content": (
+                    NAMED_FILE_MESSAGE.format(name=nudge_name) if nudge_round
+                    else SAVE_ROUND_MESSAGE)})
 
             # Consume one streaming pass. An *empty* completion (the
             # iterator yields nothing, so `acc` stays None, yet no error
@@ -3078,12 +3204,27 @@ async def stream_chat_completion(
                         stream_error = payload.get("message")
                         yield _sse("error", payload)
                         continue
+                    if nudge_round and event_name == "token":
+                        continue  # the answer is already written; see nudge_answer
                     yield _sse(event_name, payload)
                 # Got output, or a hard error that owns its own handling
                 # below; either way stop retrying. Only a clean-but-empty
                 # pass falls through to attempt 1.
                 if context_full or stream_error or acc is not None:
                     break
+
+            if nudge_round and (context_full or stream_error or acc is None):
+                # The named-file round failed: the answer stands as it was.
+                logger.warning("named-file save round failed (%s); keeping the answer",
+                               "context full" if context_full else stream_error or "no output")
+                context_full = False
+                acc = None
+                acc_transferred = True
+                hit_turn_cap = False
+                answer_raw = nudge_answer or ""
+                final_content = nudge_content_before
+                nudge_done = True
+                break
 
             if context_full:
                 # Wrap up from what was done; the client gets the Continue
@@ -3239,7 +3380,28 @@ async def stream_chat_completion(
                                 },
                             )
 
+            if not tool_calls and nudge_round:
+                # The named-file round answered in text again: keep the first
+                # answer (its tokens were not streamed).
+                hit_turn_cap = False
+                answer_raw = nudge_answer or ""
+                final_content = nudge_content_before
+                nudge_done = True
+                break
             if not tool_calls:
+                missing = None
+                if not is_save_round and nudge_answer is None and turn < turn_budget - 1:
+                    missing = unsaved_named_file(
+                        typed_text, final_tool_calls,
+                        _attached_names(user_message.get("content")))
+                if missing:
+                    logger.info("named-file nudge: %r was asked for and not written", missing)
+                    nudge_name = missing
+                    nudge_answer = acc.content
+                    nudge_content_before = final_content
+                    messages.append({"role": "assistant", "content": acc.content})
+                    save_round_next = True
+                    continue
                 hit_turn_cap = False
                 answer_raw = acc.content
                 break
@@ -3657,6 +3819,17 @@ async def stream_chat_completion(
                         )
                 last_call = next_last_call
             total_tool_calls += len(tool_calls)
+            if nudge_round:
+                # The named-file round ran its tools: the first answer is the
+                # answer, sent again so the live bubble shows it (the client
+                # moved it into this step's narration on the tool_call).
+                hit_turn_cap = False
+                answer_raw = nudge_answer or ""
+                final_content = nudge_content_before
+                nudge_done = True
+                if answer_raw:
+                    yield _sse("token", {"content": answer_raw})
+                break
             if is_save_round:
                 break  # the save round ran; the wrap-up answers
             if turn == turn_budget - 3:
@@ -3723,7 +3896,7 @@ async def stream_chat_completion(
                 finish_reason = wrap_acc.finish_reason or finish_reason
             if not final_content.strip():
                 final_content = f"_({chat_context.CONTEXT_FULL_MESSAGE})_"
-        elif (hit_turn_cap or not last_turn_content) and not had_stream_error:
+        elif (hit_turn_cap or not last_turn_content) and not had_stream_error and not nudge_done:
             wrap_up_messages = list(messages) + [
                 {
                     "role": "user",

@@ -6,7 +6,7 @@
  ],
  "turns": [
   {
-   "prompt": "label.csv is a phased 4-pulse DEER trace (time zero at the first point). The pump pulse inverts 50% of the spins at its frequency (inversion efficiency 0.50). Report the modulation depth (mod_depth) and the labelling efficiency of the second site (labeling_efficiency).",
+   "prompt": "label.csv is a phased 4-pulse DEER trace (time zero at the first point). The pump pulse inverts 50% of the spins at its frequency (inversion efficiency 0.50). Both sites are labelled with the same efficiency. Report the modulation depth (mod_depth) and the labelling efficiency (labeling_efficiency).",
    "checks": [
     {
      "type": "numeric",

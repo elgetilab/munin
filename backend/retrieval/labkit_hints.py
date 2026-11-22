@@ -131,6 +131,40 @@ _CW_EPR_WORDS = re.compile(r"(?i)\b(cw.?)?epr\b|\besr\b|dI/dB|\bfield_?(G|mT)\b|
 # labkit's own names ("from labkit import epr", "epr.load(") are not EPR context
 _LABKIT_REFS = re.compile(r"\bepr\.\w+|from\s+labkit[\w.]*\s+import[^\n]*|import\s+labkit[^\n]*|labkit\.\w+")
 _DEER_CTX = re.compile(r"(?i)\bdeer\b|\bpeldor\b|dipolar|\bt_us\b|\btime_ns\b|modulation.?depth|fit_deer")
+# Round 3 (LABKIT-018-PLAN.md): DEER code the old pattern missed. `\bdeer\b`
+# does not match deer_raw.csv, and quad.csv carries no DEER word; the scripts
+# that fitted by hand said dipolar, mod_depth or typed the dipolar constant
+# (52.04 MHz nm^3, 2 pi times that is 327).
+# The constant counts only in a formula (52.1 / r**3, 2*pi*52.04, 52.1 MHz),
+# not as a number in a data list.
+_DIPOLAR_CONSTANT = r"(?<![\w.])(?:52\.[01]\d*|32[67]\.\d+)(?![\w.])"
+_DEER_ISH = re.compile(r"(?i)(?<![a-z])deer|peldor|dipolar|mod_?depth|modulation.?depth"
+                       rf"|{_DIPOLAR_CONSTANT}\s*(?:/|\*|MHz)|\*\s*{_DIPOLAR_CONSTANT}")
+_GUIDE_REFS = re.compile(r"\bguide\s*\([^)]*\)")
+
+
+_LABKIT_CHAINS = re.compile(r"\b(?:labkit|epr)(?:\.\w+)+")
+
+
+def _deer_ish(c: str) -> bool:
+    """DEER words outside labkit's own names (epr.fit_deer, guide('deer'));
+    code that names fit_deer at all (calls it, reads its help) is past the
+    pointer."""
+    if re.search(r"\bfit_deer\b", c):
+        return False
+    c = _LABKIT_CHAINS.sub(" ", _LABKIT_REFS.sub(" ", _GUIDE_REFS.sub(" ", c)))
+    return bool(_DEER_ISH.search(c))
+
+
+def _deer_context(c: str) -> bool:
+    """DEER code, including code that calls fit_deer: the other domain hints
+    and the general fit hints do not apply to it (round 3 runs got the
+    relaxation hint for T2, Michaelis-Menten for V_max, epr_g for mu_B)."""
+    return bool(_DEER_CTX.search(c) or _deer_ish(c))
+
+
+# Hints that never apply to DEER code.
+_NOT_FOR_DEER = {"relaxation", "epr_g", "epr_integral", "kd", "noe_buildup"}
 
 
 def _cw_epr(c: str, labkit_epr_counts: bool = False) -> bool:
@@ -148,6 +182,9 @@ _EXTREMA = re.compile(r"\b(find_peaks|argmax|argmin|idxmax|idxmin)\b")
 _LINESHAPE = re.compile(r"(?i)peak.?to.?peak|\bdBpp\b|\bfwhm\b|\bhwhm\b|line.?width|kivelson|6\.51e-10"
                         r"|\bheights?\b|\bh0\b|\bh_?[pm]1\b")
 _POWER = re.compile(r"(?i)p_?half|p1/2|saturat|attenuat|sqrt\(\s*p(ower)?\b")
+# Masking a CW spectrum by amplitude, abs(y) > K or abs(y) < K: in round 3
+# this removed the lines themselves as "spikes" (449 and 127 points).
+_AMPLITUDE_MASK = re.compile(r"\babs\(\s*[\w.\[\]]+\s*\)\s*[<>]=?\s*(?:\d|\.\d|[A-Za-z_])")
 
 
 def _calls_any(*funcs: str) -> re.Pattern:
@@ -173,13 +210,19 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      ".par/.spc and ASCII exports, converts the field to mT (or time to us), and gives "
      "freq_GHz (from MWFQ, in Hz in the file), power_mW, modamp_mT, gain_dB, n_scans"
      + _EPR_HINT_TAIL),
-    ("deer", lambda c: bool(_DEER.search(c) and _DEER_INVERT.search(c)), _calls_any("fit_deer"),
-     "This analyses a DEER trace by hand (DeerLab is not installed). Three lines do it: "
+    # Round 3: on the first DEER script that does not call fit_deer, fit call
+    # or not (four hand analyses never got it, LABKIT-018-PLAN.md).
+    ("deer", lambda c: bool((_DEER.search(c) and _DEER_INVERT.search(c)) or _deer_ish(c)),
+     _calls_any("fit_deer"),
+     "This works on a DEER trace by hand (DeerLab is not installed). Three lines do it: "
      "r = labkit.epr.fit_deer(t_us, V); print(r); then r.lam (modulation depth), r.mean_nm, "
-     "r.conc_uM (frozen solution), r.populations, r.t0_ns. It phases a complex trace, finds the zero "
-     "time, and fits P(r), lambda and the background in one step, limited to what the trace length "
-     "supports. Background: the sample decides (frozen solution: default hom3d; membrane, liposome or "
-     "micelle: background='strexp', dim=2.0); if the question does not say, ask the user. "
+     "r.conc_uM (frozen solution), r.populations, r.t0_ns, and r.main_nm when the trace is too short "
+     "for the long part. It phases a complex trace, finds the zero time, and fits P(r), lambda and the "
+     "background in one step, limited to what the trace length supports. The modulation depth is the "
+     "fitted lambda, never 1 - V(end)/V(0) (that includes the background); never |V|. Labelling "
+     "efficiency: epr.labeling_efficiency(r.lam, inversion=..., scheme='both_equal'). Background: the "
+     "sample decides (frozen solution: default hom3d; membrane, liposome or micelle: "
+     "background='strexp', dim=2.0); if the question does not say, ask the user. "
      "See labkit.guide('deer')."),
     ("epr_power", lambda c: bool(_cw_epr(c, True) and _POWER.search(c) and _ANY_FIT.search(c)),
      _calls_any("power_saturation_fit"),
@@ -196,7 +239,9 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      "'lorentzian') gives dBpp_mT, fwhm_mT and g; nx = epr.nitroxide_hyperfine(d.field_mT, d.y) gives "
      "aN, dBpp and the three line heights from the raw derivative, and "
      "epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])['tau_c_s']; "
-     "a spin ratio is epr.double_integral(...).value of one over the other" + _EPR_HINT_TAIL),
+     "a spin ratio is epr.double_integral(...).value of one over the other. Extrema on the grid "
+     "(argmax, argmin) are quantised to the field step; use epr.peak_to_peak or fit_line"
+     + _EPR_HINT_TAIL),
     ("epr_integral", lambda c: bool(_DOUBLE_INT.search(c) and _EPR_CONTEXT.search(c)),
      _calls_any("double_integral", "spin_count"),
      "This integrates an EPR spectrum by hand. labkit.epr.double_integral(field_mT, y) removes a "
@@ -210,6 +255,11 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      "CODATA 2022 (71.447735 mT/GHz); labkit.epr.fit_line(field_mT, y, freq_GHz=d.freq_GHz) fits "
      "the line and gives g, dBpp and the absorption FWHM (Lorentzian sqrt(3) dBpp, Gaussian "
      "1.1774 dBpp). Use the measured frequency from the file (d.freq_GHz), not a nominal one"
+     + _EPR_HINT_TAIL),
+    ("epr_mask", lambda c: bool(_cw_epr(c, True) and _AMPLITUDE_MASK.search(c)), _calls_any("despike"),
+     "This masks an EPR spectrum by amplitude. In a derivative spectrum the largest points are the "
+     "line; a spike is 1 to 3 points wide. Use epr.despike: y_clean, idx = epr.despike(field_mT, y, "
+     "max_width=3) replaces only outliers at most 3 points wide and returns their indices"
      + _EPR_HINT_TAIL),
     ("sparky", lambda c: bool(_SPARKY.search(c)), _calls("read_sparky"),
      "This parses Sparky peak lists by hand. labkit.nmr.read_sparky(path) returns {residue: "
@@ -279,6 +329,7 @@ _GENERAL = {k for k, _, _ in _MODELS} | {"standard_curve", "custom_fit"}
 def _candidates(code: str, labkit_in_use: bool):
     """Every hint that applies to `code`, most specific first."""
     uses = labkit_in_use or bool(_USES_LABKIT.search(code))
+    deer = _deer_context(code)
     if _BRUKER.search(code) and not _calls("read_bruker").search(code):
         yield ("bruker", (
             "This reads Bruker data by hand. labkit.nmr has the "
@@ -286,10 +337,12 @@ def _candidates(code: str, labkit_in_use: bool):
             "process_1d, reference, peaks, integrate); see labkit.guide('nmr'). "
             "Keep your own code for steps labkit.nmr does not cover."))
     for key, applies, covered, hint in _DOMAIN:
+        if deer and key in _NOT_FOR_DEER:
+            continue
         if applies(code) and not covered.search(code):
             yield (key, hint)
-    if uses:
-        return
+    if uses or deer:
+        return    # the general fit hints do not apply to DEER code either
     if _FIT_CALL.search(code):
         epr_code = bool(_cw_epr(code) or _DEER.search(code) or _DEER_CTX.search(code))
         for key, pat, names in _MODELS:

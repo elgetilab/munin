@@ -412,6 +412,74 @@ def _parabola_peak(x, y, i):
     return x[i], y[i]
 
 
+def despike(field_mT, y, max_width: int = 3, *, k: float = 6.0):
+    """Remove spikes (cosmic rays, glitches) from a CW spectrum: runs of at
+    most max_width points that stand out from a running median by more than
+    k robust standard deviations of the noise, where the points around them
+    are smooth; each is replaced by a cubic through its neighbours. Returns
+    (y_clean, changed_indices).
+
+    Never mask by amplitude (abs(y) > K): in a derivative spectrum the
+    largest points ARE the line. A real line is wider than a spike, so its
+    extrema are left alone: a run wider than max_width, a run whose
+    neighbours do not lie on a smooth curve (the flank of a line), or one next
+    to an opposite-sign excursion of similar size (the other lobe of a narrow
+    derivative line) is kept. A line needs about 3 * max_width points across
+    its peak-to-peak width to be told from a spike. Works on the real part of
+    complex data; field_mT only has to be monotonic."""
+    x = np.asarray(field_mT, float)
+    yy = np.asarray(y)
+    yr = (yy.real if np.iscomplexobj(yy) else yy).astype(float)
+    n = yr.size
+    if x.shape != yr.shape or yr.ndim != 1:
+        raise ValueError("despike: field and y must be 1D and the same length (2D: despike each row)")
+    w = int(max_width)
+    if w < 1:
+        raise ValueError("max_width must be at least 1")
+    h = w + 1                      # a run of w points is less than half of the 2h+1 median window
+    m = 2 * h                      # flank points on each side for the cubic
+    if n < 2 * (m + h) + w:
+        return yr.copy(), np.array([], int)
+    pad = np.pad(yr, h, mode="reflect")
+    med = np.median(np.lib.stride_tricks.sliding_window_view(pad, 2 * h + 1), axis=1)
+    res = yr - med
+    # noise from second differences (a smooth line barely contributes)
+    d2 = np.diff(yr, 2)
+    sig = 1.4826 * float(np.median(np.abs(d2 - np.median(d2)))) / math.sqrt(6)
+    sig = max(sig, 1e-3 * float(np.ptp(yr)), 1e-300)
+    out = np.abs(res) > k * sig
+    clean = yr.copy()
+    changed = []
+    i = 0
+    while i < n:
+        if not out[i]:
+            i += 1
+            continue
+        j = i
+        while j + 1 < n and out[j + 1] and np.sign(res[j + 1]) == np.sign(res[i]):
+            j += 1
+        i_next = j + 1
+        if j - i + 1 > w or i < m + 1 or j > n - m - 2 or out[i - 1] or out[j + 1]:
+            i = i_next
+            continue
+        sgn = np.sign(res[i])
+        peak = float(np.max(np.abs(res[i:j + 1])))
+        near = np.r_[res[max(0, i - 2 * m):i], res[j + 1:j + 1 + 2 * m]]
+        if np.any((np.sign(near) == -sgn) & (np.abs(near) > max(k * sig, 0.3 * peak))):
+            i = i_next
+            continue
+        fl = np.r_[i - 1 - m:i - 1, j + 2:j + 2 + m]      # one point of margin on each side
+        xc = x[fl] - x[i]
+        c = np.polyfit(xc, yr[fl], 3)
+        flank_rms = float(np.sqrt(np.mean((np.polyval(c, xc) - yr[fl]) ** 2)))
+        pred = np.polyval(c, x[i:j + 1] - x[i])
+        if flank_rms < 2 * sig and np.all(np.abs(yr[i:j + 1] - pred) > k * sig):
+            clean[i:j + 1] = pred
+            changed.extend(range(i, j + 1))
+        i = i_next
+    return clean, np.array(changed, int)
+
+
 def peak_to_peak(field_mT, y, window=None) -> dict:
     """Derivative peak-to-peak: dBpp_mT, Ypp, B_max_mT, B_min_mT (parabolic
     refinement around the extremes). For a noisy line prefer fit_line."""
@@ -985,6 +1053,48 @@ def distance_limits(tmax_us) -> dict:
             "tmax_us": t}
 
 
+class LabelingEfficiency(float):
+    """A float (the labelling efficiency) that also carries .formula,
+    .scheme, .lam, .inversion and .warnings."""
+
+    def __repr__(self):
+        return f"{float(self):.4g} (labelling efficiency, {self.scheme}: {self.formula})"
+
+
+def labeling_efficiency(lam, inversion, scheme: str = "both_equal") -> LabelingEfficiency:
+    """Spin-labelling efficiency f from the DEER modulation depth of a
+    doubly labelled molecule (two sites), and the pump inversion efficiency p
+    (the fraction of partner spins the pump pulse inverts; a property of the
+    spectrometer and pulses, from the question or a standard, often 0.3-0.5).
+
+    scheme="both_equal": both sites labelled with the same efficiency f:
+        lambda = p f, so f = lambda / p
+    scheme="one_full": site 1 fully labelled, site 2 with efficiency f; the
+        observer is either site, so lambda = 2 p f / (1 + f), and
+        f = lambda / (2 p - lambda)
+    Prints the formula it used and returns f (a float with .formula).
+    lambda comes from epr.fit_deer (r.lam), never 1 - V(end)/V(0)."""
+    lam, p = float(lam), float(inversion)
+    if not 0 < p <= 1:
+        raise ValueError(f"inversion efficiency {p:g} must be in (0, 1] (a fraction, not a percentage)")
+    if not 0 < lam < 1:
+        raise ValueError(f"modulation depth {lam:g} must be in (0, 1): pass r.lam from fit_deer")
+    warns = []
+    if scheme == "both_equal":
+        f, formula = lam / p, f"f = lambda / p = {lam:.4g} / {p:.4g}"
+    elif scheme == "one_full":
+        f, formula = lam / (2 * p - lam), f"f = lambda / (2p - lambda) = {lam:.4g} / (2 * {p:.4g} - {lam:.4g})"
+    else:
+        raise ValueError("scheme: 'both_equal' (both sites labelled alike) or 'one_full' (site 1 fully labelled)")
+    if lam > p:
+        warns.append(f"lambda {lam:.3g} exceeds the inversion efficiency {p:.3g}, so f > 1: check p, or the "
+                     f"sample has more than two spins per molecule (aggregation)")
+    out = LabelingEfficiency(f)
+    out.formula, out.scheme, out.lam, out.inversion, out.warnings = formula, scheme, lam, p, warns
+    print(f"labelling efficiency ({scheme}): {formula} = {f:.4g}" + "".join(f"\n  WARNING: {w}" for w in warns))
+    return out
+
+
 def simulate_deer(t_us, r_nm, P, lam, *, conc_uM=None, k_per_us=None, dim: float = 3.0, t0_us: float = 0.0,
                   phase_deg: float = 0.0, noise: float = 0.0, V0: float = 1.0, seed: int = 0) -> np.ndarray:
     """V(t) = V0 [(1 - lam) + lam K P] B(t - t0) e^(i phase) + noise. P is
@@ -1043,6 +1153,9 @@ class DeerResult(FieldHelp):
     ci: dict = field(default_factory=dict)
     aic: Optional[float] = None
     P_ci95: Optional[tuple] = None
+    main_nm: Optional[float] = None         # main distance of the reliable part (see fit_deer)
+    reliable_populations: list = field(default_factory=list)
+    long_fraction: Optional[float] = None   # set when the trace holds distances beyond the limit
 
     @property
     def t0_ns(self) -> float:
@@ -1071,6 +1184,12 @@ class DeerResult(FieldHelp):
                f"  residual rms {self.residual_rms:.3g}, SNR (lambda / noise) {self.snr:.3g}",
                f"  trace {L['tmax_us']:.3g} us supports <r> up to {L['r_max_mean_nm']:.2f} nm and width/shape up to "
                f"{L['r_max_width_nm']:.2f} nm"]
+        if self.long_fraction is not None:
+            out.append(f"  main distance (reliable part) = {self.main_nm:.3f} nm (r.main_nm), from a fit allowed "
+                       f"past {L['r_max_mean_nm']:.2f} nm; populations below that limit: "
+                       + "; ".join(f"{p['r_nm']:.2f} nm ({100 * p['fraction']:.0f}%)" for p in self.reliable_populations)
+                       + f"; {100 * self.long_fraction:.0f}% above it (unreliable: this trace is too short to "
+                       f"measure it). Report main_nm as the main distance, not the mean or modal above")
         if self.warnings:
             out.append("  WARNINGS (report them): " + " | ".join(self.warnings))
         return "\n".join(out)
@@ -1148,12 +1267,23 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
     check_long  also fit with r up to 1.5x that limit and warn when that fit
               puts distance there and fits better: then the trace may hold
               distances it is too short to measure (or the background model
-              is wrong); report the long part as unreliable.
+              is wrong); report the long part as unreliable. Then the
+              distribution limited to the trace can split or shift the short
+              peak (the long part leaks into the background), so the result
+              takes the short part from the wider fit: r.main_nm (main
+              distance of the reliable part), r.reliable_populations (its
+              populations below the limit, fractions of the whole) and
+              r.long_fraction (the part above it); summary() prints them
+              as "main distance (reliable part)". Otherwise r.main_nm is
+              the largest population of this fit, r.reliable_populations
+              equals r.populations and r.long_fraction is None, so code can
+              always read r.main_nm.
     check_background  with the default hom3d background, also fit a
               membrane background (strexp, dim=2) and warn when it fits about as
               well and gives other distances: the trace cannot choose, the
               sample does (use what the question says, or ask the user).
-    n_boot    residual bootstrap repeats for 95% CIs (about 1-2 s each).
+    n_boot    residual bootstrap repeats for 95% CIs (about 1-2 s each). The
+              checks above run on the point fit (not on the bootstrap fits).
     Returns DeerResult: print it (summary() has what a report needs), with
     warnings for distance mass beyond what the trace supports.
     """
@@ -1341,7 +1471,8 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
                      f"{tmax:.2g} us trace supports (mean distances up to {lim['r_max_mean_nm']:.2f} nm, widths "
                      f"and shape up to {lim['r_max_width_nm']:.2f} nm): report that part as unreliable, or "
                      f"record a longer trace")
-    if check_long and auto_r and method.startswith("tik") and not n_boot:
+    main_pops, long_frac = pops, None
+    if check_long and auto_r and method.startswith("tik"):
         r_ext = np.arange(r[0], min(12.0, 1.5 * lim["r_max_mean_nm"]) + 1e-9, 0.02)
         ext = fit_deer(t, v * scale, r_nm=r_ext, method=method, background=background, fit_t0=False,
                        t0_us=t0, check_long=False, check_background=False, alpha=alpha_used,
@@ -1356,8 +1487,21 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
                          f"longest a {tmax:.2g} us trace supports: a fit allowed to go further puts "
                          f"{100 * beyond:.0f}% of P(r) there. Distances above that limit cannot be measured "
                          f"from this trace (they look like background): report them as unreliable and "
-                         f"recommend a longer trace; the distribution above is limited to {lim['r_max_mean_nm']:.2f} nm")
-    if check_background and background == "hom3d" and method.startswith("tik") and not n_boot:
+                         f"recommend a longer trace; the distribution above is limited to {lim['r_max_mean_nm']:.2f} nm. "
+                         f"The short part is taken from the wider fit: main distance (reliable part) r.main_nm")
+            # The short part: the wider fit with its own alpha (by AIC). The alpha
+            # of the limited fit, tuned to a distribution squeezed below the
+            # limit, can split the short peak on the wider grid.
+            ext_a = fit_deer(t, v * scale, r_nm=r_ext, method=method, background=background, fit_t0=False,
+                             t0_us=t0, check_long=False, check_background=False, dim=dim_fixed)
+            beyond_a = float(np.sum((ext_a.P * np.gradient(ext_a.r_nm))[ext_a.r_nm > lim["r_max_mean_nm"]]))
+            below = [p_ for p_ in ext_a.populations if p_["r_nm"] < lim["r_max_mean_nm"]]
+            if below:
+                # populations' fractions are over the populations kept; give them as fractions of the whole P(r)
+                tot = sum(p_["fraction"] for p_ in below)
+                main_pops = [dict(p_, fraction=p_["fraction"] / tot * (1 - beyond_a)) for p_ in below]
+                long_frac = beyond_a
+    if check_background and background == "hom3d" and method.startswith("tik"):
         # A membrane background (d about 2) and hom3d (d = 3) often fit a
         # trace equally well; a free d is a flat valley (on the S8 membrane
         # trace d = 2.2 and d = 3 differ by 0.1 AIC units). So fit d = 2 and
@@ -1413,7 +1557,9 @@ def fit_deer(t_us, V, *, r_nm=None, method: str = "tikhonov", n_gauss: int = 1, 
                       populations=pops, lam=lam, k_per_us=k, conc_uM=conc, dim=dim, t0_us=t0,
                       alpha=alpha_used, criterion=crit, t_us=t, V=v, V_fit=vfit,
                       residual_rms=noise, snr=float(snr), phase_deg=phase, limits=lim, warnings=warns,
-                      gauss=gpar, ci=ci, P_ci95=P_ci, aic=aic_val)
+                      gauss=gpar, ci=ci, P_ci95=P_ci, aic=aic_val,
+                      main_nm=float(max(main_pops, key=lambda p_: p_["fraction"])["r_nm"]) if main_pops else modal,
+                      reliable_populations=main_pops, long_fraction=long_frac)
 
 
 def _populations(r, P, min_fraction: float = 0.05) -> list:

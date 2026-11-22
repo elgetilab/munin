@@ -745,9 +745,9 @@ def deer_labeling(root: Path):
     files = {"label.csv": csv_text(["t_us", "V"], [t, v.real], ["%.4f", "%.6f"])}
     _deer_case(root, _id("s8_deer_labeling"),
                "label.csv is a phased 4-pulse DEER trace (time zero at the first point). The pump "
-               "pulse inverts 50% of the spins at its frequency (inversion efficiency 0.50). Report "
-               "the modulation depth (mod_depth) and the labelling efficiency of the second site "
-               "(labeling_efficiency).",
+               "pulse inverts 50% of the spins at its frequency (inversion efficiency 0.50). Both "
+               "sites are labelled with the same efficiency. Report the modulation depth (mod_depth) "
+               "and the labelling efficiency (labeling_efficiency).",
                [{"type": "numeric", "key": "mod_depth", "truth": "truth:mod_depth", "atol": 0.03},
                 {"type": "numeric", "key": "labeling_efficiency", "truth": "truth:labeling_efficiency",
                  "atol": 0.07}],
