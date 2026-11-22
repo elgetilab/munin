@@ -373,3 +373,8 @@ Brave or S2 calls.
 | Q8 | Keep the fast-MAS sign-ambiguity case, graded as magnitude plus a flag? | Yes, only if the generator confirms the ambiguity; otherwise replace it with a slow-spinning HB case. |
 | Q9 | Volume-correction truth: exact product form (pytc, Freire 2009) or Origin's first-order form? | Exact; the tolerance passes both and fails no correction. |
 | Q10 | Run two research agents (ITC, CSA lineshapes) with the EPR brief template before freezing the labkit API? | Yes, after the baseline, so they target the observed failures. |
+
+Answers (varghele, 2026-11-22): Q1 and Q2 real `.itc` and 31P files are
+still to be looked at together; the public files are the format check until
+then. Q3 S9 and S10 are fine. Q4 yes, the `31P_INP` spectrum may be used.
+Other questions: defaults stand. Still waiting for "proceed".

@@ -305,3 +305,10 @@ measured at 2 CPUs, and so are these. Budgets, to be measured while building:
 | Q6 | Offer EasySpin-named aliases (`epr.pepper(Sys, Exp)`)? | No: labkit names with unit-named keywords, and a hint that maps EasySpin-style code to them. Aliases would invite EasySpin's units (MHz, FWHM) into labkit's mT conventions and suggest an affiliation. |
 | Q7 | Should `fit_spectrum` pick powder or slow motion itself when the prompt does not say? | No (as for the DEER background): the agent takes it from the question (temperature, frozen or liquid) or asks the user. The function warns when the residual suggests the other model. |
 | Q8 | Suite placement: new cases in S8, or a new suite? | S8, tagged `sim:powder` / `sim:slow`, so the EPR score stays one number with a sub-score. |
+
+Answers (varghele, 2026-11-22): Q1 no, MATLAB is not available, so
+validation is EasySpin's stored reference spectra, analytic limits and the
+MIT Python simulators; slice 2 (slow motion) stays weakly validated unless
+that changes. Q2 real Xepr files are still to be looked at together; synthetic
+only until then. Other questions: defaults stand. Still waiting for
+"proceed".
