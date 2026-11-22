@@ -1,0 +1,30 @@
+{
+ "id": "s8_cw_broad_window_f3",
+ "suite": "S8",
+ "inputs": [
+  "broad.csv",
+  "narrow.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "broad.csv (a broad Lorentzian line) and narrow.csv (a narrow reference line) are first-derivative CW-EPR spectra recorded with identical settings. Both are S = 1/2 with the same g. Report the ratio of spins, broad over narrow (spin_ratio).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "spin_ratio",
+     "truth": "truth:spin_ratio",
+     "rtol": 0.08
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "spin_ratio": ""
+ },
+ "tags": [
+  "format:csv",
+  "trap:integration_window",
+  "trap:baseline"
+ ],
+ "provenance": "synthetic, s8.cw_broad_window; the window spans about +-72 HWHM of the broad line; integrating +-5 HWHM loses 13%"
+}

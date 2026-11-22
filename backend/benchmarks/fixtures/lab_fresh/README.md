@@ -22,9 +22,17 @@ commit 15815f8) was frozen, for an S8 check against tuning
 was tuned on the `_f1` failures, so `_f2` is the untuned check for it.
 Checked with DeerLab 1.2.0 and the independent CW analysis, not with labkit.
 
+21 more, `s8_*_f3` (`s8.VARIANT = 3`), generated after `labkit` 0.2.2 was
+frozen (commit ff02761): LABKIT-018 (docs/agent-track/LABKIT-018-PLAN.md) was
+tuned on the `full-lk17` failures, so `_f3` is the untuned check for it. The
+independent CW analysis recovers all 11 CW truths; DeerLab 1.2.0 recovers the
+DEER truths (mean, modulation depth, t0, concentration, bimodal components;
+for `short_trace_f3` the Gaussian fit gives 3.09 vs 3.10 nm main distance).
+
 Regenerate (byte-identical, checked by SHA256SUMS):
 
     cd backend/benchmarks
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s1; from pathlib import Path; [f(Path('fixtures/lab_fresh/cases'), s) for s in (6, 7, 8) for f in (s1.case_4pl, s1.case_3pl, s1.case_5pl, s1.case_mm, s1.case_competitive, s1.case_morrison, s1.case_decay1, s1.case_decay2, s1.case_standard)]"
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 1; s8.build(Path('fixtures/lab_fresh/cases'))"
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 2; s8.build(Path('fixtures/lab_fresh/cases'))"
+    python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 3; s8.build(Path('fixtures/lab_fresh/cases'))"

@@ -1,0 +1,35 @@
+{
+ "id": "s8_deer_zero_time_f3",
+ "suite": "S8",
+ "inputs": [
+  "deer_raw.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "deer_raw.csv is a phased 4-pulse DEER trace; the time axis is as recorded by the spectrometer. Report the zero time in ns (t0_ns) and the mean distance in nm (mean_nm).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "t0_ns",
+     "truth": "truth:t0_ns",
+     "atol": 16
+    },
+    {
+     "type": "numeric",
+     "key": "mean_nm",
+     "truth": "truth:mean_nm",
+     "atol": 0.08
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "t0_ns": "ns",
+  "mean_nm": "nm"
+ },
+ "tags": [
+  "format:csv",
+  "trap:zero_time"
+ ],
+ "provenance": "synthetic, s8.deer_zero_time"
+}

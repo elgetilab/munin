@@ -1,0 +1,29 @@
+{
+ "id": "s8_cw_kivelson_f3",
+ "suite": "S8",
+ "inputs": [
+  "label.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "label.csv is the X-band CW-EPR spectrum (first derivative, field in G) of a nitroxide in fast isotropic motion. Estimate the rotational correlation time with the Kivelson formula tau_c = 6.51e-10 s/G * dB0 * (sqrt(h0/h+1) + sqrt(h0/h-1) - 2), where dB0 is the peak-to-peak width of the centre line in G and h-1, h0, h+1 are the peak-to-peak heights of the high-field, centre and low-field lines (mI = -1, 0, +1). Report tau_c in seconds (tau_c_s).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "tau_c_s",
+     "truth": "truth:tau_c_s",
+     "rtol": 0.1
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "tau_c_s": "s"
+ },
+ "tags": [
+  "format:csv",
+  "trap:mI_order",
+  "trap:units_G_mT"
+ ],
+ "provenance": "synthetic Lorentzian triplet; truth = the formula on the noise-free spectrum"
+}

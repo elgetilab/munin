@@ -1,0 +1,43 @@
+{
+ "id": "s8_deer_ns_axis_f3",
+ "suite": "S8",
+ "inputs": [
+  "deer.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "deer.csv is a background-containing 4-pulse DEER trace of a doubly spin-labelled protein in frozen solution (real part, already phased; time zero is the first point). Report the mean distance (mean_nm) and the standard deviation of the distance distribution (std_nm), both in nm, and the modulation depth (mod_depth).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "mean_nm",
+     "truth": "truth:mean_nm",
+     "atol": 0.1
+    },
+    {
+     "type": "numeric",
+     "key": "std_nm",
+     "truth": "truth:std_nm",
+     "atol": 0.12
+    },
+    {
+     "type": "numeric",
+     "key": "mod_depth",
+     "truth": "truth:mod_depth",
+     "atol": 0.03
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "mean_nm": "nm",
+  "std_nm": "nm",
+  "mod_depth": ""
+ },
+ "tags": [
+  "format:csv",
+  "trap:ns_to_us",
+  "trap:background_division"
+ ],
+ "provenance": "synthetic, s8.deer_ns_axis; hom3d background, 200 uM"
+}

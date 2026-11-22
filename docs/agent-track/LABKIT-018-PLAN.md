@@ -1,6 +1,6 @@
 # Failures left after the full-suite run: plan
 
-Status: IMPLEMENTED 2026-11-22 ("proceed", Q1-Q6 defaults), not deployed. Parent: `LABKIT-017-PLAN.md`
+Status: DONE 2026-11-22 ("proceed", Q1-Q6 defaults), deployed (sandbox, retrieval, eval instance), targeted rerun 181/189. Parent: `LABKIT-017-PLAN.md`
 (full-suite regression 532/555, no regression from LABKIT-015 to 017). Root
 causes from two read-only investigations of the `full-lk17` bundles (scratch
 scripts in the session scratchpad, `lk18_deer/` and `lk18_cw/`), key claims
@@ -190,3 +190,57 @@ repeat calls 20, plumbing 21); labkit 70/70 and sandbox live 67/67, fighook
 20/20, isolation 28/28 in `munin-sandbox:r8-test` (host labkit 69/70: nmrglue
 is not installed on the host). Fixture checks and replays are scratch scripts
 (`lk18_impl/`).
+
+## Result
+
+Targeted rerun 2026-11-22 on the deployed eval instance (git `ff02761`,
+labkit 0.2.2), labkit arm, 3 reps, 189 runs: 181/189. Scorecards
+`2026-11-22_lk18-targeted{,-fresh}`, paired per (case, rep) with
+`full-lk17{,-fresh}`.
+
+| Set | Now | `full-lk17` | fail->pass / pass->fail | p |
+|---|---|---|---|---|
+| NIST (thurber, misra1d, lanczos2/3, enso, kirby2, mgh17) | 20/21 | 19/21 | 2 / 1 | 1 |
+| `s6_noesy_buildup` | 3/3 | 2/3 | 1 / 0 | 1 |
+| S8, 11 targeted families, original | 32/33 | 28/33 | 4 / 0 | 0.125 |
+| same, `_f1` | 29/33 | 25/33 | 7 / 3 | 0.34 |
+| same, `_f2` | 32/33 | 28/33 | 4 / 0 | 0.125 |
+| same, `_f3` (new, untuned) | 32/33 | - | - | - |
+| Round-5 control (competitive s1-s8, `s2_jasco_cd`, `s5_anova`, `s5_fit`) | 33/33 | 33/33 | 0 / 0 | 1 |
+| All paired | 149/156 | 135/156 | 18 / 4 | 0.0043 |
+
+The untuned `_f3` set scores as the tuned sets do (32/33), so the gain is
+not fitted to the old fixtures. DEER labeling efficiency and modulation
+depth (`deer_labeling`, all four sets): 11/12, `full-lk17` 4/9 (the one
+failure is below); `short_trace` 12/12 (`full-lk17` `_f1` 0/3), `zero_time`
+12/12 (`_f2` 1/3).
+
+- **Retyping.** No run retyped the data: in all 21 NIST bundles every run
+  but one reads the CSV by name (kirby2#2 reuses the kernel's variables), and
+  the retype hint never fired. The whole-file preview and row count removed
+  the cause before the hint was needed; thurber and misra1d 6/6.
+- **Named-file nudge.** Fired once (`s8_deer_labeling#1`); the save round
+  did not write the file (below). Save rounds: 3 others (NOESY at round 20,
+  `cw_complex_f1#2`, `deer_phase_f1#3`). 14 calls not run (8 repeat guard,
+  6 invalid arguments).
+- **Hints.** 60 `deer`, 22 `epr_lineshape`, 3 `epr_mask`, 9 `epr_integral`
+  in the S8 runs; no off-topic hint in DEER code.
+- Mean 8.5 calls and 105 s per run (original), 9.1 and 127 s (fresh);
+  `full-lk17` 7.9/80 s and 8.8/116 s on the whole suite.
+
+Failures left (8):
+
+| Run | Cause |
+|---|---|
+| `s8_cw_complex_f1#1`, `_f2#2`, `_f3#3` | dBpp from the grid extrema of the derivative (9 grid steps, 0.0704 mT, the same value in `_f2` and `_f3`), FWHM as dBpp x sqrt(3); off by 6 to 40%. The `epr_lineshape` hint fired in all three and none called `fit_line`. |
+| `s8_cw_esp_f1#3` | dBpp 0.98 vs 0.37 mT with `fit_line` and `peak_to_peak` called; a wrong line picked. |
+| `s8_cw_overmodulation_f1#2` | Normalised ratio 0.73 vs 1. |
+| `s8_deer_phase_f1#3` | Hand-rolled from the magnitude; reported placeholder values (2.0 nm, 0.3) and said so in its warnings. No `deer` hint fired: the code did not match `_deer_ish`. |
+| `s8_deer_labeling#1` | The first answer was a long reasoning loop over the definition of modulation depth (2 calls, 210 s); the named-file nudge fired and the save round wrote nothing. |
+| `s1_nist_lanczos2#3` | Right fit (rss 2.2e-11), the three exponential terms in a different order from NIST's; the answer says the terms are permutation-symmetric. The grader compares by position. |
+
+Candidates for a next round: the `cw_complex` grid-extrema habit (a hint
+when dBpp equals a whole number of grid steps, or `peak_to_peak` that
+interpolates), a `_deer_ish` that also matches a two-column complex trace
+loaded by hand, and whether the NIST grader should accept a permutation of
+symmetric exponential terms (a grader decision, not taken here).
