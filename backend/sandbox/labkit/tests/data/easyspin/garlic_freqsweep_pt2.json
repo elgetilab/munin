@@ -1,0 +1,82 @@
+{
+  "case": "garlic_freqsweep_pt2",
+  "program": "garlic",
+  "in_slice1": false,
+  "skip_reason": "frequency sweep (Exp.Field fixed, Exp.mwRange swept)",
+  "what_it_tests": "frequency-swept isotropic 1H doublet, A = 200 MHz, Method perturb2",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/garlic_freqsweep_pt2.m",
+    "data_file": "tests/data/garlic_freqsweep_pt2.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "x": [
+        1024
+      ],
+      "y": [
+        1024
+      ]
+    }
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.0,
+      2.0
+    ],
+    "nuclei": [
+      {
+        "name": "1H",
+        "A_MHz": [
+          200.0,
+          200.0,
+          200.0
+        ],
+        "n": 1
+      }
+    ],
+    "lw": {
+      "easyspin_field": "Sys.lw",
+      "easyspin_value": 10,
+      "unit": "MHz (frequency sweep)"
+    }
+  },
+  "exp": {
+    "Field_mT": 330.0,
+    "mwRange_GHz": [
+      9.1,
+      9.4
+    ],
+    "nPoints": 1024,
+    "harmonic": 0
+  },
+  "opt": {
+    "Method": "perturb2"
+  },
+  "note": "data.x is the frequency axis in GHz.",
+  "easyspin_check": [
+    "ok = areequal(olddata.y,data.y,1e-5,'rel');"
+  ],
+  "matlab_source": [
+    "Sys.g = 2;",
+    "Sys.Nucs = '1H';",
+    "Sys.A = 200;",
+    "Sys.lw = 10;",
+    "Exp.Harmonic = 0;",
+    "Exp.Field = 330;",
+    "Exp.mwRange = [9.1 9.4];",
+    "Opt.Method = 'perturb2';",
+    "[x,y] = garlic(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

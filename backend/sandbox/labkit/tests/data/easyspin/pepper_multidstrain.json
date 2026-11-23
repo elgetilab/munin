@@ -1,0 +1,46 @@
+{
+  "case": "pepper_multidstrain",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting, coupled electron spins",
+  "what_it_tests": "two coupled S = 1 spins, two D strains",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_multidstrain.m",
+    "data_file": "tests/data/pepper_multidstrain.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "spc": [
+        1024
+      ]
+    }
+  },
+  "note": null,
+  "easyspin_check": [
+    "ok = areequal(spc,olddata.spc,1e-3,'rel');"
+  ],
+  "matlab_source": [
+    "Sys.S = [1 1];",
+    "Sys.g = [2 2.5];",
+    "Sys.D = [400 0; 700 0];",
+    "Sys.ee = 1;",
+    "Sys.lwpp = 1;",
+    "Exp.mwFreq = 9.5;",
+    "Exp.Range = [200 400];",
+    "Ds1 = [30 10];",
+    "Ds2 = [100 20];",
+    "Sys.StrainPars = {'D(1,1)','D(1,2)','D(2,1)','D(2,2)'};",
+    "Sys.StrainFWHM = [Ds1 Ds2];",
+    "[x,spc] = pepper(Sys,Exp);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

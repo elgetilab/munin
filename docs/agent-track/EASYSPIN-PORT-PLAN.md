@@ -1,6 +1,6 @@
 # EasySpin capabilities labkit.epr lacks: plan
 
-Status: PLAN 2026-11-21, waiting for "proceed". Parents: `EPR-PLAN.md` (S8
+Status: IN PROGRESS 2026-11-23 ("proceed", slice 1, Q1-Q8 as answered). Parents: `EPR-PLAN.md` (S8
 49/63 with labkit.epr vs baseline 17/63), `LABKIT-015-PLAN.md` (round 2,
 targeted 17/21). Nothing is built yet.
 

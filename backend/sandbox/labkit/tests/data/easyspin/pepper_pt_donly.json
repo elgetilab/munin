@@ -1,0 +1,44 @@
+{
+  "case": "pepper_pt_donly",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting",
+  "what_it_tests": "S = 1, D = 600 MHz, perturbation",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_pt_donly.m",
+    "data_file": "tests/data/pepper_pt_donly.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        1024
+      ]
+    }
+  },
+  "note": null,
+  "easyspin_check": [
+    "ok = areequal(y/max(y),olddata.y/max(olddata.y),1e-4,'abs');"
+  ],
+  "matlab_source": [
+    "Sys.S = 1;",
+    "Sys.g = 2;",
+    "Sys.D = 600;",
+    "Sys.lwpp = 1;",
+    "Exp.mwFreq = 9.8;",
+    "Exp.CenterSweep = [350 100];",
+    "Exp.Harmonic = 1;",
+    "Opt.Method = 'perturb';",
+    "[x,y] = pepper(Sys,Exp,Opt);",
+    "y = y/max(y);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

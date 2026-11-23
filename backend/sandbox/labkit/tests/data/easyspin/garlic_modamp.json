@@ -1,0 +1,89 @@
+{
+  "case": "garlic_modamp",
+  "program": "garlic",
+  "in_slice1": true,
+  "skip_reason": null,
+  "what_it_tests": "single line, no nuclei, Gaussian, overmodulation (ModAmp 5 mT vs dBpp 0.5 mT)",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/garlic_modamp.m",
+    "data_file": "tests/data/garlic_modamp.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "x": [
+        1024
+      ],
+      "y": [
+        1024
+      ]
+    },
+    "field_var": "x",
+    "spectrum_var": "y"
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.00231930436092,
+      2.00231930436092,
+      2.00231930436092
+    ],
+    "nuclei": [],
+    "lw": {
+      "easyspin_field": "Sys.lwpp",
+      "easyspin_value": 0.5,
+      "gaussian_fwhm_mT": 0.5887050112577373,
+      "lorentzian_fwhm_mT": 0.0,
+      "gaussian_dBpp_mT": 0.5,
+      "lorentzian_dBpp_mT": 0.0
+    },
+    "g_strain_fwhm": null,
+    "A_strain_MHz": null
+  },
+  "exp": {
+    "mwFreq_GHz": 9.7,
+    "range_mT": [
+      341.0,
+      351.0
+    ],
+    "nPoints": 1024,
+    "axis": "data.x from the .mat",
+    "easyspin_CenterSweep_mT": [
+      346.0,
+      10.0
+    ],
+    "harmonic": 1,
+    "modamp_mT": 5.0,
+    "modamp_convention": "peak-to-peak (EasySpin Exp.ModAmp)",
+    "temperature_K": null,
+    "mwPhase_rad": 0.0
+  },
+  "opt": {
+    "Method": "exact (default, no nuclei)",
+    "AccumMethod": "binning (default)"
+  },
+  "comparison": {
+    "field_offset_steps": 0.0
+  },
+  "note": "Sys.g not given: EasySpin uses gfree = 2.00231930436092. Scalar lwpp = Gaussian. garlic (no fast motion) builds the spectrum with Opt.AccumMethod='binning': makespec(...,'round') snaps each line to the NEAREST grid point, then convolves with a sampled lineshape. An analytic-line simulator cannot reproduce the snapping, so the reference itself carries a grid error. Measured: analytic Gaussian + exact modulation integral differs by 4.4e-3 of max; with the line snapped to the nearest grid point (346.1222 instead of 346.1201 mT) it reproduces the reference to 5e-12, which also confirms g = gfree, Gaussian lwpp and peak-to-peak ModAmp.",
+  "easyspin_check": [
+    "ok = areequal(x,olddata.x,1e-10,'rel') && areequal(y,olddata.y,1e-10,'rel');"
+  ],
+  "matlab_source": [
+    "Sys.lwpp = 0.5;",
+    "Exp.mwFreq = 9.7;",
+    "Exp.CenterSweep = [346 10];",
+    "Exp.ModAmp = 5;",
+    "Opt = struct('Verbosity',opt.Verbosity);",
+    "[x,y] = garlic(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

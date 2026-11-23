@@ -1,0 +1,39 @@
+{
+  "case": "pepper_freqsweep_autorange",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "frequency sweep",
+  "what_it_tests": "frequency sweep with automatic range; also stores the integral",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_freqsweep_autorange.m",
+    "data_file": "tests/data/pepper_freqsweep_autorange.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "integral": [],
+      "y": [
+        1024
+      ]
+    }
+  },
+  "note": null,
+  "easyspin_check": [],
+  "matlab_source": [
+    "clear Sys Exp",
+    "Sys.g = [2 2.05 2.01];",
+    "Sys.lwpp = 10; % MHz",
+    "Exp.Field = 340; % mT",
+    "[x,y] = pepper(Sys,Exp);",
+    "integral = sum(y)*(x(2)-x(1));"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

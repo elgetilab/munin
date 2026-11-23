@@ -828,3 +828,7 @@ def build(root: Path) -> None:
     deer_labeling(root)
     deer_bes3t(root)
     deer_membrane(root)
+    # Frozen-solution (powder) and isotropic-fit cases from the independent
+    # exact-diagonalisation simulator (docs/agent-track/EASYSPIN-PORT-PLAN.md).
+    import s8_powder
+    s8_powder.build(root)

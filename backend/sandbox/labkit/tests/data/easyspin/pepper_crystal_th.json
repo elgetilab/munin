@@ -1,0 +1,45 @@
+{
+  "case": "pepper_crystal_th",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "crystal / orientation selection",
+  "what_it_tests": "single crystal with Th site symmetry, Sys.gFrame",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_crystal_th.m",
+    "data_file": "tests/data/pepper_crystal_th.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        1024
+      ]
+    }
+  },
+  "note": "Evaluated: vec2ang([1;2;3]) gives phi = 63.4349 deg, theta = 36.6992 deg; Exp.SampleFrame = [0 -theta -phi]; Sys.gFrame = [-78 -40 -30] deg.",
+  "easyspin_check": [
+    "ok = areequal(spc,olddata.y,1e-5,'rel');"
+  ],
+  "matlab_source": [
+    "Sys.g = [2.0 2.1 2.2];",
+    "Sys.gFrame = [-78 -40 -30]*pi/180;",
+    "Sys.lw = 0.5;",
+    "Exp.mwFreq = 9.5;",
+    "Exp.Range = [290 350];",
+    "n = [1; 2; 3];",
+    "[phi, theta] = vec2ang(n);",
+    "Exp.SampleFrame = [0 -theta -phi];",
+    "Exp.CrystalSymmetry = 'Th';",
+    "Opt.Verbosity = 0;",
+    "[B,spc] = pepper(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

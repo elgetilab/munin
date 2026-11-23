@@ -1,0 +1,86 @@
+{
+  "case": "pepper_gstrain",
+  "program": "pepper",
+  "in_slice1": true,
+  "skip_reason": null,
+  "what_it_tests": "rhombic g with g strain only (no convolution width)",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_gstrain.m",
+    "data_file": "tests/data/pepper_gstrain.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        1024
+      ]
+    },
+    "field_var": null,
+    "spectrum_var": "y"
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.1,
+      2.2
+    ],
+    "g_frame_euler_deg": null,
+    "nuclei": [],
+    "lw": {
+      "easyspin_field": null,
+      "gaussian_fwhm_mT": 0.0,
+      "lorentzian_fwhm_mT": 0.0
+    },
+    "g_strain_fwhm": [
+      0.01,
+      0.02,
+      0.03
+    ],
+    "A_strain_MHz": null
+  },
+  "exp": {
+    "mwFreq_GHz": 9.5,
+    "range_mT": [
+      290.0,
+      350.0
+    ],
+    "nPoints": 1024,
+    "axis": "numpy.linspace(range_mT[0], range_mT[1], nPoints)",
+    "harmonic": 1,
+    "modamp_mT": null,
+    "temperature_K": null,
+    "mwPhase_rad": 0.0
+  },
+  "opt": {
+    "Method": "matrix (pepper default: full diagonalisation)",
+    "GridSize": [
+      19,
+      4
+    ],
+    "GridSize_note": "pepper default: 19 knots on the octant, 4x interpolation"
+  },
+  "comparison": {
+    "field_offset_steps": 0.0
+  },
+  "note": "Strain given as Sys.StrainPars = {'g(1)','g(2)','g(3)'}, Sys.StrainFWHM = [0.01 0.02 0.03] (FWHM of uncorrelated Gaussian distributions of the principal g values; StrainCorr default 0). Harmonic defaults to 1 because strains count as broadening (p_harmonic). Independent check: per-orientation Gaussian of field FWHM B*sqrt(sum_i (n_i^2 g_i dg_i)^2)/g_eff^2, weighted by the S=1/2 transition probability and 1/g_eff, with NO axis offset matched to 3.0e-3 of max (summation path, not projection).",
+  "easyspin_check": [
+    "ok = areequal(y/max(y),olddata.y/max(olddata.y),1e-4,'abs');"
+  ],
+  "matlab_source": [
+    "Sys = struct('S',1/2,'g',[2 2.1 2.2]);",
+    "Sys.StrainPars = {'g(1)','g(2)','g(3)'};",
+    "Sys.StrainFWHM = [1 2 3]*0.01;",
+    "Exp = struct('mwFreq',9.5,'Range',[290 350]);",
+    "[x,y] = pepper(Sys,Exp);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

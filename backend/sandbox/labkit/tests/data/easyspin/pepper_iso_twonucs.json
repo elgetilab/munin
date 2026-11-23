@@ -1,0 +1,146 @@
+{
+  "case": "pepper_iso_twonucs",
+  "program": "pepper",
+  "in_slice1": true,
+  "skip_reason": null,
+  "what_it_tests": "natural Cu + natural N, perturbation, fine axis",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_iso_twonucs.m",
+    "data_file": "tests/data/pepper_iso_twonucs.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        10000
+      ]
+    },
+    "field_var": null,
+    "spectrum_var": "y"
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.0,
+      2.2
+    ],
+    "g_frame_euler_deg": null,
+    "nuclei": [
+      {
+        "name": "Cu",
+        "I": 1.5,
+        "A_MHz": [
+          50.0,
+          50.0,
+          400.0
+        ],
+        "A_frame_euler_deg": null,
+        "n": 1,
+        "A_refers_to": "63Cu"
+      },
+      {
+        "name": "N",
+        "I": 1.0,
+        "A_MHz": [
+          30.0,
+          30.0,
+          30.0
+        ],
+        "A_frame_euler_deg": null,
+        "n": 1,
+        "A_refers_to": "14N"
+      }
+    ],
+    "lw": {
+      "easyspin_field": "Sys.lwpp",
+      "easyspin_value": 0.3,
+      "gaussian_fwhm_mT": 0.3532230067546424,
+      "lorentzian_fwhm_mT": 0.0,
+      "gaussian_dBpp_mT": 0.3,
+      "lorentzian_dBpp_mT": 0.0
+    },
+    "g_strain_fwhm": null,
+    "A_strain_MHz": null
+  },
+  "exp": {
+    "mwFreq_GHz": 9.5,
+    "range_mT": [
+      280.0,
+      350.0
+    ],
+    "nPoints": 10000,
+    "axis": "numpy.linspace(range_mT[0], range_mT[1], nPoints)",
+    "harmonic": 1,
+    "modamp_mT": null,
+    "temperature_K": null,
+    "mwPhase_rad": 0.0
+  },
+  "opt": {
+    "Method": "perturb (= perturb2, second order)",
+    "GridSize": [
+      91,
+      4
+    ],
+    "GridSize_note": "Opt.GridSize = 91 (interpolation default 4)"
+  },
+  "comparison": {
+    "field_offset_steps": 0.5
+  },
+  "note": "Sys.A = [50 400; 30 30] (rows per nucleus, axial). Natural mixtures: 63Cu 69.17 / 65Cu 30.83 %, 14N 99.632 / 15N 0.368 %; 65Cu A scaled by 1.0711880, 15N A by gn(15N)/gn(14N) = -1.402754 (negative). All four isotopologues are above EasySpin's 1e-4 relative threshold. EasySpin's own check here is absolute 1e-4 on the unnormalised y. pepper's projection step (no strains) returns ref[i] ~ true(x[i] + dx/2): an independent converged powder sum matched axiallw, rhombiclw, ordering_axial row 0, pt_gonly, iso_12c and modamp best with the simulator evaluated at x + 0.5*dx (residual 4e-4 to 9e-3 there, 3e-2 to 2.7e-1 at x). The g-strain case (pepper's summation path) needs no offset.",
+  "isotopologues": [
+    {
+      "nuclei": [
+        "63Cu",
+        "14N"
+      ],
+      "weight": 0.689154544
+    },
+    {
+      "nuclei": [
+        "63Cu",
+        "15N"
+      ],
+      "weight": 0.002545456
+    },
+    {
+      "nuclei": [
+        "65Cu",
+        "14N"
+      ],
+      "weight": 0.307165456
+    },
+    {
+      "nuclei": [
+        "65Cu",
+        "15N"
+      ],
+      "weight": 0.0011345440000000001
+    }
+  ],
+  "easyspin_check": [
+    "ok = areequal(y,olddata.y,1e-4,'abs');"
+  ],
+  "matlab_source": [
+    "Sys.S = 1/2;",
+    "Sys.g = [2 2.2];",
+    "Sys.Nucs = 'Cu,N';",
+    "Sys.A = [50 400; 30 30];",
+    "Sys.lwpp = 0.3;",
+    "Exp.mwFreq = 9.5;",
+    "Exp.Range = [280 350];",
+    "Exp.nPoints = 1e4;",
+    "Opt.GridSize = 91;",
+    "Opt.Method = 'perturb';",
+    "[x,y] = pepper(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

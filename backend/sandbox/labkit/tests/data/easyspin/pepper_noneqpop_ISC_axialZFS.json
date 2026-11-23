@@ -1,0 +1,61 @@
+{
+  "case": "pepper_noneqpop_ISC_axialZFS",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting, non-equilibrium populations, frequency sweep",
+  "what_it_tests": "ISC triplet, axial ZFS, user density matrix; field and frequency sweep",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_noneqpop_ISC_axialZFS.m",
+    "data_file": "tests/data/pepper_noneqpop_ISC_axialZFS.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "spc": [
+        1024
+      ],
+      "spcf": [
+        1024
+      ]
+    }
+  },
+  "note": "Evaluated: the frequency-sweep Sys.lw = unitconvert(0.3,'mT->MHz') = 8.4075 MHz. Sys.initState is a density matrix built from the zero-field eigenstates with populations [0.3 0.6 0.1].",
+  "easyspin_check": [
+    "ok = areequal(spc,olddata.spc,1e-4,'rel') && areequal(spcf,olddata.spcf,1e-4,'rel');"
+  ],
+  "matlab_source": [
+    "Sys = struct('S',1,'g',2,'lw',0.3,'D',500);",
+    "Exp = struct('mwFreq',9.5,'Range',[310 370],'Harmonic',0);",
+    "pop = [0.3 0.6 0.1]; % populations of zero-field levels",
+    "[F,~,~,~] = ham(Sys);",
+    "[ZFStates,ZFEnergies] = eig(F);",
+    "[ZFEnergies,idx] = sort(real(diag(ZFEnergies)));",
+    "ZFStates = ZFStates(:,idx);",
+    "if ZFEnergies(2)==ZFEnergies(3)",
+    "  v1 = ZFStates(:,2);",
+    "  v2 = ZFStates(:,3);",
+    "  ZFStates(:,2) = (v1-v2)/sqrt(2);",
+    "  ZFStates(:,3) = (v1+v2)/sqrt(2);",
+    "elseif ZFEnergies(2)==ZFEnergies(1)",
+    "  v1 = ZFStates(:,1);",
+    "  v2 = ZFStates(:,2);",
+    "  ZFStates(:,2) = (v1-v2)/sqrt(2);",
+    "  ZFStates(:,1) = (v1+v2)/sqrt(2);",
+    "end",
+    "Sys.initState = ZFStates*diag(pop)*ZFStates';",
+    "Opt = struct;",
+    "[x,spc] = pepper(Sys,Exp,Opt);",
+    "Sys.lw = unitconvert(Sys.lw,'mT->MHz');",
+    "Expf = struct('Field',340,'mwRange',[8.5 10.5]);",
+    "[f,spcf] = pepper(Sys,Expf,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

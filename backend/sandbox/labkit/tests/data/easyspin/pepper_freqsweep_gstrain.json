@@ -1,0 +1,41 @@
+{
+  "case": "pepper_freqsweep_gstrain",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "frequency sweep",
+  "what_it_tests": "frequency sweep with g strain",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_freqsweep_gstrain.m",
+    "data_file": "tests/data/pepper_freqsweep_gstrain.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        1024
+      ]
+    }
+  },
+  "note": null,
+  "easyspin_check": [
+    "ok = areequal(y/max(y),olddata.y/max(olddata.y),1e-4,'abs');"
+  ],
+  "matlab_source": [
+    "clear Sys Exp",
+    "Sys.g = [2.05 2 1.95];",
+    "Sys.StrainPars = {'g(1)','g(2)','g(3)'};",
+    "Sys.StrainFWHM = [0.02 0.01 0.003];",
+    "Exp.Field = 340; % mT",
+    "Exp.mwRange = [9 10]; % GHz",
+    "[x,y] = pepper(Sys,Exp);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

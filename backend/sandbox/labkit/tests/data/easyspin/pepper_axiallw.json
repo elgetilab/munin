@@ -1,0 +1,84 @@
+{
+  "case": "pepper_axiallw",
+  "program": "pepper",
+  "in_slice1": true,
+  "skip_reason": null,
+  "what_it_tests": "axial g, no nuclei, Gaussian convolution",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_axiallw.m",
+    "data_file": "tests/data/pepper_axiallw.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "spc": [
+        1024
+      ]
+    },
+    "field_var": null,
+    "spectrum_var": "spc"
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.0,
+      2.2
+    ],
+    "g_frame_euler_deg": null,
+    "nuclei": [],
+    "lw": {
+      "easyspin_field": "Sys.lw",
+      "easyspin_value": 1.0,
+      "gaussian_fwhm_mT": 1.0,
+      "lorentzian_fwhm_mT": 0.0,
+      "gaussian_dBpp_mT": 0.8493218002880191,
+      "lorentzian_dBpp_mT": 0.0
+    },
+    "g_strain_fwhm": null,
+    "A_strain_MHz": null
+  },
+  "exp": {
+    "mwFreq_GHz": 9.5,
+    "range_mT": [
+      300.0,
+      350.0
+    ],
+    "nPoints": 1024,
+    "axis": "numpy.linspace(range_mT[0], range_mT[1], nPoints)",
+    "harmonic": 1,
+    "modamp_mT": null,
+    "temperature_K": null,
+    "mwPhase_rad": 0.0
+  },
+  "opt": {
+    "Method": "matrix (pepper default: full diagonalisation)",
+    "GridSize": [
+      19,
+      4
+    ],
+    "GridSize_note": "pepper default: 19 knots on the octant, 4x interpolation"
+  },
+  "comparison": {
+    "field_offset_steps": 0.5
+  },
+  "note": "No nuclei, so perturbation and matrix give the same resonance fields. pepper's projection step (no strains) returns ref[i] ~ true(x[i] + dx/2): an independent converged powder sum matched axiallw, rhombiclw, ordering_axial row 0, pt_gonly, iso_12c and modamp best with the simulator evaluated at x + 0.5*dx (residual 4e-4 to 9e-3 there, 3e-2 to 2.7e-1 at x). The g-strain case (pepper's summation path) needs no offset.",
+  "easyspin_check": [
+    "ok = areequal(spc,olddata.spc,1e-4,'rel');"
+  ],
+  "matlab_source": [
+    "Sys = struct('S',1/2,'g',[2 2 2.2],'lw',1);",
+    "Exp = struct('mwFreq',9.5,'Range',[300 350]);",
+    "Opt = struct('Verbosity',opt.Verbosity);",
+    "[x,spc] = pepper(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}
