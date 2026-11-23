@@ -68,7 +68,8 @@ def replay(case: Case, store: Path, base: str, keep: bool = False) -> dict:
 
     rec: dict = {"id": case.id, "turns": [], "artifacts": [], "error": None,
                  "conversation_id": None, "started": datetime.now(timezone.utc).isoformat()}
-    client = LabClient(base=base, user=EVAL_USER, persona=None, egress=case.egress)
+    # persona "munin" = the router path the web UI uses; None would be raw model mode.
+    client = LabClient(base=base, user=EVAL_USER, persona="munin", egress=case.egress)
     cid: Optional[str] = None
     docs: list[dict] = []
     seen: set[str] = set()
