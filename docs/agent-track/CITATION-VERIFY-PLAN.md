@@ -81,8 +81,9 @@ Guards:
 - The revision is discarded if it drops below 70% of the original length or
   loses an artifact link.
 - `citecheck` runs again on the revision.
-- Anything still failing is marked inline as `[unverified]` next to the
-  citation, with a footer that names the reason.
+- Anything still failing is marked inline as `[unverified: <reason>]` next to
+  the citation. No footer: the judge read one as backend noise in the answer
+  (uf-f0039), and corrected references need no trace.
 
 Inline marking replaces deleting text deterministically, because removing a
 citation from the middle of a sentence by regex breaks prose.
@@ -91,8 +92,8 @@ citation from the middle of a sentence by regex breaks prose.
 
 A new SSE event `answer_revised` `{content, notes}` is sent before `done`.
 
-- The client swaps the bubble's content for the revision and shows one quiet
-  line, for example "References checked: 2 corrected, 1 unverified".
+- The client swaps the bubble's content for the revision. The counts travel
+  in `notes` for later UI use.
 - The revision is what gets saved.
 - The same event carries the existing three audit warnings, so they are
   visible live too. This fixes the reload-only gap even when correction is

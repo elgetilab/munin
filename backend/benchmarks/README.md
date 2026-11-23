@@ -152,6 +152,12 @@ $UF compare scorecards/userfail/A.json scorecards/userfail/B.json
 $UF compare A_r1.json,A_r2.json,A_r3.json B_r1.json,B_r2.json,B_r3.json   # replicates
 ```
 
+A harness step that only rewrites the final answer (today: `citecheck` in
+enforce mode) is measured without replaying: `python -m
+munin_bench.userfail.postfix --src <tag> --out <tag>+cc [--ids ...]` applies
+it to stored answers, carries the verdicts of unchanged answers over, and the
+two arms then differ in that step alone. Judge and score `<tag>+cc` as usual.
+
 Single runs are noisy: on the first baseline, 12 of 77 cases and 64 of 249
 rubric points flipped between two runs with no relevant change. Compare arms
 of 2 to 3 replicates each. `compare` then uses the per-case pass rate over the

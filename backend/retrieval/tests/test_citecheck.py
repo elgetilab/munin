@@ -131,9 +131,9 @@ def test_warn_marks_inline() -> bool:
     citecheck.lookup = _fake_lookup(missing={"10.1000/nope.9"})
     text = "Claim one (10.1000/nope.9).\nClaim two."
     out, notes = asyncio.run(citecheck.run(text, mode_override="warn"))
-    return _check("warn: failing citation marked on its line, footer added",
+    return _check("warn: failing citation marked on its line, no footer",
                   "Claim one (10.1000/nope.9). **[unverified:" in out and "Claim two." in out
-                  and notes["unverified"] == 1 and "could not be verified" in out, out)
+                  and notes["unverified"] == 1 and "DOI registry" not in out, out)
 
 
 def test_enforce_applies_correction() -> bool:
@@ -148,8 +148,7 @@ def test_enforce_applies_correction() -> bool:
     citecheck._correct = fake_correct
     out, notes = asyncio.run(citecheck.run(text, mode_override="enforce"))
     return _check("enforce: verified correction replaces the answer",
-                  out.startswith(fixed) and notes["corrected"] == 1 and notes["unverified"] == 0
-                  and "1 corrected" in out, out)
+                  out == fixed and notes["corrected"] == 1 and notes["unverified"] == 0, out)
 
 
 def test_enforce_rejects_truncated_revision() -> bool:
