@@ -302,6 +302,28 @@ def cmd_compare(args) -> int:
     return 0
 
 
+def cmd_recheck(args) -> int:
+    """Re-run the mechanical checks on stored answers (after a checker fix), no replay."""
+    store = store_dir()
+    cases = {c.id: c for c in load_cases(store)}
+    rec_path = store / "runs" / args.tag / "records.jsonl"
+    recs = _jsonl(rec_path)
+    flips = []
+    for i, r in recs.items():
+        if i not in cases or infra_error(r):
+            continue
+        old = r["mech_pass"]
+        r["checks"] = run_checks(cases[i].checks, r)
+        r["mech_pass"] = all(c["pass"] for c in r["checks"])
+        if r["mech_pass"] != old:
+            flips.append(f"{i} {'FAIL->PASS' if r['mech_pass'] else 'PASS->FAIL'}")
+    tmp = rec_path.with_suffix(".tmp")
+    tmp.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in recs.values()))
+    tmp.replace(rec_path)
+    print(f"[recheck] {len(recs)} records, {len(flips)} changed" + "".join(f"\n  {f}" for f in flips))
+    return 0
+
+
 def cmd_validate(args) -> int:
     cases = load_cases(store_dir())
     by = {}
@@ -327,6 +349,8 @@ def main(argv=None) -> int:
     j = sub.add_parser("judge")
     j.add_argument("--tag", required=True)
     j.add_argument("--batch", help="collect this already submitted batch id instead of creating one")
+    rc = sub.add_parser("recheck")
+    rc.add_argument("--tag", required=True)
     s = sub.add_parser("score")
     s.add_argument("--tag", required=True)
     c = sub.add_parser("compare")
@@ -334,7 +358,7 @@ def main(argv=None) -> int:
     c.add_argument("b")
     args = ap.parse_args(argv)
     return {"validate": cmd_validate, "run": cmd_run, "judge": cmd_judge,
-            "score": cmd_score, "compare": cmd_compare}[args.cmd](args)
+            "recheck": cmd_recheck, "score": cmd_score, "compare": cmd_compare}[args.cmd](args)
 
 
 if __name__ == "__main__":

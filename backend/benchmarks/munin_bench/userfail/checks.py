@@ -17,7 +17,23 @@ ERROR_MARKERS = re.compile(
     r"|\[backend warning\]|maximum context length|produced no output",
     re.IGNORECASE)
 ARTIFACT_LINK = re.compile(r"/api/artifacts/(?:[\w-]+/)?([\w-]{8,})")
-DOI = re.compile(r"\b10\.\d{4,9}/[^\s\"<>\]\)]+", re.IGNORECASE)
+# Old Elsevier DOIs contain parentheses (10.1016/0022-2836(91)90127-X), so
+# they are allowed inside and trimmed only when unbalanced at the end.
+DOI = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\]+", re.IGNORECASE)
+
+
+def extract_dois(text: str) -> list[str]:
+    out = set()
+    for d in DOI.findall(text or ""):
+        while True:
+            d0 = d
+            d = d.rstrip(".,;:*_~")
+            if d.endswith(")") and d.count(")") > d.count("("):
+                d = d[:-1]
+            if d == d0:
+                break
+        out.add(d)
+    return sorted(out)
 CLARIFY_TOOL = "ask_clarification"
 
 _DE = {"der", "die", "das", "und", "ist", "nicht", "mit", "für", "sie", "ein", "eine", "auf", "auch", "werden"}
@@ -93,7 +109,7 @@ def _artifact(c, rec):
 
 @check("dois_resolve")
 def _dois(c, rec):
-    dois = sorted({d.rstrip(".,;:") for d in DOI.findall(_final(rec).get("answer") or "")})
+    dois = extract_dois(_final(rec).get("answer") or "")
     bad = [d for d in dois if not doi_exists(d)]
     return not bad, (f"unresolved: {bad[:5]}" if bad else f"{len(dois)} DOIs ok")
 

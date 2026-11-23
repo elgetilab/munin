@@ -126,3 +126,11 @@ def test_infra_errors_are_retried_not_scored():
     assert infra_error({"error": "ReadError: [Errno 104] Connection reset by peer"})
     assert not infra_error({"error": "RuntimeError: no conversation id"})
     assert not infra_error({"error": None})
+
+
+def test_extract_dois_keeps_parentheses_and_drops_markup():
+    text = ("J Mol Biol 10.1016/0022-2836(91)90127-X. See (https://doi.org/10.1103/PhysRevB.101.161109) "
+            "and `10.1002/prot.10140` plus {10.1021/acs.nanolett.2c02500}, also **10.1038/nature12373**.")
+    assert ck.extract_dois(text) == ["10.1002/prot.10140", "10.1016/0022-2836(91)90127-X",
+                                     "10.1021/acs.nanolett.2c02500", "10.1038/nature12373",
+                                     "10.1103/PhysRevB.101.161109"]
