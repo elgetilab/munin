@@ -108,6 +108,15 @@ def test_acronym_and_prefix_journals_pass() -> bool:
                   a[0].problems == [] and b[0].problems == [], f"{a[0].problems} {b[0].problems}")
 
 
+def test_abbreviation_entity_and_wrong_letter() -> bool:
+    rec = citecheck._crossref_record({"container-title": ["Crystal Growth &amp; Design"], "title": ["X"]})
+    a = citecheck._phrase_matches("Proc R Soc Lond B",
+                                  "Proceedings of the Royal Society of London. Series B. Biological Sciences")
+    b = citecheck._phrase_matches("J Phys Chem C", "Journal of Physical Chemistry B")
+    return _check("ISO abbreviation and an &amp; title match, a wrong section letter does not",
+                  rec["journal"] == "Crystal Growth & Design" and a and not b, f"{rec['journal']} {a} {b}")
+
+
 def test_prose_range_and_maths_not_pages_or_journal() -> bool:
     text = ("Efficiency peaks for donor/acceptor ratios in the range 1-20, where the line shape *f(H)* "
             "is normalised (Knierim et al., 2007, 10.1000/pnas.2).")
@@ -125,6 +134,12 @@ def test_wrong_pages_and_year() -> bool:
 def test_old_elsevier_doi_with_parentheses() -> bool:
     us = citecheck.extract_units("J Mol Biol 10.1016/0022-2836(91)90117-O.")
     return _check("DOI with parentheses kept whole", us and us[0].doi == "10.1016/0022-2836(91)90117-O")
+
+
+def test_footnote_caret_not_in_doi() -> bool:
+    us = citecheck.extract_units("Shown by NMR [^10.1000/jmb.1^].\n\n[^10.1000/jmb.1^]: Sali A (1991).")
+    return _check("footnote caret is not part of the DOI", us and all(u.doi == "10.1000/jmb.1" for u in us),
+                  str([u.doi for u in us]))
 
 
 def test_warn_marks_inline() -> bool:
@@ -191,9 +206,11 @@ def main() -> int:
         test_missing_doi,
         test_lookup_failure_flags_nothing,
         test_acronym_and_prefix_journals_pass,
+        test_abbreviation_entity_and_wrong_letter,
         test_prose_range_and_maths_not_pages_or_journal,
         test_wrong_pages_and_year,
         test_old_elsevier_doi_with_parentheses,
+        test_footnote_caret_not_in_doi,
         test_warn_marks_inline,
         test_enforce_applies_correction,
         test_enforce_rejects_truncated_revision,

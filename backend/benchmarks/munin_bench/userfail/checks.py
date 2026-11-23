@@ -27,7 +27,7 @@ def extract_dois(text: str) -> list[str]:
     for d in DOI.findall(text or ""):
         while True:
             d0 = d
-            d = d.rstrip(".,;:*_~")
+            d = d.rstrip(".,;:*_~^")
             if d.endswith(")") and d.count(")") > d.count("("):
                 d = d[:-1]
             if d == d0:

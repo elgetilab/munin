@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import html
 import os
 import re
 import unicodedata
@@ -86,7 +87,7 @@ _STOP = {"of", "the", "and", "&", "for", "in", "on", "a", "an", "de", "der", "un
 def _trim_doi(d: str) -> str:
     while True:
         d0 = d
-        d = d.rstrip(".,;:*_~")
+        d = d.rstrip(".,;:*_~^")
         if d.endswith(")") and d.count(")") > d.count("("):
             d = d[:-1]
         if d == d0:
@@ -168,6 +169,9 @@ def _crossref_record(msg: dict) -> dict:
             year = int(parts[0])
             break
     authors = [a for a in msg.get("author") or [] if isinstance(a, dict)]
+    # Crossref titles can carry HTML entities ("Crystal Growth &amp; Design").
+    msg = {**msg, **{k: [html.unescape(x) for x in msg.get(k) or [] if isinstance(x, str)]
+                     for k in ("title", "container-title", "short-container-title")}}
     return {
         "title": first("title"),
         "authors": [f"{a.get('given', '')} {a.get('family', '')}".strip() for a in authors][:12],
@@ -273,6 +277,19 @@ def _phrase_matches(phrase: str, name: str) -> bool:
         return False
     if len(p) <= len(n) and all(b.startswith(a) or a.startswith(b) for a, b in zip(p, n)):
         return True
+    # Abbreviations drop words: "Proc R Soc Lond B" for "Proceedings of the
+    # Royal Society of London. Series B. Biological Sciences". Each token must
+    # prefix a later name token, in order, starting at the first.
+    if n[0].startswith(p[0]):
+        j = 1
+        for a in p[1:]:
+            while j < len(n) and not n[j].startswith(a):
+                j += 1
+            if j == len(n):
+                break
+            j += 1
+        else:
+            return True
     if len(p) == 1 and re.fullmatch(r"[A-Z]{2,7}", phrase.strip(" .")):
         return True   # any acronym: too ambiguous to call wrong
     return False

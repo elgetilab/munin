@@ -155,10 +155,21 @@ def cost_usd(usage: dict, batch: bool = True) -> float:
 
 
 def make_client(api_key: Optional[str] = None):
-    import anthropic
-    # gzip only: an older system `brotli` (anaconda ships 1.0.9) lacks the
+    import importlib
+    # An older system `brotli` (anaconda ships 1.0.9) lacks the
     # output_buffer_limit argument the SDK's HTTP client passes, so a brotli
-    # response crashes with "process() takes no keyword arguments".
+    # response crashes with "process() takes no keyword arguments". Drop the
+    # br decoder from the HTTP client so no request asks for brotli, the OAuth
+    # token refresh included; the gzip header below covers API calls too.
+    import anthropic
+    for pkg in ("httpx2", "httpx"):
+        try:
+            dec = importlib.import_module(f"{pkg}._decoders")
+            cli = importlib.import_module(f"{pkg}._client")
+        except ImportError:
+            continue
+        dec.SUPPORTED_DECODERS.pop("br", None)
+        cli.ACCEPT_ENCODING = ", ".join(k for k in dec.SUPPORTED_DECODERS if k != "identity")
     headers = {"Accept-Encoding": "gzip, deflate"}
     return anthropic.Anthropic(api_key=api_key, default_headers=headers) if api_key \
         else anthropic.Anthropic(default_headers=headers)
