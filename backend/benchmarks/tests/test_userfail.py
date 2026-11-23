@@ -118,3 +118,11 @@ def test_compare_paired():
     assert res["all"]["fixed"] == ["uf-0", "uf-1"] and res["all"]["regressed"] == ["uf-3"]
     assert "harness" in res["changed"] and "model" not in res["changed"]
     assert mcnemar_p(0, 0) == 1.0 and mcnemar_p(10, 0) < 0.01
+
+
+def test_infra_errors_are_retried_not_scored():
+    from munin_bench.userfail.run import infra_error
+    assert infra_error({"error": "RemoteProtocolError: Server disconnected without sending a response."})
+    assert infra_error({"error": "ReadError: [Errno 104] Connection reset by peer"})
+    assert not infra_error({"error": "RuntimeError: no conversation id"})
+    assert not infra_error({"error": None})

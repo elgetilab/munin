@@ -101,17 +101,24 @@ def parse_verdict(msg, n_criteria: int) -> dict:
             "summary": data.get("summary", ""), "usage": usage}
 
 
-def judge_batch(client, items: list[tuple], poll_s: int = 60, log=print) -> dict[str, dict]:
-    """items: [(case, rec)] -> {case_id: verdict}. Blocks until the batch ends."""
+def judge_batch(client, items: list[tuple], poll_s: int = 60, log=print,
+                batch_id: Optional[str] = None) -> dict[str, dict]:
+    """items: [(case, rec)] -> {case_id: verdict}. Blocks until the batch ends.
+
+    batch_id collects an already submitted batch instead of creating one (for
+    when the create call reached the API but its response was lost)."""
     from anthropic.types.message_create_params import MessageCreateParamsNonStreaming
     from anthropic.types.messages.batch_create_params import Request
 
     if not items:
         return {}
     by_id = {c.id: c for c, _ in items}
-    batch = client.messages.batches.create(requests=[
-        Request(custom_id=c.id, params=MessageCreateParamsNonStreaming(**request_params(c, r)))
-        for c, r in items])
+    if batch_id:
+        batch = client.messages.batches.retrieve(batch_id)
+    else:
+        batch = client.messages.batches.create(requests=[
+            Request(custom_id=c.id, params=MessageCreateParamsNonStreaming(**request_params(c, r)))
+            for c, r in items])
     log(f"[judge] batch {batch.id}: {len(items)} requests")
     while True:
         b = client.messages.batches.retrieve(batch.id)
@@ -121,7 +128,9 @@ def judge_batch(client, items: list[tuple], poll_s: int = 60, log=print) -> dict
         time.sleep(poll_s)
     out: dict[str, dict] = {}
     for res in client.messages.batches.results(batch.id):
-        case = by_id[res.custom_id]
+        case = by_id.get(res.custom_id)
+        if case is None:   # batch_id names a batch with other cases
+            continue
         if res.result.type == "succeeded":
             out[case.id] = parse_verdict(res.result.message, len(case.rubric))
         else:
@@ -147,4 +156,9 @@ def cost_usd(usage: dict, batch: bool = True) -> float:
 
 def make_client(api_key: Optional[str] = None):
     import anthropic
-    return anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+    # gzip only: an older system `brotli` (anaconda ships 1.0.9) lacks the
+    # output_buffer_limit argument the SDK's HTTP client passes, so a brotli
+    # response crashes with "process() takes no keyword arguments".
+    headers = {"Accept-Encoding": "gzip, deflate"}
+    return anthropic.Anthropic(api_key=api_key, default_headers=headers) if api_key \
+        else anthropic.Anthropic(default_headers=headers)

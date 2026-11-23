@@ -36,6 +36,26 @@ EVAL_USER = "eval-userfail@munin.local"
 
 # -- stamps -------------------------------------------------------------------
 
+# Exceptions that mean the stack was unreachable (a redeploy, a restart), not
+# that Munin failed the case. Such records are retried on resume and left out
+# of the rates.
+INFRA_ERRORS = ("RemoteProtocolError", "ReadError", "ConnectError", "ConnectTimeout",
+                "ReadTimeout", "WriteError", "PoolTimeout")
+
+
+def infra_error(rec: dict) -> bool:
+    return bool(rec.get("error")) and rec["error"].split(":", 1)[0] in INFRA_ERRORS
+
+
+def retrieval_image() -> Optional[str]:
+    try:
+        img = subprocess.run(["docker", "inspect", "-f", "{{.Image}}", "munin-retrieval"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        return img[:19] or None
+    except OSError:
+        return None
+
+
 def stamps(base: str) -> dict:
     out: dict = {"harness": {}, "model": {}}
     try:
@@ -44,12 +64,7 @@ def stamps(base: str) -> dict:
             capture_output=True, text=True, timeout=10).stdout.strip() or None
     except OSError:
         out["harness"]["git_sha"] = None
-    try:
-        img = subprocess.run(["docker", "inspect", "-f", "{{.Image}}", "munin-retrieval"],
-                             capture_output=True, text=True, timeout=10).stdout.strip()
-        out["harness"]["retrieval_image"] = img[:19] or None
-    except OSError:
-        out["harness"]["retrieval_image"] = None
+    out["harness"]["retrieval_image"] = retrieval_image()
     try:
         facts = httpx.get(f"{base}/api/system", timeout=10).json()
         b = facts.get("backbone") or {}
@@ -67,7 +82,8 @@ def replay(case: Case, store: Path, base: str, keep: bool = False) -> dict:
     from ..labanalysis.client import LabClient
 
     rec: dict = {"id": case.id, "turns": [], "artifacts": [], "error": None,
-                 "conversation_id": None, "started": datetime.now(timezone.utc).isoformat()}
+                 "conversation_id": None, "started": datetime.now(timezone.utc).isoformat(),
+                 "retrieval_image": retrieval_image()}
     # persona "munin" = the router path the web UI uses; None would be raw model mode.
     client = LabClient(base=base, user=EVAL_USER, persona="munin", egress=case.egress)
     cid: Optional[str] = None
@@ -134,7 +150,7 @@ def cmd_run(args) -> int:
     out_dir = store / "runs" / args.tag
     out_dir.mkdir(parents=True, exist_ok=True)
     rec_path = out_dir / "records.jsonl"
-    done = _jsonl(rec_path)
+    done = {i: r for i, r in _jsonl(rec_path).items() if not infra_error(r)}
     todo = [c for c in cases if c.id not in done]
     meta_path = out_dir / "meta.json"
     if not meta_path.exists():
@@ -168,12 +184,13 @@ def cmd_judge(args) -> int:
     judged_path = out_dir / "judged.jsonl"
     judged = _jsonl(judged_path)
     items = [(cases[i], r) for i, r in recs.items()
-             if i in cases and cases[i].rubric and i not in judged and r.get("turns")]
+             if i in cases and cases[i].rubric and i not in judged and r.get("turns")
+             and not infra_error(r)]
     print(f"[judge] {len(items)} to judge ({len(judged)} already judged)")
     if not items:
         return 0
     client = make_client()
-    verdicts = judge_batch(client, items)
+    verdicts = judge_batch(client, items, batch_id=args.batch)
     batch = verdicts.pop("_batch", {})
     retry = [i for i, v in verdicts.items() if v.get("pass") is None]
     for i in retry:   # refusals / errors: one synchronous retry with fallbacks
@@ -206,8 +223,8 @@ def scorecard(tag: str) -> dict:
             continue
         j = judged.get(cid)
         judge_pass = None if not c.rubric else (j or {}).get("pass")
-        if c.rubric and judge_pass is None:
-            verdict = None   # not judged yet: excluded from rates
+        if infra_error(r) or (c.rubric and judge_pass is None):
+            verdict = None   # stack unreachable, or not judged yet: excluded from rates
         else:
             verdict = bool(r["mech_pass"] and (judge_pass if c.rubric else True))
         rows.append({"id": cid, "category": c.category, "tier": c.tier,
@@ -223,6 +240,9 @@ def scorecard(tag: str) -> dict:
     return {"track": "userfail", "tag": tag,
             "date": datetime.now(timezone.utc).date().isoformat(),
             "harness": meta.get("harness"), "model": meta.get("model"),
+            # More than one image means munin-retrieval was redeployed mid-run.
+            "retrieval_images": sorted({r.get("retrieval_image") or "unknown" for r in recs.values()}),
+            "infra_errors": sorted(i for i, r in recs.items() if infra_error(r)),
             "judge": {"model": "claude-opus-5-5", "effort": "high"},
             "overall": agg(rows),
             "by_tier": {t: agg([x for x in rows if x["tier"] == t]) for t in ("mechanical", "rubric")},
@@ -239,6 +259,12 @@ def cmd_score(args) -> int:
     o = sc["overall"]
     print(f"[score] {path.relative_to(BENCH)}: {o['pass']}/{o['graded']} pass "
           f"(mechanical {sc['by_tier']['mechanical']}, rubric {sc['by_tier']['rubric']})")
+    if len(sc["retrieval_images"]) > 1:
+        print(f"[score] WARNING: munin-retrieval changed mid-run {sc['retrieval_images']}; "
+              "rerun under a new tag before comparing")
+    if sc["infra_errors"]:
+        print(f"[score] {len(sc['infra_errors'])} cases hit a stack outage and are ungraded; "
+              "`run` again with the same tag to retry them")
     return 0
 
 
@@ -300,6 +326,7 @@ def main(argv=None) -> int:
     r.add_argument("--keep", action="store_true", help="keep the eval chats (debugging)")
     j = sub.add_parser("judge")
     j.add_argument("--tag", required=True)
+    j.add_argument("--batch", help="collect this already submitted batch id instead of creating one")
     s = sub.add_parser("score")
     s.add_argument("--tag", required=True)
     c = sub.add_parser("compare")
