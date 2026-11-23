@@ -89,6 +89,12 @@ citation_claims_total = Counter(
     labelnames=("outcome",),  # outcome = grounded | ungrounded
 )
 
+citecheck_total = Counter(
+    "munin_citecheck_total",
+    "Cited DOIs checked against the DOI registry (citecheck.py), by outcome.",
+    labelnames=("outcome",),  # outcome = checked | corrected | unverified
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers — single import surface for call sites.
@@ -144,6 +150,13 @@ def observe_citation_claims(grounded: int, ungrounded: int) -> None:
         citation_claims_total.labels(outcome="grounded").inc(grounded)
     if ungrounded > 0:
         citation_claims_total.labels(outcome="ungrounded").inc(ungrounded)
+
+
+def observe_citecheck(notes: Optional[dict]) -> None:
+    for k in ("checked", "corrected", "unverified"):
+        n = (notes or {}).get(k) or 0
+        if n > 0:
+            citecheck_total.labels(outcome=k).inc(n)
 
 
 # ---------------------------------------------------------------------------

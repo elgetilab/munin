@@ -408,6 +408,10 @@ export const useChatStore = create<ChatState>()(
       // assistant bubble so a transcript reload still shows the
       // divider.
       let compactBoundary: CompactBoundary | null = null;
+      // The server's corrected answer (citation check, audit warnings):
+      // replaces the streamed text on `done` so the bubble matches the
+      // saved message without a reload.
+      let revisedContent: string | null = null;
       // P2 #24 Phase 1: plan_updated fires zero or more times per
       // turn (once per set_plan or update_plan_item call). We
       // latch the LATEST plan and attach it to the assistant
@@ -507,7 +511,7 @@ export const useChatStore = create<ChatState>()(
         const assistantMessage: Message = {
           id: savedIds.assistant ?? `msg-${Date.now()}`,
           role: 'assistant',
-          content: finalContent,
+          content: revisedContent ?? finalContent,
           thinking: thinkingText || null,
           tool_calls:
             toolCalls.length > 0 ? _snapshotToolCalls(toolCalls) : null,
@@ -805,6 +809,9 @@ export const useChatStore = create<ChatState>()(
             set(state => {
               state.streaming = { ...state.streaming };
             });
+            break;
+          case 'answer_revised':
+            revisedContent = event.data.content;
             break;
           case 'compact_boundary':
             // P2 #22: backend used (or just generated) a summary
