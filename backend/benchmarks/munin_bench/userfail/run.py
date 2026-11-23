@@ -1,0 +1,313 @@
+"""CLI for the user-failure track: validate, run, judge, score, compare.
+
+    PYTHONPATH=$HOME/.cache/munin_bench_deps_userfail:. python -m munin_bench.userfail.run validate
+    ... run   --tag 2026-11-24_sage [--ids uf-f0001,uf-f0002] [--workers 2]
+    ... judge --tag 2026-11-24_sage          (needs ANTHROPIC_API_KEY or an `ant auth login` profile)
+    ... score --tag 2026-11-24_sage          -> scorecards/userfail/<tag>.json
+    ... compare scorecards/userfail/A.json scorecards/userfail/B.json
+
+Records with answers stay in <store>/runs/<tag>/ (private). The scorecard
+holds case ids, categories, tiers and verdicts only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import subprocess
+import sys
+import time
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+import httpx
+
+from .cases import Case, load_cases, store_dir
+from .checks import run_checks
+
+BENCH = Path(__file__).resolve().parents[2]
+SCORECARDS = BENCH / "scorecards" / "userfail"
+EVAL_USER = "eval-userfail@munin.local"
+
+
+# -- stamps -------------------------------------------------------------------
+
+def stamps(base: str) -> dict:
+    out: dict = {"harness": {}, "model": {}}
+    try:
+        out["harness"]["git_sha"] = subprocess.run(
+            ["git", "-C", str(BENCH), "rev-parse", "--short=12", "HEAD"],
+            capture_output=True, text=True, timeout=10).stdout.strip() or None
+    except OSError:
+        out["harness"]["git_sha"] = None
+    try:
+        img = subprocess.run(["docker", "inspect", "-f", "{{.Image}}", "munin-retrieval"],
+                             capture_output=True, text=True, timeout=10).stdout.strip()
+        out["harness"]["retrieval_image"] = img[:19] or None
+    except OSError:
+        out["harness"]["retrieval_image"] = None
+    try:
+        facts = httpx.get(f"{base}/api/system", timeout=10).json()
+        b = facts.get("backbone") or {}
+        out["model"] = {"served_name": b.get("served_name"), "display": b.get("display"),
+                        "revision": (b.get("revision") or "")[:12] or None,
+                        "fallback_active": bool((facts.get("fallback") or {}).get("active"))}
+    except (httpx.HTTPError, ValueError):
+        pass
+    return out
+
+
+# -- run ----------------------------------------------------------------------
+
+def replay(case: Case, store: Path, base: str, keep: bool = False) -> dict:
+    from ..labanalysis.client import LabClient
+
+    rec: dict = {"id": case.id, "turns": [], "artifacts": [], "error": None,
+                 "conversation_id": None, "started": datetime.now(timezone.utc).isoformat()}
+    client = LabClient(base=base, user=EVAL_USER, persona=None, egress=case.egress)
+    cid: Optional[str] = None
+    docs: list[dict] = []
+    seen: set[str] = set()
+    try:
+        for i, turn in enumerate(case.turns, 1):
+            tdocs = []
+            for a in turn.attachments:
+                p = store / a
+                d = client.upload(p)
+                tdocs.append({"document_id": d["document_id"], "filename": p.name})
+            docs += tdocs
+            cid, tr = client.turn(turn.text, cid, tdocs)
+            rec["conversation_id"] = cid
+            rec["turns"].append({"answer": tr.answer, "tools": tr.tools, "error": tr.error,
+                                 "seconds": tr.seconds})
+            if not cid:
+                raise RuntimeError("no conversation id")
+            for a in client.artifacts(cid):
+                if a["id"] not in seen:
+                    seen.add(a["id"])
+                    rec["artifacts"].append({"id": a["id"], "filename": a.get("filename", ""),
+                                             "turn": i})
+        if cid:   # the stored answer is canonical (tokens can be lost on a reconnect)
+            stored = client.persisted_answers(cid)
+            for t, text in zip(rec["turns"], stored[-len(rec["turns"]):]):
+                if text:
+                    t["answer"] = text
+    except Exception as exc:   # recorded, never raised
+        rec["error"] = f"{type(exc).__name__}: {exc}"[:500]
+    finally:
+        if not keep:
+            if cid:
+                try:
+                    client.delete_chat(cid)
+                except httpx.HTTPError:
+                    pass
+            for d in docs:
+                try:
+                    client.delete_doc(d["document_id"])
+                except httpx.HTTPError:
+                    pass
+        client.close()
+    rec["checks"] = run_checks(case.checks, rec)
+    rec["mech_pass"] = all(c["pass"] for c in rec["checks"])
+    return rec
+
+
+def _jsonl(path: Path) -> dict[str, dict]:
+    if not path.exists():
+        return {}
+    out = {}
+    for line in path.read_text().splitlines():
+        if line.strip():
+            d = json.loads(line)
+            out[d["id"]] = d
+    return out
+
+
+def cmd_run(args) -> int:
+    store = store_dir()
+    cases = load_cases(store, args.ids)
+    out_dir = store / "runs" / args.tag
+    out_dir.mkdir(parents=True, exist_ok=True)
+    rec_path = out_dir / "records.jsonl"
+    done = _jsonl(rec_path)
+    todo = [c for c in cases if c.id not in done]
+    meta_path = out_dir / "meta.json"
+    if not meta_path.exists():
+        meta_path.write_text(json.dumps({"tag": args.tag, **stamps(args.base),
+                                         "started": datetime.now(timezone.utc).isoformat()}, indent=1))
+    print(f"[run] {len(cases)} cases, {len(done)} already done, {len(todo)} to run")
+
+    def one(c: Case):
+        t0 = time.monotonic()
+        r = replay(c, store, args.base, keep=args.keep)
+        print(f"[run] {c.id} mech={'PASS' if r['mech_pass'] else 'FAIL'} "
+              f"{time.monotonic() - t0:.0f}s {r['error'] or ''}", flush=True)
+        return r
+
+    with ThreadPoolExecutor(max_workers=args.workers) as pool, rec_path.open("a") as fh:
+        for r in pool.map(one, todo):
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+            fh.flush()
+    return 0
+
+
+# -- judge --------------------------------------------------------------------
+
+def cmd_judge(args) -> int:
+    from .judge import cost_usd, judge_batch, judge_one, make_client
+
+    store = store_dir()
+    cases = {c.id: c for c in load_cases(store)}
+    out_dir = store / "runs" / args.tag
+    recs = _jsonl(out_dir / "records.jsonl")
+    judged_path = out_dir / "judged.jsonl"
+    judged = _jsonl(judged_path)
+    items = [(cases[i], r) for i, r in recs.items()
+             if i in cases and cases[i].rubric and i not in judged and r.get("turns")]
+    print(f"[judge] {len(items)} to judge ({len(judged)} already judged)")
+    if not items:
+        return 0
+    client = make_client()
+    verdicts = judge_batch(client, items)
+    batch = verdicts.pop("_batch", {})
+    retry = [i for i, v in verdicts.items() if v.get("pass") is None]
+    for i in retry:   # refusals / errors: one synchronous retry with fallbacks
+        try:
+            verdicts[i] = {**judge_one(client, cases[i], recs[i]), "retried": True}
+        except Exception as exc:   # keep the batch result
+            verdicts[i]["retry_error"] = str(exc)[:200]
+    spent = 0.0
+    with judged_path.open("a") as fh:
+        for i, v in verdicts.items():
+            spent += cost_usd(v.get("usage") or {}, batch=not v.get("retried"))
+            fh.write(json.dumps({"id": i, "batch": batch.get("id"), **v}, ensure_ascii=False) + "\n")
+    print(f"[judge] wrote {len(verdicts)} verdicts, about ${spent:.2f}")
+    return 0
+
+
+# -- score / compare ----------------------------------------------------------
+
+def scorecard(tag: str) -> dict:
+    store = store_dir()
+    cases = {c.id: c for c in load_cases(store)}
+    out_dir = store / "runs" / tag
+    meta = json.loads((out_dir / "meta.json").read_text())
+    recs = _jsonl(out_dir / "records.jsonl")
+    judged = _jsonl(out_dir / "judged.jsonl")
+    rows = []
+    for cid, r in sorted(recs.items()):
+        c = cases.get(cid)
+        if c is None:
+            continue
+        j = judged.get(cid)
+        judge_pass = None if not c.rubric else (j or {}).get("pass")
+        if c.rubric and judge_pass is None:
+            verdict = None   # not judged yet: excluded from rates
+        else:
+            verdict = bool(r["mech_pass"] and (judge_pass if c.rubric else True))
+        rows.append({"id": cid, "category": c.category, "tier": c.tier,
+                     "mech_pass": r["mech_pass"], "judge_pass": judge_pass, "pass": verdict,
+                     "failed_checks": [x["type"] for x in r.get("checks") or [] if not x["pass"]]})
+
+    def agg(sel):
+        graded = [x for x in sel if x["pass"] is not None]
+        return {"n": len(sel), "graded": len(graded), "pass": sum(x["pass"] for x in graded),
+                "rate": round(sum(x["pass"] for x in graded) / len(graded), 3) if graded else None}
+
+    cats = sorted({x["category"] for x in rows})
+    return {"track": "userfail", "tag": tag,
+            "date": datetime.now(timezone.utc).date().isoformat(),
+            "harness": meta.get("harness"), "model": meta.get("model"),
+            "judge": {"model": "claude-opus-5-5", "effort": "high"},
+            "overall": agg(rows),
+            "by_tier": {t: agg([x for x in rows if x["tier"] == t]) for t in ("mechanical", "rubric")},
+            "mechanical_only": agg([{**x, "pass": x["mech_pass"]} for x in rows]),
+            "by_category": {k: agg([x for x in rows if x["category"] == k]) for k in cats},
+            "cases": rows}
+
+
+def cmd_score(args) -> int:
+    sc = scorecard(args.tag)
+    SCORECARDS.mkdir(parents=True, exist_ok=True)
+    path = SCORECARDS / f"{args.tag}.json"
+    path.write_text(json.dumps(sc, indent=1) + "\n")
+    o = sc["overall"]
+    print(f"[score] {path.relative_to(BENCH)}: {o['pass']}/{o['graded']} pass "
+          f"(mechanical {sc['by_tier']['mechanical']}, rubric {sc['by_tier']['rubric']})")
+    return 0
+
+
+def mcnemar_p(b: int, c: int) -> float:
+    """Exact two-sided McNemar (binomial on discordant pairs)."""
+    n = b + c
+    if n == 0:
+        return 1.0
+    k = min(b, c)
+    p = sum(math.comb(n, i) for i in range(k + 1)) / 2 ** n
+    return min(1.0, 2 * p)
+
+
+def compare(a: dict, b: dict) -> dict:
+    A = {x["id"]: x for x in a["cases"] if x["pass"] is not None}
+    B = {x["id"]: x for x in b["cases"] if x["pass"] is not None}
+    common = sorted(set(A) & set(B))
+
+    def block(ids):
+        fixed = [i for i in ids if not A[i]["pass"] and B[i]["pass"]]
+        regressed = [i for i in ids if A[i]["pass"] and not B[i]["pass"]]
+        return {"n": len(ids), "a_pass": sum(A[i]["pass"] for i in ids),
+                "b_pass": sum(B[i]["pass"] for i in ids), "fixed": fixed, "regressed": regressed,
+                "mcnemar_p": round(mcnemar_p(len(fixed), len(regressed)), 4)}
+
+    changed = {k: (a.get(k), b.get(k)) for k in ("harness", "model") if a.get(k) != b.get(k)}
+    return {"a": a["tag"], "b": b["tag"], "changed": changed, "all": block(common),
+            "by_tier": {t: block([i for i in common if A[i]["tier"] == t])
+                        for t in ("mechanical", "rubric")}}
+
+
+def cmd_compare(args) -> int:
+    res = compare(json.loads(Path(args.a).read_text()), json.loads(Path(args.b).read_text()))
+    print(json.dumps(res, indent=1))
+    return 0
+
+
+def cmd_validate(args) -> int:
+    cases = load_cases(store_dir())
+    by = {}
+    for c in cases:
+        by.setdefault((c.tier, c.category), 0)
+        by[(c.tier, c.category)] += 1
+    print(f"[validate] {len(cases)} cases OK")
+    for k, v in sorted(by.items()):
+        print(f"  {k[0]:10} {k[1]:26} {v}")
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(prog="munin_bench.userfail.run")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("validate")
+    r = sub.add_parser("run")
+    r.add_argument("--tag", required=True)
+    r.add_argument("--ids", type=lambda s: s.split(","), default=None)
+    r.add_argument("--workers", type=int, default=2)
+    r.add_argument("--base", default=os.environ.get("MUNIN_RETRIEVAL_URL", "http://127.0.0.1:8080"))
+    r.add_argument("--keep", action="store_true", help="keep the eval chats (debugging)")
+    j = sub.add_parser("judge")
+    j.add_argument("--tag", required=True)
+    s = sub.add_parser("score")
+    s.add_argument("--tag", required=True)
+    c = sub.add_parser("compare")
+    c.add_argument("a")
+    c.add_argument("b")
+    args = ap.parse_args(argv)
+    return {"validate": cmd_validate, "run": cmd_run, "judge": cmd_judge,
+            "score": cmd_score, "compare": cmd_compare}[args.cmd](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

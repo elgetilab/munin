@@ -120,6 +120,43 @@ python -m munin_bench.frozen_variants.regen_variants \
 Track A measures the *ranker* on the frozen input; expansion drift under a
 model swap is a live-harness behaviour measured by Track D/E, not here.
 
+## User-failure regression track (Track UF)
+
+A private test set built from real conversations where Munin failed a user:
+reported chats, corrections, re-asks and error markers. Each case replays the
+user's turns against the live chat API. Mechanical checks cover empty answers,
+error markers, links to artifacts that do not exist, DOIs that do not
+resolve, tools, files and language. A pinned Claude Opus 5.5 judge then grades
+the final answer against a rubric whose facts were verified when the case was
+written.
+
+The cases are user text, so they are **not in git**. They live in
+`/opt/munin/data/evals/user-failures/` (mode 700, created by `deploy.sh`;
+override with `MUNIN_USERFAIL_DIR`). Answers and verdicts stay there under
+`runs/<tag>/`. Committed scorecards in `scorecards/userfail/` hold case ids,
+categories, tiers and pass/fail only. This is an internal regression track,
+not a paper scorecard, so it is not copied into `docs/paper-kit/`. Users are
+told about it in the guide (`#quality`).
+
+```bash
+cd backend/benchmarks
+pip install --target=$HOME/.cache/munin_bench_deps_userfail anthropic   # once
+export ANTHROPIC_API_KEY=...          # or `ant auth login`
+UF="env PYTHONPATH=$HOME/.cache/munin_bench_deps_userfail:. python3 -m munin_bench.userfail.run"
+$UF validate
+$UF run   --tag 2026-11-24_sage --workers 2     # replay + mechanical checks (resumable)
+$UF judge --tag 2026-11-24_sage                 # Batch API, about $5-10 per 100 cases
+$UF score --tag 2026-11-24_sage                 # -> scorecards/userfail/<tag>.json
+$UF compare scorecards/userfail/A.json scorecards/userfail/B.json
+```
+
+Each scorecard stamps the harness (git sha, retrieval image) and the served
+model (`/api/system`). `compare` reports the fixed and regressed cases with
+an exact McNemar p, per tier. To separate the two causes, change one thing
+per pair of runs: same model with a new harness measures the harness, and the
+same harness with a new model measures the model. Mechanical-tier cases mostly
+measure the harness; rubric-tier cases mostly measure the model.
+
 ## Layout
 
 ```
