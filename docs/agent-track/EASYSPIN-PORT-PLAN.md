@@ -386,6 +386,12 @@ Baseline (deployed labkit 0.2.2):
 - `es1-baseline`: 3/15 (units 3/3; Cu, nitroxide, rhombic and radical 0/3).
 - `es1-baseline-regen`, the three regenerated cases x 3: 1/9 (nitroxide 1/3, Cu 0/3, rhombic 0/3), against 0/9 on the same cases before regeneration; failures are of the same kind (Cu A_par 280-1300 MHz, nitroxide Azz 2.70 mT, rhombic g off by up to 0.4).
 
-Next: the user deploys the sandbox image and retrieval. Then the labkit-arm
+Deployed 2026-11-23 (main 68b3f58). `es1-labkit`, the five cases x 3:
+5/15 (Cu 2/3, units 3/3, nitroxide 0/3, rhombic 0/3, radical 0/3), paired
+vs the baselines 2/1, p = 1.0. The recipes are right; the model does not
+reach them (wrong hints fire, fits end at their bounds and the model
+reports a typical value, API slips). Round 2 is `LABKIT-019-PLAN.md`.
+
+Originally next: the user deploys the sandbox image and retrieval. Then the labkit-arm
 run on the 5 cases x 3, an S8 regression rerun of the 21 older cases, and
 fresh variants generated after this freeze.
