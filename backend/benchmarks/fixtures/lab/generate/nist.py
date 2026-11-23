@@ -16,6 +16,12 @@ from common import write_case
 
 RAW = Path(__file__).resolve().parent.parent / "nist" / "raw"
 
+# Lanczos is a sum of three exponentials: swapping two (amplitude, rate) pairs
+# gives the same curve and the same RSS, so without an order the labels b1-b6
+# are not determined and a correct fit can fail the positional checks. The
+# order stated is the certified one (rates ascending).
+TERM_ORDER = {"Lanczos1": "b2 < b4 < b6", "Lanczos2": "b2 < b4 < b6", "Lanczos3": "b2 < b4 < b6"}
+
 
 def parse(path: Path) -> dict:
     lines = path.read_text(errors="replace").splitlines()
@@ -59,7 +65,9 @@ def build(root: Path) -> None:
         fname = f"{d['name'].lower()}.csv"
         starts = ", ".join(f"{p} = {s}" for p, s in zip(d["params"], d["start1"]))
         prompt = (f"Fit the nonlinear model {d['model']} to the data in {fname} (columns {', '.join(d['columns'])}) by "
-                  f"least squares, starting from {starts}. Report every parameter "
+                  f"least squares, starting from {starts}. "
+                  + (f"Order the terms so that {TERM_ORDER[d['name']]}. " if d["name"] in TERM_ORDER else "")
+                  + f"Report every parameter "
                   f"({', '.join(d['params'])}) to at least 6 significant digits and the residual sum "
                   "of squares as rss.")
         checks = [{"type": "numeric", "key": p, "truth": f"truth:certified.{p}", "rtol": 1e-4}

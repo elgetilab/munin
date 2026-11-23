@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-90 committed scorecard JSONs, copied verbatim from
+91 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 134 JSON plus 86 Markdown twins; the remainder are mostly the
+The full set is 135 JSON plus 87 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -156,6 +156,7 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-22_full-lk17-fresh.json` | Same run on the 69 fresh cases x 3: 194/207. S1-S7 fresh 81/81 (`phase4d-fresh` 80/81). S8 `_f1` 55/63 vs `s8-labkit-fresh` 47/63 (11/3, p = 0.057); `_f2` 58/63, its 7 round-2 families 20/21 vs `s8-r2-targeted-fresh` 14/21 (6/0, p = 0.031). Remaining S8 failures: DEER modulation depth and labeling efficiency (5), `short_trace_f1` distance 3.18 vs 3.05 nm (3/3, same value each time), `zero_time_f2` t0 176 vs 168 ns (2) | none yet |
 | `2026-11-22_lk18-targeted.json` | Failures-left round (`LABKIT-018-PLAN.md`, labkit 0.2.2): file-aware retyping hint, preview shows small files whole and counts rows, named-file nudge, DEER and CW hints, `fit_deer` checks with `n_boot`, `main_nm`, `labeling_efficiency`. 27 original cases x 3: 79/81, paired vs `full-lk17` 7/1. NIST 20/21 (19/21; the failure is a right fit with the symmetric exponential terms in another order), NOESY 3/3, 11 S8 families 32/33 (28/33), round-5 control 24/24. No run retyped data | none yet |
 | `2026-11-22_lk18-targeted-fresh.json` | Same round, 36 fresh cases x 3: 102/108. S8 families `_f1` 29/33 (25/33), `_f2` 32/33 (28/33), new untuned `_f3` (generated after labkit 0.2.2 froze) 32/33, competitive s6-s8 9/9. Both scorecards paired vs `full-lk17*`: 18 fail->pass, 4 pass->fail, exact McNemar p = 0.0043. DEER labeling 11/12 (4/9). Left: CW dBpp from grid extrema (3), one hand-rolled DEER phase run, one lost labeling answer | none yet |
+| `2026-11-23_lk18-lanczos-order.json` | Lanczos 1-3 prompts now state the certified term order ("Order the terms so that b2 < b4 < b6."): the three exponential terms are interchangeable, and 8 earlier runs failed on a pure reordering of correct pairs. Lanczos 1-3 x 3: 9/9. Earlier Lanczos scores used the unordered wording | none yet |
 
 ## Cautions when regenerating figures
 

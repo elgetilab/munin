@@ -244,3 +244,15 @@ when dBpp equals a whole number of grid steps, or `peak_to_peak` that
 interpolates), a `_deer_ish` that also matches a two-column complex trace
 loaded by hand, and whether the NIST grader should accept a permutation of
 symmetric exponential terms (a grader decision, not taken here).
+
+**Lanczos term order (2026-11-23, user's choice of the prompt fix over a
+looser grader).** The three exponential terms of Lanczos 1-3 can be swapped
+without changing the curve or the RSS, so the prompt did not determine which
+term is b1; 8 runs since `phase4-labkit` failed on a pure reordering of the
+certified pairs (Lanczos1 x2, Lanczos2 x3, Lanczos3 x3). `nist.py` now adds
+"Order the terms so that b2 < b4 < b6." (NIST's certified order) to those
+three prompts; data, truth and every other NIST case byte-identical,
+checksums updated. Gauss 1-3, ENSO and MGH17 have the same kind of symmetry
+but no run has failed on it, so they stay as they are. Rerun
+`lk18-lanczos-order`, Lanczos 1-3 x 3: 9/9. Earlier Lanczos scores were on
+the unordered wording.
