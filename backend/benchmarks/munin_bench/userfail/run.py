@@ -227,8 +227,10 @@ def scorecard(tag: str) -> dict:
             verdict = None   # stack unreachable, or not judged yet: excluded from rates
         else:
             verdict = bool(r["mech_pass"] and (judge_pass if c.rubric else True))
+        crit = [bool(x["pass"]) for x in (j or {}).get("criteria") or []] if c.rubric else []
         rows.append({"id": cid, "category": c.category, "tier": c.tier,
                      "mech_pass": r["mech_pass"], "judge_pass": judge_pass, "pass": verdict,
+                     "criteria": crit,
                      "failed_checks": [x["type"] for x in r.get("checks") or [] if not x["pass"]]})
 
     def agg(sel):
@@ -247,6 +249,12 @@ def scorecard(tag: str) -> dict:
             "overall": agg(rows),
             "by_tier": {t: agg([x for x in rows if x["tier"] == t]) for t in ("mechanical", "rubric")},
             "mechanical_only": agg([{**x, "pass": x["mech_pass"]} for x in rows]),
+            # Rubric points met, over judged cases: more sensitive than the
+            # all-points case pass, which hides partial improvement.
+            "criteria": {"met": sum(sum(x["criteria"]) for x in rows),
+                         "total": sum(len(x["criteria"]) for x in rows),
+                         "rate": round(sum(sum(x["criteria"]) for x in rows)
+                                       / max(1, sum(len(x["criteria"]) for x in rows)), 3)},
             "by_category": {k: agg([x for x in rows if x["category"] == k]) for k in cats},
             "cases": rows}
 
@@ -278,26 +286,61 @@ def mcnemar_p(b: int, c: int) -> float:
     return min(1.0, 2 * p)
 
 
-def compare(a: dict, b: dict) -> dict:
-    A = {x["id"]: x for x in a["cases"] if x["pass"] is not None}
-    B = {x["id"]: x for x in b["cases"] if x["pass"] is not None}
+def _means(cards: list[dict]):
+    """Per-case pass rate and per-(case, criterion) met rate over replicates."""
+    case_runs: dict[str, list] = {}
+    crit_runs: dict[tuple, list] = {}
+    tier: dict[str, str] = {}
+    for sc in cards:
+        for x in sc["cases"]:
+            if x["pass"] is None:
+                continue
+            case_runs.setdefault(x["id"], []).append(bool(x["pass"]))
+            tier[x["id"]] = x["tier"]
+            for k, v in enumerate(x.get("criteria") or []):
+                crit_runs.setdefault((x["id"], k), []).append(bool(v))
+    mean = lambda d: {k: sum(v) / len(v) for k, v in d.items()}
+    return mean(case_runs), mean(crit_runs), tier
+
+
+def compare(a, b) -> dict:
+    """a, b: one scorecard each, or lists of replicate scorecards per arm.
+
+    A case is fixed when its pass rate over the replicates rises, regressed when
+    it falls; the p value is an exact two-sided sign test over those (McNemar
+    when each arm has one run). The same test runs over rubric points.
+    """
+    A_cards = a if isinstance(a, list) else [a]
+    B_cards = b if isinstance(b, list) else [b]
+    A, Ac, tier = _means(A_cards)
+    B, Bc, _ = _means(B_cards)
     common = sorted(set(A) & set(B))
 
     def block(ids):
-        fixed = [i for i in ids if not A[i]["pass"] and B[i]["pass"]]
-        regressed = [i for i in ids if A[i]["pass"] and not B[i]["pass"]]
-        return {"n": len(ids), "a_pass": sum(A[i]["pass"] for i in ids),
-                "b_pass": sum(B[i]["pass"] for i in ids), "fixed": fixed, "regressed": regressed,
+        fixed = [i for i in ids if B[i] > A[i]]
+        regressed = [i for i in ids if B[i] < A[i]]
+        return {"n": len(ids), "a_pass": round(sum(A[i] for i in ids), 2),
+                "b_pass": round(sum(B[i] for i in ids), 2), "fixed": fixed, "regressed": regressed,
                 "mcnemar_p": round(mcnemar_p(len(fixed), len(regressed)), 4)}
 
-    changed = {k: (a.get(k), b.get(k)) for k in ("harness", "model") if a.get(k) != b.get(k)}
-    return {"a": a["tag"], "b": b["tag"], "changed": changed, "all": block(common),
-            "by_tier": {t: block([i for i in common if A[i]["tier"] == t])
-                        for t in ("mechanical", "rubric")}}
+    ck = sorted(set(Ac) & set(Bc))
+    up = sum(Bc[k] > Ac[k] for k in ck)
+    down = sum(Bc[k] < Ac[k] for k in ck)
+    first = lambda cards, k: [sc.get(k) for sc in cards][0]
+    changed = {k: (first(A_cards, k), first(B_cards, k)) for k in ("harness", "model")
+               if first(A_cards, k) != first(B_cards, k)}
+    return {"a": [sc["tag"] for sc in A_cards], "b": [sc["tag"] for sc in B_cards],
+            "replicates": [len(A_cards), len(B_cards)], "changed": changed, "all": block(common),
+            "by_tier": {t: block([i for i in common if tier[i] == t])
+                        for t in ("mechanical", "rubric")},
+            "criteria": {"n": len(ck), "a_met": round(sum(Ac[k] for k in ck), 2),
+                         "b_met": round(sum(Bc[k] for k in ck), 2), "up": up, "down": down,
+                         "sign_p": round(mcnemar_p(up, down), 4)}}
 
 
 def cmd_compare(args) -> int:
-    res = compare(json.loads(Path(args.a).read_text()), json.loads(Path(args.b).read_text()))
+    load = lambda arg: [json.loads(Path(x).read_text()) for x in arg.split(",")]
+    res = compare(load(args.a), load(args.b))
     print(json.dumps(res, indent=1))
     return 0
 
@@ -354,8 +397,8 @@ def main(argv=None) -> int:
     s = sub.add_parser("score")
     s.add_argument("--tag", required=True)
     c = sub.add_parser("compare")
-    c.add_argument("a")
-    c.add_argument("b")
+    c.add_argument("a", help="scorecard, or comma-separated replicate scorecards")
+    c.add_argument("b", help="scorecard, or comma-separated replicate scorecards")
     args = ap.parse_args(argv)
     return {"validate": cmd_validate, "run": cmd_run, "judge": cmd_judge,
             "recheck": cmd_recheck, "score": cmd_score, "compare": cmd_compare}[args.cmd](args)

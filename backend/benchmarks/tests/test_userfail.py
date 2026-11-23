@@ -134,3 +134,17 @@ def test_extract_dois_keeps_parentheses_and_drops_markup():
     assert ck.extract_dois(text) == ["10.1002/prot.10140", "10.1016/0022-2836(91)90127-X",
                                      "10.1021/acs.nanolett.2c02500", "10.1038/nature12373",
                                      "10.1103/PhysRevB.101.161109"]
+
+
+def test_compare_replicates_and_criteria():
+    def sc(tag, rows):
+        return {"tag": tag, "harness": {"git_sha": "x"}, "model": {"served_name": "m"},
+                "cases": [{"id": i, "tier": "rubric", "pass": all(c), "criteria": c} for i, c in rows]}
+    a = [sc("a1", [("uf-1", [False, True]), ("uf-2", [True, True])]),
+         sc("a2", [("uf-1", [False, False]), ("uf-2", [True, True])])]
+    b = [sc("b1", [("uf-1", [True, True]), ("uf-2", [True, False])]),
+         sc("b2", [("uf-1", [False, True]), ("uf-2", [True, True])])]
+    res = compare(a, b)
+    assert res["replicates"] == [2, 2]
+    assert res["all"]["fixed"] == ["uf-1"] and res["all"]["regressed"] == ["uf-2"]
+    assert res["criteria"]["up"] == 2 and res["criteria"]["down"] == 1

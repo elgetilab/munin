@@ -147,8 +147,16 @@ $UF validate
 $UF run   --tag 2026-11-24_sage --workers 2     # replay + mechanical checks (resumable)
 $UF judge --tag 2026-11-24_sage                 # Batch API, about $5-10 per 100 cases
 $UF score --tag 2026-11-24_sage                 # -> scorecards/userfail/<tag>.json
+$UF recheck --tag 2026-11-24_sage               # re-run the checks on stored answers (checker fixes)
 $UF compare scorecards/userfail/A.json scorecards/userfail/B.json
+$UF compare A_r1.json,A_r2.json,A_r3.json B_r1.json,B_r2.json,B_r3.json   # replicates
 ```
+
+Single runs are noisy: on the first baseline, 12 of 77 cases and 64 of 249
+rubric points flipped between two runs with no relevant change. Compare arms
+of 2 to 3 replicates each. `compare` then uses the per-case pass rate over the
+replicates, and also tests rubric points met (`criteria`), which moves before
+whole cases do.
 
 Each scorecard stamps the harness (git sha, retrieval image) and the served
 model (`/api/system`). `compare` reports the fixed and regressed cases with
