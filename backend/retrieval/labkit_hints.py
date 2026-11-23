@@ -164,7 +164,7 @@ def _deer_context(c: str) -> bool:
 
 
 # Hints that never apply to DEER code.
-_NOT_FOR_DEER = {"relaxation", "epr_g", "epr_integral", "kd", "noe_buildup"}
+_NOT_FOR_DEER = {"relaxation", "epr_g", "epr_integral", "kd", "noe_buildup", "epr_powder", "epr_iso_fit"}
 
 
 def _cw_epr(c: str, labkit_epr_counts: bool = False) -> bool:
@@ -202,6 +202,19 @@ _LABKIT_SOURCE = re.compile(
     r"|\bhelp\(\s*labkit")
 _GUIDE_CALL = re.compile(r"\bguide\s*\(")
 
+# EasySpin port, slice 1 (EASYSPIN-PORT-PLAN.md): EasySpin-style code (MATLAB
+# names, a MATLAB bridge) and hand-written powder or multiplet simulations.
+_EASYSPIN = re.compile(r"\b(Sys|Exp|Opt|FitOpt)\.(g|A|Nucs|lwpp|lw|gStrain|AStrain|mwFreq|Range|CenterSweep"
+                       r"|nPoints|Harmonic|ModAmp)\b|\b(pepper|garlic|chili|esfit|resfields|eigfields)\s*\("
+                       r"|\bimport\s+matlab\b|\boct2py\b|(?i:\beasyspin\b)")
+_ORIENT_GRID = re.compile(r"(?i)\btheta\b|\bphi\b|linspace\(\s*0\s*,\s*(np\.|math\.)?pi|arccos|\bcos_?t\b")
+_ANISO_G = re.compile(r"(?i)\bg_?(par|perp|para|parallel|perpendicular|xx|yy|zz|x|y|z|1|2|3|eff)\b|\bA_?(par|perp|zz|xx|yy)\b"
+                      r"|g_?tensor|\bpowder\b|frozen")
+_MULTIPLET = re.compile(r"(?i)\ba_?[nh]\b|\ba_?(14)?n\b|hyperfine|multiplet|binom|\bcomb\b|\bm_?[iI]\b|stick")
+_SIM_CALLS = _calls_any("simulate_powder", "fit_spectrum", "simulate_iso", "convert")
+_SIM_TAIL = "; see labkit.guide('epr-sim')."
+_NITROXIDE = re.compile(r"(?i)nitroxide|\btempo|kivelson|tau_?c\b|spin.?label")
+
 _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
     ("epr_read", lambda c: bool(_EPR_FILE.search(c) and _EPR_READ_BY_HAND.search(c)),
      _calls_any("load", "load_bes3t", "load_esp", "load_ascii"),
@@ -210,6 +223,34 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      ".par/.spc and ASCII exports, converts the field to mT (or time to us), and gives "
      "freq_GHz (from MWFQ, in Hz in the file), power_mW, modamp_mT, gain_dB, n_scans"
      + _EPR_HINT_TAIL),
+    ("epr_easyspin", lambda c: bool(_EASYSPIN.search(c)), _SIM_CALLS,
+     "This is EasySpin-style code; MATLAB and EasySpin are not installed. labkit.epr follows "
+     "EasySpin's conventions with unit-named keywords: sys = epr.SpinSystem(g=[gx, gy, gz], "
+     "nuclei=[epr.Nucleus('63Cu', A_MHz=[Ax, Ay, Az])], fwhm_mT=...) (Sys.lw is a FWHM, Sys.lwpp "
+     "peak to peak; A is in MHz as in EasySpin, or A_mT=); epr.simulate_powder(sys, field_mT, "
+     "freq_GHz) is pepper for S = 1/2, epr.simulate_iso(..., exact=True) is garlic, and "
+     "epr.fit_spectrum(field_mT, y, model='powder', start=sys, vary={...}, freq_GHz=...) is esfit"
+     + _SIM_TAIL),
+    ("epr_powder", lambda c: bool(_cw_epr(c, True) and _ORIENT_GRID.search(c) and _ANISO_G.search(c)),
+     _SIM_CALLS,
+     "This simulates a powder (frozen-solution) EPR spectrum by hand. labkit.epr does it for "
+     "S = 1/2: sys = epr.SpinSystem(g=[g_perp, g_perp, g_par], nuclei=[epr.Nucleus('Cu', "
+     "A_MHz=[A_perp, A_perp, A_par])], fwhm_mT=...); y = epr.simulate_powder(sys, d.field_mT, "
+     "d.freq_GHz) (second order, the 1/g intensity factor, natural isotopes for 'Cu'); then "
+     "r = epr.fit_spectrum(d.field_mT, d.y, model='powder', start=sys, vary={'g': [...], "
+     "'A_MHz': [[...]], 'fwhm_mT': ...}, freq_GHz=d.freq_GHz); print(r) gives values, CIs and "
+     "warnings. g_par is not a zero crossing; read it from a fit. epr.convert(A, 'MHz', "
+     "'1e-4 cm-1') and epr.convert(a, 'mT', 'MHz', g=...) convert units at the spectrum's g"
+     + _SIM_TAIL),
+    # Nitroxide triplets keep the epr_lineshape hint (nitroxide_hyperfine, kivelson_tau).
+    ("epr_iso_fit", lambda c: bool(_cw_epr(c, True) and _MULTIPLET.search(c) and _ANY_FIT.search(c)
+                                   and not _NITROXIDE.search(c)),
+     _calls_any("simulate_powder", "fit_spectrum", "simulate_iso", "convert", "nitroxide_hyperfine"),
+     "This fits hyperfine couplings by hand. labkit.epr does it: sys = epr.SpinSystem(g=2.005, "
+     "nuclei=[epr.Nucleus('14N', A_mT=0.7, n=2), epr.Nucleus('1H', A_mT=0.3, n=4)], fwhm_mT=0.05); "
+     "r = epr.fit_spectrum(d.field_mT, d.y, model='iso', start=sys, vary={'A_mT': [0.1, 0.1], "
+     "'fwhm_mT': 0.03}, freq_GHz=d.freq_GHz); print(r). A fit of the whole spectrum, not peak "
+     "picking; overlapping lines make counted spacings wrong" + _SIM_TAIL),
     # Round 3: on the first DEER script that does not call fit_deer, fit call
     # or not (four hand analyses never got it, LABKIT-018-PLAN.md).
     ("deer", lambda c: bool((_DEER.search(c) and _DEER_INVERT.search(c)) or _deer_ish(c)),
@@ -287,7 +328,7 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
     ("labkit_source", lambda c: bool(_LABKIT_SOURCE.search(c)), _GUIDE_CALL,
      "This reads labkit's source or help() to learn a call. labkit.guide('<topic>') is "
      "shorter and has the call signatures and a worked example for each task: topics fit, "
-     "read, nmr, stats, cd, plot, epr, deer (labkit.guide() for the overview). help() on a "
+     "read, nmr, stats, cd, plot, epr, epr-sim, deer (labkit.guide() for the overview). help() on a "
      "whole module is long and gets cut in the tool result."),
 ]
 

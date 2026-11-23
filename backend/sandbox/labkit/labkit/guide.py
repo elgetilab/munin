@@ -5,7 +5,8 @@ TOPICS: dict[str, str] = {}
 
 TOPICS["overview"] = """\
 labkit: vetted helpers for lab data analysis. Topics: guide('fit'), guide('read'),
-guide('nmr'), guide('stats'), guide('cd'), guide('plot'), guide('epr'), guide('deer').
+guide('nmr'), guide('stats'), guide('cd'), guide('plot'), guide('epr'), guide('epr-sim'),
+guide('deer').
 - fit:   Prism-style nonlinear regression with Prism's parameter NAMES and defaults
 - read:  instrument files (NanoDrop, Gen5, plate grids, JASCO, any table); refuses binaries
 - nmr:   Bruker 1D processing, peaks, integration, Sparky lists, CSP, titration Kd,
@@ -15,6 +16,8 @@ guide('nmr'), guide('stats'), guide('cd'), guide('plot'), guide('epr'), guide('d
 - plot:  save_figure at exact mm size, seeded jitter
 - epr:   CW-EPR: Bruker BES3T/ESP/ASCII files, g, linewidths, double integral, spin
          counting, nitroxide aN and tau_c, power saturation, isotropic simulation
+- epr-sim: spin systems, powder (frozen solution) and isotropic simulation, fitting a
+         simulation to a spectrum, unit conversions (MHz, mT, 1e-4 cm-1), isotopes
 - deer:  4-pulse DEER: phase, zero time, one-step fit of P(r), modulation depth,
          background; distance limits of the trace
 Every result says what it is: print() it. Warnings in a result are for the user:
@@ -183,7 +186,54 @@ Text files (CSV/TXT/DAT export, field in G or mT): d = epr.load("inputs/spec.csv
               (same settings and S; otherwise spin_count normalises gain, power, modamp, scans)
 Simulate:   epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[(1, 1.6, 1)], lw_mT=0.12,
                              linewidth_mI=(A, B, C), second_order=True, modamp_mT=0.1)
-            isotropic fast motion only; slow-motion and powder spectra need EasySpin
+            (lw_mT here is the derivative peak-to-peak width)
+Powder (frozen solution), fitting a simulation, units, isotopes: guide('epr-sim').
+Not in labkit yet: slow-motion spectra (room-temperature spin labels outside the Kivelson
+regime, EasySpin chili) and S > 1/2 (high-spin Fe(III), Mn(II), triplets): say so, do not
+fit a powder or isotropic model to them.
+"""
+
+TOPICS["epr-sim"] = """\
+from labkit import epr      # field mT, frequency GHz; conventions follow EasySpin (Stoll 2006)
+Units are in the keyword names; there is no bare lw= or A= (EasySpin's Sys.lw is a FWHM,
+Sys.lwpp peak to peak, Sys.A in MHz).
+sys = epr.SpinSystem(g=[gx, gy, gz],                  # or g=2.005, or [g_perp, g_par]
+                     nuclei=[epr.Nucleus("63Cu", A_MHz=[Ax, Ay, Az])],   # or A_mT=, n=2 for
+                     fwhm_mT=1.0, shape="gaussian",     # equivalent nuclei, euler_deg=(a, b, c)
+                     g_strain=None, A_strain_MHz=None)  # strains as FWHM; dBpp_mT= instead of fwhm
+"Cu" (no mass) = natural 63Cu/65Cu: A is given for 63Cu (most abundant), 65Cu scaled by gn.
+y = epr.simulate_powder(sys, d.field_mT, d.freq_GHz, harmonic=1, modamp_mT=None)
+    S = 1/2, second-order perturbation; method="exact" diagonalises (slower, no fits).
+    It prints warnings (perturbation error, grid, linewidth under 3 field steps, lines outside
+    the sweep): report them. S > 1/2 raises an error.
+y = epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[epr.Nucleus("14N", A_mT=0.72, n=2)],
+                     lw_mT=0.05, exact=True)     # Breit-Rabi positions for large couplings
+Fit: r = epr.fit_spectrum(d.field_mT, d.real, model="powder" | "iso", start=sys,
+                          vary={"g": [0.02, 0.02, 0.05], "A_MHz": [[0, 0, 100]], "fwhm_mT": 0.5},
+                          freq_GHz=d.freq_GHz, max_time_s=20)
+     vary = +- half-range per parameter, shaped like the start values (0 = fixed);
+     scale and baseline are fitted linearly; several starts; stops at max_time_s.
+     print(r); r.params, r.ci (95%), r.fit, r.residual_rms, r.warnings
+     Warnings mean: a parameter at its bound (widen vary), two parameters correlated
+     (g_perp vs linewidth: report both with CIs), other starts disagree (more than one minimum),
+     structure in the residual (wrong model: e.g. slow motion, a second species).
+Units: epr.convert(552, "MHz", "1e-4 cm-1"); epr.convert(2.85, "mT", "MHz", g=2.10)
+       field <-> energy needs the g of THAT line (never g_e unless g is 2.0023); no g, no answer
+epr.isotope("63Cu") -> .spin, .gn, .abundance
+Recipes:
+  Cu(II) frozen solution: start from the spectrum: g_perp near the strong high-field feature,
+    g_par and A_par from the low-field parallel lines (spacing ~ A_par in mT; g_par is the
+    centre of the four, NOT a zero crossing). Axial: two values each, [perp, par]:
+      sys = epr.SpinSystem(g=[2.05, 2.25], nuclei=[epr.Nucleus("Cu", A_MHz=[40, 550])],
+                           fwhm_mT=1.0, g_strain=[0.005, 0.01])   # parallel lines are broader
+      r = epr.fit_spectrum(d.field_mT, d.real, model="powder", start=sys, freq_GHz=d.freq_GHz,
+                           modamp_mT=d.modamp_mT, vary={"g": [0.02, 0.05], "A_MHz": [[30, 100]],
+                           "fwhm_mT": 0.8, "g_strain": [0.005, 0.01]})
+    "Cu" = natural mixture; report g_par, g_perp, |A_par| in MHz and 1e-4 cm-1 with CIs.
+  Frozen nitroxide (rigid limit, 77 K): 2 Azz = outer-extrema splitting (a start value),
+    refine Azz with fit_spectrum(model="powder") on Nucleus("14N", A_mT=[Axx, Ayy, Azz]).
+  Isotropic radical, several nuclei: fit_spectrum(model="iso") with one Nucleus per kind
+    (n = how many are equivalent); fit the whole spectrum, do not count peaks.
 """
 
 TOPICS["deer"] = """\
@@ -222,7 +272,7 @@ epr.simulate_deer(t_us, r_nm, P, lam, conc_uM=..., phase_deg=..., noise=...) for
 
 def guide(topic: str = "overview") -> None:
     """Print the labkit reference for one topic (default: the overview)."""
-    key = (topic or "overview").lower()
+    key = (topic or "overview").lower().replace("_", "-")
     if key not in TOPICS:
         print(f"unknown topic {topic!r}; topics: {', '.join(TOPICS)}")
         return

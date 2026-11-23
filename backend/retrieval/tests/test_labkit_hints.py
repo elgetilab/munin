@@ -541,7 +541,7 @@ def test_labkit_source_reading_gets_the_guide() -> bool:
     got_neg = [(fit_hint(c, labkit_in_use=True) or ("", ""))[0] for c in neg]
     text = (fit_hint(pos[0], True) or ("", ""))[1]
     ok = (got_pos[:3] == ["labkit_source"] * 3 and "labkit_source" not in got_neg
-          and "labkit.guide('<topic>')" in text and "epr, deer" in text)
+          and "labkit.guide('<topic>')" in text and "epr, epr-sim, deer" in text)
     return _check("reading labkit source or help() gets the guide hint", ok,
                   f"pos={got_pos} neg={got_neg}")
 
@@ -667,6 +667,57 @@ def test_cw_round3_hints():
                   f"{mask and mask[0]} {covered} {not_epr} {deer_mask and deer_mask[0]}")
 
 
+# EasySpin port slice 1: what a model writes when it knows EasySpin, and a
+# hand-written Cu(II) powder loop and multiplet fit (EASYSPIN-PORT-PLAN.md).
+EASYSPIN_STYLE = """import numpy as np
+from labkit import epr
+d = epr.load('inputs/cu.DSC')
+Sys = {}  # Sys.g = [2.05 2.05 2.25]; Sys.Nucs = 'Cu'; Sys.A = [50 50 550]; Sys.lw = 1
+# would be pepper(Sys, Exp) in MATLAB
+"""
+CU_POWDER_LOOP = """import numpy as np
+from labkit import epr
+d = epr.load('inputs/cu_frozen.DSC')
+g_par, g_perp, A_par = 2.25, 2.05, 18.0
+theta = np.linspace(0, np.pi/2, 500)
+geff = np.sqrt(g_par**2*np.cos(theta)**2 + g_perp**2*np.sin(theta)**2)
+B = 71.4477*d.freq_GHz/geff
+"""
+RADICAL_FIT = """import numpy as np
+from scipy.optimize import curve_fit
+from labkit import epr
+d = epr.load('inputs/radical.DSC')
+def model(B, aN, aH, w):
+    # 2 x 14N binomial multiplet times 4 x 1H, derivative Lorentzians
+    return sum(0 for mI in range(-2, 3))
+p, _ = curve_fit(model, d.field_mT, d.y, p0=[0.7, 0.3, 0.05])
+"""
+NITROXIDE_FIT = RADICAL_FIT.replace("radical", "tempol nitroxide")
+
+
+def test_easyspin_slice1_hints():
+    es = fit_hint(EASYSPIN_STYLE)
+    powder = fit_hint(CU_POWDER_LOOP)
+    covered = fit_hint(CU_POWDER_LOOP + "y = epr.simulate_powder(sys, d.field_mT, d.freq_GHz)\n")
+    iso = fit_hint(RADICAL_FIT)
+    nitro = fit_hint(NITROXIDE_FIT)
+    deer = fit_hint("import numpy as np\nV = np.loadtxt('inputs/deer.csv')\ntheta = np.linspace(0, np.pi, 90)\n"
+                    "g_perp = 2.006\nr = 3.0 # dipolar\n")
+    return _check("EasySpin slice 1: EasySpin-style code gets epr_easyspin, a hand powder loop gets "
+                  "epr_powder (silent once simulate_powder is called), a hand multiplet fit gets "
+                  "epr_iso_fit, a nitroxide fit does not, DEER code does not get the powder hint",
+                  es and es[0] == "epr_easyspin" and "MATLAB and EasySpin are not installed" in es[1]
+                  and "Sys.lw is a FWHM" in es[1]
+                  and powder and powder[0] == "epr_powder" and "simulate_powder" in powder[1]
+                  and "g_par is not a zero crossing" in powder[1]
+                  and (covered is None or covered[0] != "epr_powder")
+                  and iso and iso[0] == "epr_iso_fit" and "fit_spectrum" in iso[1]
+                  and (nitro is None or nitro[0] != "epr_iso_fit")
+                  and (deer is None or deer[0] != "epr_powder"),
+                  f"{es and es[0]} {powder and powder[0]} {covered} {iso and iso[0]} "
+                  f"{nitro and nitro[0]} {deer and deer[0]}")
+
+
 TESTS = [
     test_labkit_source_reading_gets_the_guide,
     test_audit_flag_and_labkit_tool_message,
@@ -689,6 +740,7 @@ TESTS = [
     test_epr_round2_hints,
     test_deer_round3_hints,
     test_cw_round3_hints,
+    test_easyspin_slice1_hints,
 ]
 
 

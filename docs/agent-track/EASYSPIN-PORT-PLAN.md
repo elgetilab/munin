@@ -2,7 +2,8 @@
 
 Status: IN PROGRESS 2026-11-23 ("proceed", slice 1, Q1-Q8 as answered). Parents: `EPR-PLAN.md` (S8
 49/63 with labkit.epr vs baseline 17/63), `LABKIT-015-PLAN.md` (round 2,
-targeted 17/21). Nothing is built yet.
+targeted 17/21). Slice 1 is built and tested, not yet deployed; see
+"Slice 1: what was built" at the end.
 
 ## Where labkit.epr stands (0.2.1)
 
@@ -312,3 +313,79 @@ MIT Python simulators; slice 2 (slow motion) stays weakly validated unless
 that changes. Q2 real Xepr files are still to be looked at together; synthetic
 only until then. Other questions: defaults stand. Still waiting for
 "proceed".
+
+## Slice 1: what was built (2026-11-23, not deployed)
+
+labkit 0.3.0, `labkit/epr_sim.py`, re-exported from `labkit.epr`:
+
+- `isotope`, `known_isotopes`, `convert(value, from_unit, to_unit, g=None)`.
+  Natural elements ("Cu") are the isotope mixture. A is given for the most
+  abundant magnetic isotope and scaled by gn for the others.
+- `Nucleus(name, A_MHz|A_mT, euler_deg, n)` and `SpinSystem(g, nuclei,
+  fwhm_mT|dBpp_mT, shape, g_strain, A_strain_MHz)`, S = 1/2 only.
+- `simulate_powder(..., method="hybrid"|"perturb"|"exact")`. The default,
+  "hybrid", diagonalises each single nucleus with 2I+1 <= 8 exactly with the
+  electron, which covers all orders, the nuclear Zeeman term and forbidden
+  lines. Equivalent groups (n > 1) and cross terms between nuclei stay in
+  second order.
+  - Plain second order ("perturb") was 0.1-0.3 mT off for Cu(II) at X band
+    (a third-order error, scaling as A^3). On the held-out Cu fixture, its
+    chi2 at the true parameters was 12 times the exact value, and the fit
+    moved g_par by 0.0046.
+  - A warning estimates the hybrid error against full diagonalisation at 17
+    orientations. Cu + 14N and Cu + 1H stay 2-3% off, and the warning fires
+    for them.
+- `fit_spectrum(model="powder"|"iso", vary=..., max_time_s=20)`. It scans and
+  starts from several points with cheap second order on a coarse grid, then
+  refines with hybrid. Axial parameters take [perp, par] ranges.
+- `simulate_iso(exact=True)`: Breit-Rabi.
+- `load_ascii` reads the frequency from a text header.
+- `guide('epr-sim')` gives the recipes. The `THIRD_PARTY_NOTICES` file
+  (EasySpin, MIT) ships in labkit and in every bundle.
+
+Validation:
+- Against the independent exact generator `s8_powder.py`, on synthetic
+  systems that are not the eval fixtures (max-normalised difference, hybrid
+  vs old perturb):
+  - Cu axial 2.2e-4 vs 2.9e-1;
+  - Cu rhombic 1.1e-3 vs 2.8e-1;
+  - VO2+ 2.3e-4 vs 2.4e-1;
+  - Cu + 14N 3.2e-2 vs 2.0e-1.
+- Synthetic Cu fits recover g within 1e-4 and A_par within 0.05%, in 13-14 s
+  at 2 CPUs.
+- EasySpin's 41 stored spectra: every case is within its derived tolerance.
+  The four spectra that EasySpin itself made by perturbation carry its own
+  5-16% error.
+- Timings at 2 CPUs, 2048 points:
+  - Cu axial 0.05 s;
+  - Cu rhombic natural 0.8 s, over the 0.5 s budget (kept for accuracy);
+  - Cu + 4x14N 0.8-1.4 s.
+- Tests:
+  - labkit 100 passed and 3 xfailed in `munin-sandbox:r9-test`;
+  - sandbox live 67/67, isolation 28/28, fighook passed;
+  - retrieval hermetic 121/121.
+
+Generator fix: `s8_powder.py`'s coarse grid (61 x 31) left 4e-3 of max (one
+noise SD) on the Cu fixture. It is now 241 x 61. The Cu, nitroxide and
+rhombic files were regenerated (truth unchanged), and the baseline was rerun
+on them (`es1-baseline-regen`).
+
+Each recipe in the guide, run by hand on the eval files, recovers the
+answer:
+- Cu g_par 2.2519 (truth 2.252), g_perp 2.054, A_par 551.7 MHz (552);
+- nitroxide Azz 3.519 mT (3.52);
+- rhombic g 2.418 / 2.253 / 1.914 (exact);
+- pyrazine radical aN 0.7212, aH 0.2634;
+- units 83.77.
+
+Also new: retrieval hints `epr_easyspin` (EasySpin-style code mapped to
+labkit names), `epr_powder` and `epr_iso_fit`. The persona's LAB DATA rule
+names the new functions.
+
+Baseline (deployed labkit 0.2.2):
+- `es1-baseline`: 3/15 (units 3/3; Cu, nitroxide, rhombic and radical 0/3).
+- `es1-baseline-regen`, the three regenerated cases x 3: 1/9 (nitroxide 1/3, Cu 0/3, rhombic 0/3), against 0/9 on the same cases before regeneration; failures are of the same kind (Cu A_par 280-1300 MHz, nitroxide Azz 2.70 mT, rhombic g off by up to 0.4).
+
+Next: the user deploys the sandbox image and retrieval. Then the labkit-arm
+run on the 5 cases x 3, an S8 regression rerun of the 21 older cases, and
+fresh variants generated after this freeze.

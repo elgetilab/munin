@@ -334,7 +334,7 @@ lz = zipfile.ZipFile(io.BytesIO(c.get(f"/bundle/{L}").content))
 names = lz.namelist()
 man = json.loads(lz.read("MANIFEST.json"))
 check("a bundle that uses labkit carries its sources and license",
-      "labkit/__init__.py" in names and "labkit/fit.py" in names and "labkit/LICENSE" in names
+      "labkit/__init__.py" in names and "labkit/fit.py" in names and "labkit/LICENSE" in names and "labkit/THIRD_PARTY_NOTICES" in names
       and man.get("vendored", {}).get("labkit", {}).get("version"), str(man.get("vendored"))[:200])
 with tempfile.TemporaryDirectory() as tmp:
     lz.extractall(tmp)

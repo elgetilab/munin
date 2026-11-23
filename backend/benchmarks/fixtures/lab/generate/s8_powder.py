@@ -168,7 +168,7 @@ def _dirs(theta, phi):
 
 # -- powder spectrum ------------------------------------------------------------------
 
-COARSE = (61, 31)          # theta 0..90 deg in 1.5 deg, phi 0..90 deg in 3 deg
+COARSE = (241, 61)         # theta 0..90 deg in 0.375 deg, phi 0..90 deg in 1.5 deg (61x31 left 4e-3 of max on narrow Cu lines)
 FINE = (1800, 720)         # midpoint grid for the spline-interpolated lines
 
 

@@ -22,8 +22,10 @@ Conventions, written out because they are where analyses go wrong:
   3.73 * tmax^(1/3) nm and the width/shape up to 2.96 * tmax^(1/3) nm
   (Schiemann et al., JACS 2021, 143, 17875).
 
-Out of scope: slow-motion and powder (anisotropic) CW spectra; use EasySpin
-(chili, pepper) for those.
+Powder spectra (S = 1/2), unit conversion, isotopes and fitting a simulation
+to a spectrum live in labkit/epr_sim.py and are re-exported here: SpinSystem,
+Nucleus, simulate_powder, fit_spectrum, convert, isotope. Out of scope:
+slow-motion spectra and S > 1/2; use EasySpin (chili, pepper) for those.
 """
 from __future__ import annotations
 
@@ -335,8 +337,30 @@ def load_ascii(path, *, x_unit: Optional[str] = None) -> EPRData:
     if xm[0] > xm[-1]:
         xm, y = xm[::-1], y[::-1]
         notes.append("descending axis reversed")
+    freq = _header_freq_GHz(header)
+    if freq is not None:
+        notes.append(f"frequency {freq:g} GHz read from the header")
     return EPRData(kind=kind, x=xm, y=y, x_unit_file=unit, source=p.stem, notes=notes,
-                   params={"header": header})
+                   params={"header": header}, freq_GHz=freq)
+
+
+_FREQ_GHZ = re.compile(r"(?i)(?:\b(?:nu|freq\w*|mw\s*freq\w*|mwfq|microwave\s+frequency)\s*[=:]?\s*)?"
+                       r"(\d+(?:\.\d+)?)\s*GHz\b")
+_FREQ_HZ = re.compile(r"(?i)\b(?:MWFQ|mwFreq)\s*[=:]?\s*([\d.]+[eE][+]?\d+)")
+
+
+def _header_freq_GHz(header: list) -> Optional[float]:
+    """The microwave frequency stated in a text export's header ('nu = 9.4318 GHz',
+    'MWFQ 9.4318e9'), or None. Several different values: None (ambiguous)."""
+    vals = set()
+    for line in header:
+        for m in _FREQ_GHZ.finditer(line):
+            vals.add(round(float(m.group(1)), 6))
+        for m in _FREQ_HZ.finditer(line):
+            v = float(m.group(1))
+            vals.add(round(v / 1e9 if v > 1e6 else v, 6))
+    vals = {v for v in vals if 0.5 <= v <= 400}
+    return vals.pop() if len(vals) == 1 else None
 
 
 def load(path, **kw) -> EPRData:
@@ -899,18 +923,110 @@ def _lines(freq_GHz, g, nuclei):
     return pos, amp / amp.sum()
 
 
+def _breit_rabi_shift(J: float, m: float, a_mT: float, g: float, freq_GHz: float) -> float:
+    """Exact resonance field minus B0 (mT) of the EPR line (+1/2, m) <->
+    (-1/2, m) for S = 1/2 coupled isotropically (a, here in mT) to one spin J,
+    nuclear Zeeman neglected. The 2x2 blocks of fixed M = mS + mI are solved
+    in closed form and the field found by root finding."""
+    k = g * MU_B / H * 1e-9                         # MHz per mT
+    hv = freq_GHz * 1000.0
+    a = a_mT * k
+    b0 = field_for_g(g, freq_GHz)
+    if J == 0 or a == 0:
+        return 0.0
+
+    def upper(G, mm):           # |+1/2, mm> branch of block M = mm + 1/2
+        if mm >= J - 1e-9:
+            return G / 2 + a * J / 2
+        h11, h22 = G / 2 + a * mm / 2, -G / 2 - a * (mm + 1) / 2
+        h12 = a / 2 * math.sqrt(J * (J + 1) - mm * (mm + 1))
+        return (h11 + h22) / 2 + math.hypot((h11 - h22) / 2, h12)
+
+    def lower(G, mm):           # |-1/2, mm> branch of block M = mm - 1/2
+        if mm <= -J + 1e-9:
+            return -G / 2 + a * J / 2
+        h11, h22 = G / 2 + a * (mm - 1) / 2, -G / 2 - a * mm / 2
+        h12 = a / 2 * math.sqrt(J * (J + 1) - (mm - 1) * mm)
+        return (h11 + h22) / 2 - math.hypot((h11 - h22) / 2, h12)
+
+    def f(B):
+        G = B * k * 1.0
+        return upper(G, m) - lower(G, m) - hv
+
+    first = b0 - m * a_mT
+    span = 2 * abs(a_mT) * (J + 1) + 1e-3 * b0 + 1e-6
+    lo, hi = max(first - span, 1e-9), first + span
+    for _ in range(20):
+        if f(lo) * f(hi) < 0:
+            break
+        lo, hi = max(lo - span, 1e-9), hi + span
+    else:
+        return float(first - b0)
+    return float(optimize.brentq(f, lo, hi, xtol=1e-12 * max(b0, 1.0), rtol=1e-14)) - b0
+
+
+def _lines_exact(freq_GHz, g, nuclei):
+    """As _lines, with exact (Breit-Rabi) positions. Each group of n
+    equivalent nuclei is decomposed into total spins J with their
+    multiplicities; shifts of different groups add."""
+    b0 = field_for_g(g, freq_GHz)
+    pos = np.array([b0])
+    amp = np.array([1.0])
+    for (I, a, n) in nuclei:
+        single = np.ones(int(round(2 * I + 1)))
+        cnt = np.array([1.0])
+        for _ in range(int(n)):
+            cnt = np.convolve(cnt, single)
+        Mmax = I * n
+        Ms = np.arange(-Mmax, Mmax + 1e-9, 1.0)
+        c_of = {round(M, 6): c for M, c in zip(Ms, cnt)}
+        shifts, weights = [], []
+        J = Mmax
+        while J >= -1e-9:
+            mult = c_of.get(round(J, 6), 0.0) - c_of.get(round(J + 1, 6), 0.0)
+            if mult > 0:
+                for m in np.arange(-J, J + 1e-9, 1.0):
+                    shifts.append(_breit_rabi_shift(J, m, a, g, freq_GHz))
+                    weights.append(mult)
+            J -= 1.0
+        shifts = np.array(shifts)
+        weights = np.array(weights)
+        pos = (pos[:, None] + shifts[None, :]).ravel()
+        amp = (amp[:, None] * weights[None, :]).ravel()
+    return pos, amp / amp.sum()
+
+
 def simulate_iso(field_mT, freq_GHz, g, *, nuclei: Sequence = (), lw_mT: float = 0.1,
                  shape: str = "lorentzian", lw_gauss_mT: Optional[float] = None, harmonic: int = 1,
                  modamp_mT: Optional[float] = None, area: float = 1.0,
-                 linewidth_mI: Optional[tuple] = None, second_order: bool = False) -> np.ndarray:
+                 linewidth_mI: Optional[tuple] = None, second_order: bool = False,
+                 exact: bool = False) -> np.ndarray:
     """Isotropic fast-motion CW spectrum (EasySpin's garlic, simplified).
     nuclei: [(I, a_mT, n_equivalent)], first-order positions; for a single
     nitroxide-like nucleus `linewidth_mI=(A, B, C)` gives dBpp(mI) =
     A + B mI + C mI^2 and `second_order` adds -(a^2/2B0)(I(I+1) - mI^2).
     lw_mT is the derivative peak-to-peak width (Lorentzian); lw_gauss_mT adds
     Gaussian broadening (Voigt). harmonic 0: absorption, 1: first derivative,
-    with the exact first-harmonic modulation kernel if modamp_mT is given."""
+    with the exact first-harmonic modulation kernel if modamp_mT is given.
+
+    exact=True places the lines at the exact (Breit-Rabi) fields: each group
+    of n equivalent nuclei is treated in its coupled representation (total
+    nuclear spin J, so the second-order splitting of equivalent nuclei
+    appears), groups are combined additively (cross terms between groups are
+    third order for isotropic couplings), nuclear Zeeman neglected; a_mT is
+    converted to MHz with this g (Breit and Rabi, Phys. Rev. 38, 2082 (1931);
+    Weil and Bolton, App. C). Use it for large couplings (31P, isotropic Cu)
+    or many nuclei. nuclei may also be epr.Nucleus objects with isotropic A
+    (an element name is its natural isotope mixture)."""
     x = np.asarray(field_mT, float)
+    if any(hasattr(n, "A_spec") for n in nuclei):          # epr.Nucleus objects
+        from .epr_sim import _iso_nuclei_mixture
+        kw = dict(lw_mT=lw_mT, shape=shape, lw_gauss_mT=lw_gauss_mT, harmonic=harmonic, modamp_mT=modamp_mT,
+                  area=area, linewidth_mI=linewidth_mI, second_order=second_order, exact=exact)
+        return sum(w * simulate_iso(field_mT, freq_GHz, g, nuclei=tuples, **kw)
+                   for w, tuples in _iso_nuclei_mixture(nuclei, g))
+    if exact and second_order:
+        raise ValueError("exact=True already includes all orders; drop second_order")
     if linewidth_mI is not None or second_order:
         if len(nuclei) != 1 or nuclei[0][2] != 1:
             raise ValueError("linewidth_mI / second_order: give exactly one nucleus with n = 1")
@@ -920,11 +1036,13 @@ def simulate_iso(field_mT, freq_GHz, g, *, nuclei: Sequence = (), lw_mT: float =
         pos = b0 - mis * a
         if second_order:
             pos = pos - a * a / (2 * b0) * (I * (I + 1) - mis ** 2)
+        if exact:
+            pos = b0 + np.array([_breit_rabi_shift(I, m, a, g, freq_GHz) for m in mis])
         amps = np.full(mis.size, 1.0 / mis.size)
         widths = (np.array([linewidth_mI[0] + linewidth_mI[1] * m + linewidth_mI[2] * m * m for m in mis])
                   if linewidth_mI is not None else np.full(mis.size, lw_mT))
     else:
-        pos, amps = _lines(freq_GHz, g, nuclei)
+        pos, amps = _lines_exact(freq_GHz, g, nuclei) if exact else _lines(freq_GHz, g, nuclei)
         widths = np.full(pos.size, lw_mT)
 
     def absorption(b):
@@ -1590,3 +1708,11 @@ def _populations(r, P, min_fraction: float = 0.05) -> list:
     for o in out:
         o["fraction"] /= tot
     return out
+
+
+# ==============================================================================
+# Powder simulation, fitting, units and isotopes (labkit/epr_sim.py)
+# ==============================================================================
+
+from .epr_sim import (Isotope, Nucleus, SpectrumFit, SpinSystem, convert, fit_spectrum,  # noqa: E402
+                      isotope, known_isotopes, simulate_powder)

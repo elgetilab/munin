@@ -109,8 +109,9 @@ _LABKIT_IMPORT = re.compile(r"^\s*(import\s+labkit\b|from\s+labkit[\w.]*\s+impor
 
 
 def _labkit_files() -> list[tuple[str, bytes]]:
-    """(path inside the bundle, bytes) for the installed labkit's sources and
-    license; [] if labkit is not installed here."""
+    """(path inside the bundle, bytes) for the installed labkit's sources,
+    license and third-party notices (EasySpin's MIT notice, which must travel
+    with the EasySpin-derived code); [] if labkit is not installed here."""
     spec = importlib.util.find_spec("labkit")
     if spec is None or not spec.submodule_search_locations:
         return []
@@ -119,7 +120,7 @@ def _labkit_files() -> list[tuple[str, bytes]]:
     for p in sorted(root.rglob("*")):
         if "__pycache__" in p.parts or not p.is_file():
             continue
-        if p.suffix == ".py" or p.name == "LICENSE":
+        if p.suffix == ".py" or p.name in ("LICENSE", "THIRD_PARTY_NOTICES"):
             out.append(("labkit/" + p.relative_to(root).as_posix(), p.read_bytes()))
     return out
 
@@ -280,7 +281,8 @@ def build_bundle(store: ConversationStore, artifact_ids: Optional[list[str]],
                     add_bytes(arc, data)
                 if files:
                     manifest["vendored"] = {"labkit": {"version": _labkit_version(),
-                                                       "license": "Apache-2.0",
+                                                       "license": "Apache-2.0 (EasySpin-derived parts: "
+                                                                  "MIT, see labkit/THIRD_PARTY_NOTICES)",
                                                        "files": [a for a, _ in files]}}
             add_bytes("environment.txt", environment_text().encode())
             add_bytes("README.txt", _README.encode())

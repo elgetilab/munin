@@ -1072,3 +1072,23 @@ if __name__ == "__main__":
     failed = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_ascii_header_frequency(tmp_path):
+    """A text export's header frequency becomes d.freq_GHz (EasySpin port slice 1:
+    frozen-solution fits need it); two different values or none leave it None."""
+    from labkit import epr
+    body = "Field [G]\tIntensity\n" + "".join(f"{3300 + i:.1f}\t{(i % 7) - 3}\n" for i in range(50))
+    one = tmp_path / "a.txt"
+    one.write_text("# frozen sample, T = 77 K, nu = 9.4318 GHz\n" + body)
+    hz = tmp_path / "b.txt"
+    hz.write_text("# MWFQ 9.7621e+09\n" + body)
+    two = tmp_path / "c.txt"
+    two.write_text("# 9.40 GHz and 9.50 GHz runs\n" + body)
+    none = tmp_path / "d.txt"
+    none.write_text(body)
+    d = epr.load(one)
+    assert d.freq_GHz == 9.4318 and any("from the header" in n for n in d.notes)
+    assert epr.load(hz).freq_GHz == 9.7621
+    assert epr.load(two).freq_GHz is None
+    assert epr.load(none).freq_GHz is None

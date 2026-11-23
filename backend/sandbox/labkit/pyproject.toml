@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "labkit"
-version = "0.2.2"
+version = "0.3.0"
 description = "Vetted helpers for lab data analysis in the Munin sandbox: Prism-style curve fitting, instrument readers, NMR, EPR and statistics"
 license = {text = "Apache-2.0"}
 requires-python = ">=3.10"
@@ -17,4 +17,4 @@ packages = ["labkit"]
 
 # Shipped with the package so bundles that carry labkit carry its license.
 [tool.setuptools.package-data]
-labkit = ["LICENSE"]
+labkit = ["LICENSE", "THIRD_PARTY_NOTICES"]

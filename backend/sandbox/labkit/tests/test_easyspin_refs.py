@@ -38,30 +38,70 @@ DATA = HERE / "data" / "easyspin"
 
 # ------------------------------------------------------------------------------
 # Tolerances: max |ref - labkit| after max-normalisation, per case and method.
-# "perturb" = second-order perturbation (labkit default), "exact" = full
-# diagonalisation (pepper) or Breit-Rabi (garlic / simulate_iso).
+# "hybrid" = labkit's default powder method (each nucleus diagonalised with
+# the electron, nuclei combined to second order), "perturb" = plain
+# second-order perturbation, "exact" = full diagonalisation (pepper) or
+# Breit-Rabi (garlic / simulate_iso).
+#
+# pepper rows: each stored spectrum was measured against a converged
+# independent sum (the S8 generator's exact-diagonalisation simulator,
+# backend/benchmarks/fixtures/lab/generate/s8_powder.py, with EasySpin's own
+# isotope data), evaluated on the same shifted axis. That residual is the
+# reference's own error (mostly EasySpin's default 19-knot grid); TOL is about
+# 1.5x it, floor 1e-3. "hybrid" is labkit's default (each nucleus
+# diagonalised exactly); it is held to that reference error. Where EasySpin
+# itself used second-order perturbation, the reference error against the
+# exact sum is EasySpin's perturbation error (5-16%), and the hybrid rows
+# carry 1.5x that; the "perturb" rows (labkit's plain second order, kept as
+# method="perturb") are measured against a converged labkit perturbation sum
+# (40000 orientations), since no independent second-order code exists.
 # ------------------------------------------------------------------------------
 TOL = {
     # garlic: floor set by EasySpin's nearest-grid snapping (see docstring)
     "garlic_simplest":        {"exact": 3e-2},
     "garlic_manynuclei":      {"exact": 1.5e-1},
     "garlic_modamp":          {"exact": 5e-3},
-    # pepper, no nuclei: perturbation is exact for g only
-    "pepper_axiallw":         {"perturb": 1e-3},
-    "pepper_rhombiclw":       {"perturb": 1e-3},
-    "pepper_gstrain":         {"perturb": 1e-3},
-    "pepper_iso_12c":         {"perturb": 1e-3},
-    "pepper_modamp":          {"perturb": 1e-3},
-    "pepper_pt_gonly":        {"perturb": 1e-3},
-    "pepper_ordering_axial":  {"perturb": 1e-3},
-    # pepper, EasySpin itself used Method = 'perturb'
-    "pepper_pt_ga1":          {"perturb": 1e-3},
-    "pepper_pt_ga2":          {"perturb": 1e-3},
-    "pepper_iso_customabund": {"perturb": 1e-3},
-    "pepper_iso_twonucs":     {"perturb": 1e-3},
-    # pepper, EasySpin used full matrix diagonalisation with a large A (400 MHz):
-    # our perturbation default gets the looser 2e-2, method="exact" the tight one
-    "pepper_iso_cu":          {"perturb": 2e-2, "exact": 1e-3},
+    # pepper, no nuclei (perturbation = exact for g only)
+    "pepper_axiallw":         {"perturb": 1.0e-2},   # reference error 6.7e-3
+    "pepper_rhombiclw":       {"perturb": 1.4e-2},   # reference error 9.2e-3
+    "pepper_gstrain":         {"perturb": 6.6e-3},   # reference error 4.4e-3 (independent with a 0.05 mT floor width)
+    "pepper_iso_12c":         {"perturb": 4.3e-2},   # reference error 2.9e-2 (lwpp 0.3 mT on 19 knots)
+    "pepper_modamp":          {"perturb": 1e-3},     # reference error 4.1e-4
+    "pepper_pt_gonly":        {"perturb": 4.8e-3},   # reference error 3.2e-3
+    "pepper_ordering_axial":  {"perturb": 4.4e-3},   # reference error 2.9e-3
+    # pepper, EasySpin used Method = 'perturb'
+    # hybrid: reference error against the exact sum 5.5e-2 / 1.56e-1 / 6.5e-2 /
+    # 1.01e-1 (EasySpin's own perturbation error); labkit hybrid measured
+    # 5.50e-2 / 1.53e-1 / 6.51e-2 / 9.81e-2, i.e. it tracks the exact sum
+    "pepper_pt_ga1":          {"perturb": 1e-3,      # expected failure, see XFAIL
+                               "hybrid": 8.3e-2},
+    "pepper_pt_ga2":          {"perturb": 1e-3,      # expected failure, see XFAIL
+                               "hybrid": 2.3e-1},
+    "pepper_iso_customabund": {"perturb": 1.6e-3,    # 1.1e-3 against labkit's converged second order
+                               "hybrid": 9.8e-2},
+    "pepper_iso_twonucs":     {"perturb": 1.8e-3,    # 1.2e-3 against labkit's converged second order
+                               "hybrid": 1.5e-1},
+    # pepper, EasySpin used full diagonalisation with A_par = 400 MHz
+    "pepper_iso_cu":          {"perturb": 1e-3,      # expected failure, see XFAIL
+                               "exact": 1.35e-2,     # reference error 9.0e-3
+                               "hybrid": 1.35e-2},   # same reference error; hybrid measured 9.0e-3
+}
+
+# Cases labkit does not reach, kept as expected failures with the measured
+# numbers rather than a tolerance loose enough to pass.
+XFAIL = {
+    ("pepper_iso_cu", "perturb"):
+        "EasySpin diagonalised (A_par 400 MHz); labkit's second order is 4.3e-2 from the reference and from "
+        "an independent exact sum (third-order shifts near the perpendicular orientations, flagged by "
+        "simulate_powder's perturbation warning); method='exact' passes",
+    ("pepper_pt_ga1", "perturb"):
+        "2.1e-2 against labkit's converged second order; EasySpin ran 19 knots (its grid error on g-only "
+        "cases of this kind is 0.7-2.9e-2), so the reference error cannot be separated from a formula "
+        "difference; the exact sum differs from the reference by 5.5e-2",
+    ("pepper_pt_ga2", "perturb"):
+        "8.2e-2 against labkit's converged second order; the 50 MHz 1H has a nuclear Zeeman frequency of "
+        "about 14 MHz, which labkit's perturbation neglects and EasySpin's treats differently; an "
+        "independent exact sum differs from the reference by 1.6e-1 and from labkit by 1.3e-1",
 }
 
 
@@ -214,7 +254,11 @@ except ImportError:  # sandbox image: no pytest, use __main__
     pytest = None
 
 if pytest is not None:
-    @pytest.mark.parametrize("name,method", PARAMS, ids=[f"{n}-{m}" for n, m in PARAMS])
+    _PARAMS = [pytest.param(n, m, id=f"{n}-{m}",
+                            marks=([pytest.mark.xfail(reason=XFAIL[(n, m)], strict=True)] if (n, m) in XFAIL else []))
+               for n, m in PARAMS]
+
+    @pytest.mark.parametrize("name,method", _PARAMS)
     def test_easyspin_reference(name, method):
         try:
             check_case(name, method)
@@ -233,6 +277,9 @@ def main() -> int:
         except SkipCase as exc:
             print(f"SKIP {name} [{method}]: {exc}")
         except AssertionError as exc:
+            if (name, method) in XFAIL:
+                print(f"XFAIL {name} [{method}]: {XFAIL[(name, method)]}")
+                continue
             n_fail += 1
             print(f"FAIL {exc}")
     return 1 if n_fail else 0
