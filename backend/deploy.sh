@@ -207,6 +207,9 @@ deploy_dirs() {
     #   agent_extracts/ source-agent extractions (AGENT_EXTRACT_DIR)
     #   papers_cached/  read_paper full-text cache (grows; PAPERS_CACHE_WARN_GB)
     run "mkdir -p $MUNIN_DATA/deep_research $MUNIN_DATA/agent_traces"
+    # Private regression set mined from real failed chats (user text; never in git).
+    # Owned by the operator who runs the eval harness, readable by nobody else.
+    run "install -d -m 700 -o ${SUDO_USER:-root} $MUNIN_DATA/evals/user-failures"
     run "mkdir -p $MUNIN_DATA/agent_extracts $MUNIN_DATA/papers_cached"
     # Retired research queue: nothing writes here now, kept so old reports resolve.
     run "mkdir -p $MUNIN_DEEPRESEARCH/queue $MUNIN_DEEPRESEARCH/jobs"
