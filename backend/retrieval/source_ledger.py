@@ -24,6 +24,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
+from urllib.parse import unquote
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +37,18 @@ _DOI_URL_RE = re.compile(r"^https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/\S+)$", re.I
 # "[S7]", "[S3, S7]", "[S3; A2]"; also the full-width brackets some models use.
 _CITE_RE = re.compile(r"[\[【]\s*((?:[SA]\d{1,4})(?:\s*[,;]\s*[SA]\d{1,4})*)\s*[\]】]")
 _ID_RE = re.compile(r"[SA]\d{1,4}")
+# A reference the model typed, rewritten by reconcile and filled in by render.
+_PLACE_RE = re.compile(r"\x02(S\d{1,4})\x02")
+_DOI_LINK_RE = re.compile(r"\[([^\]\n]*)\]\(https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/[^)\s]+)\)", re.IGNORECASE)
+_DOI_BARE_RE = re.compile(r"`?(?:https?://(?:dx\.)?doi\.org/)?(10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\*]+)`?", re.IGNORECASE)
+_LINK_WORDS = {"doi", "link", "here", "pdf", "full text", "paper", "article", "doi link"}
+_YEAR_RE = re.compile(r"\b(?:19[5-9]\d|20[0-3]\d)\b")
+# List markers and reference labels before a typed reference: "- ", "2. ",
+# "**[5]** ", "[5] ", "(30) ", "(b) ", "[^5^]: ", "**Full reference:** ".
+_REF_PREFIX_RE = re.compile(
+    r"\s*(?:(?:[-*+]|\d{1,3}[.)])\s+|\*\*\[\d{1,3}\]\*\*\s*|\[\d{1,3}\]\s*|\(\w{1,3}\)\s*"
+    r"|\[\^\w+\^?\]:\s*|\*\*[A-Z][\w ]{0,30}(?::\*\*|\*\*:)\s*|\[S\d{1,4}\]\s*)*")
+_INITIALS_FIRST_RE = re.compile(r"^\**(?:[A-Z]\.[\s-]?){1,3}\s?[A-Z][\w'\-]+")
 
 
 def enabled() -> bool:
@@ -170,7 +183,9 @@ class Ledger:
                 "too (`cite_as`: [A1], ...). Cite a source as [S7], several as [S3, S7], an artifact "
                 "as [A2]. Never type a DOI, a paper or artifact URL, an author-year citation or a "
                 "reference list yourself: the server turns the ids into numbered links and a "
-                "References list from the stored records. When the user asks for a reference, a "
+                "References list from the stored records. A list or table of papers carries the "
+                "id where the reference or DOI would go (\"- [S3]: why it matters\", a table cell "
+                "[S3]); the server fills in each checked reference. When the user asks for a reference, a "
                 "citation or a DOI, answer with the id too (\"The paper is [S4].\"): the server "
                 "inserts the full, checked reference. If no source you retrieved supports a "
                 "claim, say so instead of citing.\n"
@@ -233,6 +248,8 @@ class Ledger:
     def render(self, content: str) -> tuple[str, dict]:
         """Replace [S#]/[A#] with links, append References. Pure."""
         notes = {"cited": 0, "unknown_ids": 0, "artifacts": 0}
+        if content and "\x02" in content:
+            content = _PLACE_RE.sub(lambda m: _reference(self._best_of(m.group(1))), content)
         if not content or not _CITE_RE.search(content):
             return content, notes
         fences = [(m.start(), m.end()) for m in re.finditer(r"(```|~~~)[\s\S]*?(\1|$)", content)]
@@ -292,6 +309,16 @@ class Ledger:
             out = out.rstrip() + "\n\n**References**\n\n" + "\n".join(refs) + "\n"
         return out, notes
 
+    def _best_of(self, sid: str) -> dict:
+        """The record of sid's work with a good DOI (its twin under a mangled DOI may be cited)."""
+        rec = self.entries[sid].record
+        t = _title_key(rec)
+        if rec.get("doi") and not rec.get("_doi_bad") or not t:
+            return rec
+        twins = [e.record for e in self.entries.values() if e.kind != "artifact"
+                 and _title_key(e.record) == t and e.record.get("doi") and not e.record.get("_doi_bad")]
+        return (twins or [rec])[0]
+
     def _best(self, n: int, numbers: dict) -> dict:
         """Of the entries sharing number n, the record with a good DOI."""
         recs = [self.entries[s].record for s, k in numbers.items() if k == n]
@@ -299,8 +326,122 @@ class Ledger:
         return (good or recs)[0]
 
     def cited_ids(self, content: str) -> list[str]:
-        return [s for m in _CITE_RE.finditer(content or "") for s in _ID_RE.findall(m.group(1))
-                if s in self.entries]
+        ids = [s for m in _CITE_RE.finditer(content or "") for s in _ID_RE.findall(m.group(1))]
+        ids += _PLACE_RE.findall(content or "")
+        return [s for s in ids if s in self.entries]
+
+    # ------------------------------------------------------------------
+    # Typed references (the model still writes some itself)
+    # ------------------------------------------------------------------
+    def _sid_of_doi(self, doi: str) -> Optional[str]:
+        d = norm_doi(unquote(doi)).rstrip("*`")
+        sid = self.by_key.get(f"doi:{d}")
+        return sid if sid and self.entries[sid].kind != "artifact" else None
+
+    def reconcile(self, content: str) -> tuple[str, dict]:
+        """Run before enrich and render. The model cites by id but still types
+        references and DOIs (the 2026-11-25 A/B: about 950 id citations and
+        400 to 500 typed DOIs per arm, the typed ones carrying the wrong pages,
+        years and corpus DOIs). A line that is a reference to a source in the
+        ledger (it starts like a reference and carries that source's title) is
+        replaced by a placeholder that render fills with the checked
+        reference; a typed DOI of a ledger source anywhere else (a table cell,
+        prose) becomes that source's id. DOIs the ledger does not know are left
+        for citecheck."""
+        notes = {"refs_rewritten": 0, "dois_to_ids": 0}
+        if not content or not self.entries or not _DOI_RE.search(content):
+            return content, notes
+        out, fence = [], False
+        for line in content.split("\n"):
+            if re.match(r"\s*(```|~~~)", line):
+                fence = not fence
+            # A markdown link definition ("[4]: https://doi.org/...") is left alone.
+            if (fence or not _DOI_RE.search(line) and not _CITE_RE.search(line)
+                    or re.match(r"\s*\[[^\]]+\]:\s*<?https?://\S+>?\s*$", line)):
+                out.append(line)
+                continue
+            new = self._reference_line(line)
+            if new is not None:
+                notes["refs_rewritten"] += 1
+                out.append(new)
+                continue
+            new, n = self._dois_to_ids(line)
+            notes["dois_to_ids"] += n
+            out.append(new)
+        return "\n".join(out), notes
+
+    def _dois_to_ids(self, line: str) -> tuple[str, int]:
+        n = 0
+
+        def link(m: re.Match) -> str:
+            nonlocal n
+            sid = self._sid_of_doi(m.group(2))
+            if not sid:
+                return m.group(0)
+            n += 1
+            label = m.group(1).strip().strip("*`").strip()
+            if not label or _DOI_RE.search(label) or label.lower() in _LINK_WORDS:
+                return f"[{sid}]"
+            return f"{m.group(1)} [{sid}]"
+
+        def bare(m: re.Match) -> str:
+            nonlocal n
+            raw = m.group(1)
+            doi = raw.rstrip(".,;:)")
+            sid = self._sid_of_doi(doi)
+            if not sid:
+                return m.group(0)
+            n += 1
+            return f"[{sid}]" + raw[len(doi):]
+
+        line = _DOI_LINK_RE.sub(link, line)
+        line = _DOI_BARE_RE.sub(bare, line)
+        # "DOI: [S3]" and "**DOI: [S3]**" read as "[S3]"; one id per spot.
+        line = re.sub(r"\*{0,2}\b(?:DOI|doi)\b\s*:?\s*\*{0,2}\s*(\[S\d+\])\*{0,2}", r"\1", line)
+        line = re.sub(r"(\[(S\d+)\])(?:\s*[,;]?\s*\[\2\])+", r"\1", line)
+        line = re.sub(r"\[\s*\[(S\d+)\]\s*\]", r"[\1]", line)   # "[DOI: x]" was bracketed
+        return line, n
+
+    def _reference_line(self, line: str) -> Optional[str]:
+        """The placeholder line if `line` is a reference to a ledger source."""
+        if (line.lstrip().startswith("|") or len(line) > 700 or not _YEAR_RE.search(line)
+                or len({norm_doi(unquote(d)).rstrip("*`") for d in _DOI_RE.findall(line)}) > 1):   # several references on one line
+            return None
+        m = _REF_PREFIX_RE.match(line)
+        prefix, rest = line[:m.end()], line[m.end():]
+        rest_plain = re.sub(r"^\s*\[S\d+\]\s*", "", rest)
+        if not _starts_like_reference(rest_plain):
+            return None
+        cands = [s for s in (self._sid_of_doi(d) for d in _DOI_RE.findall(line)) if s]
+        cands += [s for s in _ID_RE.findall(" ".join(x.group(1) for x in _CITE_RE.finditer(line)))
+                  if s in self.entries and self.entries[s].kind != "artifact"]
+        if not cands and not _DOI_RE.search(line):
+            return None
+        import citecheck
+
+        def best(sids, min_tokens):
+            scored = [(citecheck._similar(t, line), s) for s in dict.fromkeys(sids)
+                      for t in [self.entries[s].record.get("title") or ""]
+                      if len(citecheck._tokens(t)) >= min_tokens]
+            return max(scored) if scored else (0.0, None)
+
+        sim, sid = best(cands, 4)
+        if sim < 0.75:
+            # The id or DOI next to the reference may belong to another paper,
+            # or the DOI is mangled: any ledger source whose (longer) title the
+            # line carries.
+            sim, sid = best([s for s, e in self.entries.items()
+                             if e.kind != "artifact" and e.record.get("doi")], 5)
+            if sim < 0.85:
+                return None
+        # Commentary after the reference ("- ... DOI ... : why it matters") stays.
+        ends = [x.end() for x in (*_DOI_LINK_RE.finditer(rest), *_DOI_BARE_RE.finditer(rest),
+                                  *_CITE_RE.finditer(rest))]
+        tail = rest[max(ends):] if ends else ""
+        tail = re.sub(r"^[\s*.,;:)\]—–-]+", "", tail).strip()
+        keep = f" — {tail}" if len(re.findall(r"[A-Za-z]{2,}", tail)) >= 3 else ""
+        prefix = re.sub(r"\s*\[S\d+\]\s*$", " ", prefix)
+        return f"{prefix}\x02{sid}\x02{keep}"
 
     # ------------------------------------------------------------------
     # Persistence (chats.db, table conversation_sources)
@@ -350,6 +491,15 @@ def _is_artifact(d: dict) -> bool:
 # ----------------------------------------------------------------------
 # Formatting helpers (pure)
 # ----------------------------------------------------------------------
+def _starts_like_reference(text: str) -> bool:
+    """Authors first (Vancouver, APA or initials first) or a quoted, italic or
+    bold title first."""
+    import citecheck
+    t = text.lstrip()
+    return bool(citecheck._lead_author(t) or _INITIALS_FIRST_RE.match(t)
+                or re.match(r"^(?:\*{1,2}|_|\"|“)[A-Z0-9]", t))
+
+
 def _title_key(rec: dict) -> str:
     t = re.sub(r"[^a-z0-9]+", " ", (rec.get("title") or "").lower()).strip()
     return t if len(t) >= 20 else ""

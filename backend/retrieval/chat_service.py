@@ -4014,8 +4014,10 @@ async def stream_chat_completion(
         # Built after enrich, which adds the Crossref author lists.
         if ledger is not None and not had_stream_error and not _cancelled():
             try:
+                final_content, _typed = ledger.reconcile(final_content)
                 await ledger.enrich([s for s in ledger.cited_ids(final_content) if s[0] == "S"])
                 final_content, _ledger_notes = ledger.render(final_content)
+                _ledger_notes.update(_typed)
             except Exception:
                 logger.exception("source ledger render failed; answer left as written")
         _ledger_grounding = ("\n" + json.dumps([e.record for e in ledger.entries.values()],
