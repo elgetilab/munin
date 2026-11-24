@@ -1,0 +1,42 @@
+{
+ "id": "gr-crossturn_oldest",
+ "category": "fabricated_citation",
+ "tier": "mechanical",
+ "egress": "off",
+ "turns": [
+  {
+   "text": "Find papers in the corpus on Gd(III) spin labels for pulsed EPR distance measurements and list them with years."
+  },
+  {
+   "text": "Which of those is the oldest? Give its full citation including the DOI."
+  }
+ ],
+ "checks": [
+  {
+   "type": "nonempty"
+  },
+  {
+   "type": "no_error_marker"
+  },
+  {
+   "type": "not_contains",
+   "pattern": "\\[(?:S|A)\\d{1,4}\\]"
+  },
+  {
+   "type": "max_seconds",
+   "n": 900
+  },
+  {
+   "type": "min_dois",
+   "n": 1
+  },
+  {
+   "type": "dois_grounded"
+  },
+  {
+   "type": "citations_clean"
+  }
+ ],
+ "rubric": [],
+ "notes": "Synthetic grounding case (SOURCE-LEDGER-PLAN.md section 7); no user data."
+}

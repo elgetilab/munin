@@ -28,6 +28,7 @@
 #   sudo ./deploy.sh model validate <slug>  - check a profile file, change nothing
 #   sudo ./deploy.sh instance up <slug> --name <n> [--vllm-port 8001] [--api-port 8082]
 #                                     [--corpus shadow] [--vllm <other-instance>]
+#                                     [--env MUNIN_FLAG=value ...] (instance-only feature flags)
 #                                     [--gpu-util 0.90] [--max-seqs 4] [--download]
 #                                     [--time 14-00:00:00] (SLURM limit, default 14 days)
 #                                   - a SECOND backbone beside production: its own
@@ -1656,6 +1657,11 @@ instance_render_compose() {
         echo "      - $(_yaml_sq "SAMPLING_DEFAULT=$SAMPLING_DEFAULT")"
         echo "      - $(_yaml_sq "SAMPLING_CODE=$SAMPLING_CODE")"
         echo "      - MUNIN_INSTANCE=$name"
+        local flags; flags="$(dirname "$out")/extra_env"
+        if [ -s "$flags" ]; then
+            local kv
+            while IFS= read -r kv; do [ -n "$kv" ] && echo "      - $(_yaml_sq "$kv")"; done < "$flags"
+        fi
         if [ "$corpus" = "shadow" ]; then
             echo "      - PAPERS_COLLECTION=papers_shadow"
             echo "      - CHUNKS_COLLECTION=papers_chunks_shadow"
@@ -1701,6 +1707,7 @@ deploy_instance_extend() {
 deploy_instance_up() {
     local slug=$1; shift
     local name="" vllm_port=8001 api_port=8082 corpus=live vllm_of="" gpu_util="" max_seqs="" do_download=0 time_limit=""
+    local -a extra_env=()
     while [ $# -gt 0 ]; do
         case "$1" in
             --name) name=$2; shift 2 ;;
@@ -1715,11 +1722,20 @@ deploy_instance_up() {
             --download) do_download=1; shift ;;
             # SLURM time limit of the vLLM job (default: the script's 14 days).
             --time) time_limit=$2; shift 2 ;;
+            # A feature flag for this instance only (repeatable), e.g.
+            # --env MUNIN_SOURCE_LEDGER=on for an A/B arm. MUNIN_* keys only,
+            # so the gates can still say exactly what differs from production.
+            --env) extra_env+=("$2"); shift 2 ;;
             *) echo "[ERROR] instance up: unknown flag $1"; exit 1 ;;
         esac
     done
     [ -n "$name" ] || { echo "[ERROR] instance up needs --name <n>"; exit 1; }
     case "$name" in *[!a-z0-9-]*) echo "[ERROR] --name: lowercase letters, digits, dashes"; exit 1 ;; esac
+    local kv
+    for kv in "${extra_env[@]}"; do
+        [[ "$kv" =~ ^MUNIN_[A-Z0-9_]+=[A-Za-z0-9._:/-]*$ ]] && [[ "$kv" != MUNIN_INSTANCE=* ]] \
+            || { echo "[ERROR] --env: MUNIN_<NAME>=<value> (not MUNIN_INSTANCE), got: $kv"; exit 1; }
+    done
     case "$corpus" in live|shadow) ;; *) echo "[ERROR] --corpus live|shadow"; exit 1 ;; esac
     case "$max_seqs" in ""|[1-9]|[1-9][0-9]) ;; *) echo "[ERROR] --max-seqs: 1-99"; exit 1 ;; esac
     if [ -n "$time_limit" ] && ! valid_slurm_time "$time_limit"; then
@@ -1825,6 +1841,8 @@ deploy_instance_up() {
     echo "$MODEL_NAME" > "$state/model_name"; echo "$MODEL_PROFILES_DST/$MODEL_SLUG.env" > "$state/profile"
     echo "$corpus" > "$state/corpus"; echo "$tok_dir" > "$state/tokenizer_dir"
     [ -n "$job_out" ] && echo "$job_out" > "$state/job_out"
+    # Feature flags survive `instance refresh` (re-rendered from this file).
+    if [ ${#extra_env[@]} -gt 0 ]; then printf '%s\n' "${extra_env[@]}" > "$state/extra_env"; else rm -f "$state/extra_env"; fi
 
     # retrieval container
     instance_render_compose "$name" "$api_port" "$vllm_port" "$tok_dir" "$corpus" "$state/compose.yml"
@@ -1876,6 +1894,8 @@ print("MOUNTS:" + " ".join(sorted(t for t in set(pv) | set(iv) if pv.get(t) != i
 ' "$name" 2>/dev/null) || diffkeys="(compose config failed)"
     echo "  $diffkeys"
     local allowed="VLLM_URL VLLM_MODEL_NAME LLM_THINKING_MODE LLM_REASONING_EFFORT LLM_THINKING_BUDGET SAMPLING_DEFAULT SAMPLING_CODE MUNIN_INSTANCE PAPERS_COLLECTION CHUNKS_COLLECTION"
+    # plus the instance's own feature flags (instance up --env)
+    [ -s "$state/extra_env" ] && allowed="$allowed $(cut -d= -f1 "$state/extra_env" | tr '\n' ' ')"
     local k bad=""
     for k in $(printf '%s' "$diffkeys" | head -1); do
         case " $allowed " in *" $k "*) ;; *) bad="$bad $k" ;; esac

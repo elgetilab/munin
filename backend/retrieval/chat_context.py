@@ -379,6 +379,26 @@ def _pending_preview(content: Any) -> str:
         "head": text[:PENDING_PREVIEW_CHARS],
     })
 
+_SID_RE = re.compile(r'"sid": "(S\d{1,4})"')
+
+
+def _elided_stub(content) -> str:
+    """The stub for an elided earlier tool result. With the source ledger on,
+    it keeps the ids of the sources the result held, so the model can still
+    cite them ([S7]) without re-running the tool; otherwise the plain stub."""
+    sids = list(dict.fromkeys(_SID_RE.findall(content))) if isinstance(content, str) else []
+    if not sids:
+        return _ELIDED_TOOL_RESULT
+    return json.dumps({"_elided": True, "sources": sids[:40],
+                       "note": "earlier tool result, shown at the time, trimmed from this prompt "
+                               "to fit the context window; its sources stay citable by id (see "
+                               "the sources block). Re-run the tool only if you need text it held."})
+
+
+def _is_elided(content) -> bool:
+    return isinstance(content, str) and content.startswith('{"_elided": true')
+
+
 # Replacement for the arguments of an earlier bulk tool call (the source code
 # of an old run_python, say). Valid JSON so the chat template can render it.
 # The kernel keeps its state across runs, so the definitions survive.
@@ -540,10 +560,11 @@ def budget_loop_messages(
             break  # fits, or we've reached the pending (protected) batch
         if not (isinstance(m, dict) and m.get("role") == "tool"):
             continue
-        if m.get("content") in _ELIDED_FORMS:
+        if _is_elided(m.get("content")):
             continue  # already elided (idempotent)
-        total -= (per[i] - stub_tokens)
-        out[i] = {**m, "content": _ELIDED_TOOL_RESULT}
+        stub = _elided_stub(m.get("content"))
+        total -= (per[i] - _tok({"role": "tool", "content": stub}))
+        out[i] = {**m, "content": stub}
         counts["results"] += 1
 
     # 2. arguments of earlier bulk tool calls

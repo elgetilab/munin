@@ -1,0 +1,46 @@
+{
+ "id": "gr-artifact_late",
+ "category": "rendering_or_format",
+ "tier": "mechanical",
+ "egress": "off",
+ "turns": [
+  {
+   "text": "Write a Python script that simulates a 1D random walk of 1000 steps and save a histogram of the final positions of 500 walkers as a PNG."
+  },
+  {
+   "text": "What is the standard deviation you would expect for the final positions? Answer in two sentences."
+  },
+  {
+   "text": "Link the histogram you made earlier and say whether its width matches that expectation."
+  }
+ ],
+ "checks": [
+  {
+   "type": "nonempty"
+  },
+  {
+   "type": "no_error_marker"
+  },
+  {
+   "type": "not_contains",
+   "pattern": "\\[(?:S|A)\\d{1,4}\\]"
+  },
+  {
+   "type": "max_seconds",
+   "n": 900
+  },
+  {
+   "type": "artifact",
+   "ext": ".png"
+  },
+  {
+   "type": "no_phantom_artifact"
+  },
+  {
+   "type": "contains",
+   "pattern": "/api/artifacts/"
+  }
+ ],
+ "rubric": [],
+ "notes": "Synthetic grounding case (SOURCE-LEDGER-PLAN.md section 7); no user data."
+}

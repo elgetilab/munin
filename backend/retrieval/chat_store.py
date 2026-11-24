@@ -253,6 +253,18 @@ async def init_db() -> aiosqlite.Connection:
             FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
         );
 
+        -- Source ledger (source_ledger.py): the ids the model cites by.
+        CREATE TABLE IF NOT EXISTS conversation_sources (
+            conversation_id TEXT NOT NULL,
+            sid             TEXT NOT NULL,
+            kind            TEXT NOT NULL,
+            key             TEXT NOT NULL,
+            record          TEXT NOT NULL,
+            first_turn      INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (conversation_id, sid),
+            FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_artifacts_conversation
             ON artifacts(conversation_id, updated_at DESC);
 
@@ -864,6 +876,7 @@ async def delete_conversation(conversation_id: str, user_email: str) -> bool:
         # rely on ON DELETE CASCADE since SQLite's FK cascades don't fire the
         # per-row delete triggers on the child table consistently across versions.
         await db.execute("DELETE FROM messages WHERE conversation_id = ?", (conversation_id,))
+        await db.execute("DELETE FROM conversation_sources WHERE conversation_id = ?", (conversation_id,))
         # Memory proposals extracted from this conversation. `proposed_memories` has
         # a plain conversation_id with NO foreign key, so unlike `artifacts` and
         # `conversation_plans` nothing cleans it up implicitly. Left behind, the rows

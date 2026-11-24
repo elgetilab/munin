@@ -195,3 +195,47 @@ def run_checks(checks: list[dict], rec: dict) -> list[dict]:
         ok, detail = fn(c, rec)
         out.append({"type": c["type"], "pass": bool(ok), "detail": detail})
     return out
+
+
+@check("min_dois")
+def _min_dois(c, rec):
+    dois = extract_dois(_final(rec).get("answer") or "")
+    return len(dois) >= int(c["n"]), f"{len(dois)} DOIs"
+
+
+@check("dois_grounded")
+def _dois_grounded(c, rec):
+    """Every DOI in the final answer appears in a tool result of the run (any
+    turn) or in a prompt: it was copied, not recalled. Needs records that keep
+    tool results (runner since 2026-11-24)."""
+    seen = " ".join(r.get("result") or "" for t in rec.get("turns") or []
+                    for r in t.get("tool_results") or []).lower()
+    seen += " " + " ".join(rec.get("prompts") or []).lower()
+    dois = extract_dois(_final(rec).get("answer") or "")
+    loose = [d for d in dois if d.lower() not in seen]
+    return not loose, (f"not in any tool result: {loose[:5]}" if loose else f"{len(dois)} DOIs grounded")
+
+
+@check("citations_clean")
+def _citations_clean(c, rec):
+    """No [unverified] mark in the answer and no citecheck problem: every DOI
+    exists and its authors, year, journal, pages and title match the record."""
+    ans = _final(rec).get("answer") or ""
+    if "[unverified:" in ans:
+        return False, "answer carries an [unverified] mark"
+    import asyncio
+    cc = _citecheck()
+    units = asyncio.run(cc.verify(ans))
+    bad = [(u.doi, u.problems[0][:80]) for u in units if u.problems]
+    return not bad, (f"{len(bad)} bad: {bad[:3]}" if bad else f"{len(units)} citations clean")
+
+
+def _citecheck():
+    import sys
+    from pathlib import Path
+    retrieval = str(Path(__file__).resolve().parents[3] / "retrieval")
+    if retrieval not in sys.path:
+        sys.path.insert(0, retrieval)
+    import citecheck
+    return citecheck
+

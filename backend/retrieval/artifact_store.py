@@ -904,7 +904,8 @@ async def update_artifact(
 # System prompt rendering
 # ---------------------------------------------------------------------------
 
-def build_artifact_summary_block(artifacts: list[dict]) -> Optional[str]:
+def build_artifact_summary_block(artifacts: list[dict],
+                                 cite: Optional[dict] = None) -> Optional[str]:
     """
     Render the ``=== ACTIVE ARTIFACTS ===`` block chat_service
     prepends to the system prompt. Summary-only by design: for
@@ -938,6 +939,10 @@ def build_artifact_summary_block(artifacts: list[dict]) -> Optional[str]:
         source = a.get("source") or SOURCE_MODEL_WRITTEN
         ctype = a.get("content_type") or "text/plain"
         aid = a.get("id") or "?"
+        # Source ledger on: the id the model cites it by ([A3]); the server
+        # renders the real link, which the model cannot rebuild from `id`.
+        if cite and cite.get(aid):
+            aid = f"{aid}, cite as [{cite[aid]}]"
         if source == SOURCE_SANDBOX_GENERATED:
             filename = a.get("filename") or a.get("title") or "unnamed"
             lines.append(

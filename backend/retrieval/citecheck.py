@@ -433,8 +433,11 @@ def check_unit(u: Unit) -> list[str]:
 
     families = [f for f in rec.get("families") or [] if f]
     if families:
+        # Every word of the full names counts: "Marius M. Haugland" puts the
+        # given name first, and a lead-author parse then reads "Marius".
+        given = [w for a in rec.get("authors") or [] for w in str(a).split() if len(w) > 2]
         for name in cited_surnames(u):
-            if not _surname_ok(name, families):
+            if not _surname_ok(name, families + given):
                 problems.append(f"names '{name}' as author, but the record's authors are "
                                 f"{', '.join(families[:6])}{' et al.' if len(families) > 6 else ''}")
                 break

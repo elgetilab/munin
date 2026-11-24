@@ -59,6 +59,7 @@ from tool_result import truncate_tool_result
 from answer_tags import AnswerTagStreamFilter, clean_reply, cut_loop, has_repeats, strip_answer_tags, tail_is_looping
 import turn_results
 import citecheck
+import source_ledger
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 import hooks as hooks_module
@@ -2380,6 +2381,7 @@ async def _build_full_system_prompt(
     ephemeral: bool,
     project: Optional[dict],
     routed_persona: Optional[dict] = None,
+    ledger: Optional["source_ledger.Ledger"] = None,
 ) -> str:
     """
     Assemble the full system prompt for a persona by stacking the
@@ -2479,9 +2481,13 @@ async def _build_full_system_prompt(
             else memory_block
         )
 
-    artifact_block = _render_block(
-        "artifact", artifact_store.build_artifact_summary_block,
-    )
+    if ledger is not None:
+        def _artifact_builder(arts):
+            cite = {a.get("id"): ledger.artifact_id(a) for a in arts or [] if a.get("id")}
+            return artifact_store.build_artifact_summary_block(arts, cite=cite)
+    else:
+        _artifact_builder = artifact_store.build_artifact_summary_block
+    artifact_block = _render_block("artifact", _artifact_builder)
     if artifact_block:
         system_prompt = (
             f"{artifact_block}\n\n{system_prompt}"
@@ -2537,6 +2543,18 @@ async def _build_full_system_prompt(
             capabilities_block = None
         if capabilities_block:
             system_prompt = f"{system_prompt}\n\n{capabilities_block}"
+
+    # Source ledger: last, so its citing rule wins over a persona's "always
+    # include DOIs" (placed before the persona, the model followed the persona
+    # in a later turn and typed the reference itself, 2026-11-24 smoke run).
+    if ledger is not None:
+        try:
+            sources_block = ledger.block()
+        except Exception as e:
+            logger.warning("sources block render failed: %s", e)
+            sources_block = None
+        if sources_block:
+            system_prompt = f"{system_prompt}\n\n{sources_block}" if system_prompt else sources_block
 
     return system_prompt
 
@@ -2780,6 +2798,18 @@ async def stream_chat_completion(
     # artifacts, project, current date, agents, capabilities).
     # A3: base voice from the PIN, task fragment from the ROUTED profile.
     # When routed == pin, compose() reconstructs the pin's original prompt.
+    # Source ledger (SOURCE-LEDGER-PLAN.md): the ids the model cites by.
+    ledger: Optional[source_ledger.Ledger] = None
+    if source_ledger.enabled():
+        try:
+            ledger = await source_ledger.Ledger.load(None if ephemeral else conversation_id)
+        except Exception:
+            logger.exception("source ledger load failed; starting empty")
+            ledger = source_ledger.Ledger()
+        _uc = user_message.get("content")
+        ledger.add_user_dois(_uc if isinstance(_uc, str) else " ".join(
+            p.get("text") or "" for p in _uc or [] if isinstance(p, dict)))
+
     system_prompt = await _build_full_system_prompt(
         persona=pin_persona,
         routed_persona=persona,
@@ -2787,6 +2817,7 @@ async def stream_chat_completion(
         conversation_id=conversation_id,
         ephemeral=ephemeral,
         project=project,
+        ledger=ledger,
     )
 
     # §28: active-tags block is injected further down, AFTER conversation
@@ -3761,7 +3792,9 @@ async def stream_chat_completion(
                 messages.append({
                     "role": "tool",
                     "tool_call_id": res["id"],
-                    "content": truncate_tool_result(res["result"]),
+                    "content": truncate_tool_result(
+                        ledger.annotate(res["result"], int(time.time())) if ledger is not None
+                        else res["result"]),
                 })
 
             # §3 plot-critique feedback loop: if any of the results were
@@ -3975,13 +4008,27 @@ async def stream_chat_completion(
         # (answer_revised) instead of only after a reload.
         _streamed_content = final_content
         _cite_notes = None
+        _ledger_notes = None
+        # The ledger's records are grounding too: the References the server
+        # renders from them carry full author lists no tool result showed.
+        _ledger_grounding = ("\n" + json.dumps([e.record for e in ledger.entries.values()],
+                                                ensure_ascii=False, default=str)
+                             if ledger is not None else "")
+        if ledger is not None and not had_stream_error and not _cancelled():
+            try:
+                await ledger.enrich([s for s in ledger.cited_ids(final_content) if s[0] == "S"])
+                final_content, _ledger_notes = ledger.render(final_content)
+            except Exception:
+                logger.exception("source ledger render failed; answer left as written")
         if not had_stream_error and not _cancelled() and citecheck.mode() != "off":
             _, _ungrounded_pre, _ = audit_citation_claims_in_content(
                 final_content, final_tool_calls,
-                conversation_grounding_text(conversation),
+                conversation_grounding_text(conversation) + _ledger_grounding,
             )
             final_content, _cite_notes = await citecheck.run(final_content, _ungrounded_pre)
             observe_citecheck(_cite_notes)
+        if _ledger_notes is not None:
+            _cite_notes = {**(_cite_notes or {}), "sources": _ledger_notes}
 
         # --- 6. Persist assistant message ---
         # Stream-error marker. When the loop bailed because vLLM yielded an
@@ -4026,7 +4073,7 @@ async def stream_chat_completion(
         final_content, _ungrounded_cites, _grounded_cites = (
             audit_citation_claims_in_content(
                 final_content, final_tool_calls,
-                conversation_grounding_text(conversation),
+                conversation_grounding_text(conversation) + _ledger_grounding,
             )
         )
         if _ungrounded_cites:
@@ -4037,6 +4084,12 @@ async def stream_chat_completion(
         observe_citation_claims(_grounded_cites, len(_ungrounded_cites))
         if final_content != _streamed_content:
             yield _sse("answer_revised", {"content": final_content, "notes": _cite_notes})
+        if ledger is not None and not ephemeral:
+            try:
+                ledger.conversation_id = conversation["id"]
+                await ledger.save()
+            except Exception:
+                logger.exception("source ledger save failed")
 
         if not ephemeral:
             _saved_reply = await chat_store.add_message(

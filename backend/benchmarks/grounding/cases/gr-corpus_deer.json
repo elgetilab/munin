@@ -1,0 +1,39 @@
+{
+ "id": "gr-corpus_deer",
+ "category": "fabricated_citation",
+ "tier": "mechanical",
+ "egress": "off",
+ "turns": [
+  {
+   "text": "Find three papers in the literature corpus on site-directed spin labelling with DEER/PELDOR distance measurements and summarise what each one found. Give full references with DOIs."
+  }
+ ],
+ "checks": [
+  {
+   "type": "nonempty"
+  },
+  {
+   "type": "no_error_marker"
+  },
+  {
+   "type": "not_contains",
+   "pattern": "\\[(?:S|A)\\d{1,4}\\]"
+  },
+  {
+   "type": "max_seconds",
+   "n": 900
+  },
+  {
+   "type": "min_dois",
+   "n": 2
+  },
+  {
+   "type": "dois_grounded"
+  },
+  {
+   "type": "citations_clean"
+  }
+ ],
+ "rubric": [],
+ "notes": "Synthetic grounding case (SOURCE-LEDGER-PLAN.md section 7); no user data."
+}

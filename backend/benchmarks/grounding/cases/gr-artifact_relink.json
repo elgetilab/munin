@@ -1,0 +1,43 @@
+{
+ "id": "gr-artifact_relink",
+ "category": "rendering_or_format",
+ "tier": "mechanical",
+ "egress": "off",
+ "turns": [
+  {
+   "text": "Plot y = sin(x) * exp(-x/5) for x from 0 to 20 with Python and save it as a PNG."
+  },
+  {
+   "text": "Show me the link to that plot again, and then make a second PNG plot of its derivative."
+  }
+ ],
+ "checks": [
+  {
+   "type": "nonempty"
+  },
+  {
+   "type": "no_error_marker"
+  },
+  {
+   "type": "not_contains",
+   "pattern": "\\[(?:S|A)\\d{1,4}\\]"
+  },
+  {
+   "type": "max_seconds",
+   "n": 900
+  },
+  {
+   "type": "artifact",
+   "ext": ".png"
+  },
+  {
+   "type": "no_phantom_artifact"
+  },
+  {
+   "type": "contains",
+   "pattern": "/api/artifacts/"
+  }
+ ],
+ "rubric": [],
+ "notes": "Synthetic grounding case (SOURCE-LEDGER-PLAN.md section 7); no user data."
+}
