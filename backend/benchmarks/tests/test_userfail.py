@@ -131,10 +131,12 @@ def test_infra_errors_are_retried_not_scored():
 def test_extract_dois_keeps_parentheses_and_drops_markup():
     text = ("J Mol Biol 10.1016/0022-2836(91)90127-X. See (https://doi.org/10.1103/PhysRevB.101.161109) "
             "and `10.1002/prot.10140` plus {10.1021/acs.nanolett.2c02500}, also **10.1038/nature12373**, "
-            "and a footnote [^10.1016/j.molcel.2008.08.028^].")
-    assert ck.extract_dois(text) == ["10.1002/prot.10140", "10.1016/0022-2836(91)90127-X",
+            "and a footnote [^10.1016/j.molcel.2008.08.028^], "
+            "https://www.biorxiv.org/content/10.1101/2020.01.01.123456v2.full and 10.1016/j.bpj.2019.01.001?via=ihub.")
+    assert ck.extract_dois(text) == ["10.1002/prot.10140", "10.1016/0022-2836(91)90127-X", "10.1016/j.bpj.2019.01.001",
                                      "10.1016/j.molcel.2008.08.028", "10.1021/acs.nanolett.2c02500",
-                                     "10.1038/nature12373", "10.1103/PhysRevB.101.161109"]
+                                     "10.1038/nature12373", "10.1101/2020.01.01.123456",
+                                     "10.1103/PhysRevB.101.161109"]
 
 
 def test_compare_replicates_and_criteria():

@@ -65,18 +65,38 @@ def mode() -> str:
 # Old Elsevier DOIs contain parentheses (10.1016/0022-2836(91)90127-X), so
 # they are allowed inside and trimmed only when unbalanced at the end. Same
 # rule as munin_bench/userfail/checks.py::extract_dois.
-_DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\]+", re.IGNORECASE)
+# Old Wiley SICI DOIs contain <...> and are matched first.
+_DOI_RE = re.compile(r"\b10\.\d{4,9}/\(SICI\)[^\s\"'\[\]`{}|\\]+|\b10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\]+",
+                     re.IGNORECASE)
+# What a publisher URL appends after the DOI: an anchor, a query, a view.
+_URL_TAIL_RE = re.compile(
+    r"(?:[#?].*|/-/DC\w*.*|\.full\.pdf|\.full|\.abstract|\.pdf|\.html?|/full|/abstract|/pdf|/epdf|/fulltext)$",
+    re.IGNORECASE)
+_BIORXIV_VERSION_RE = re.compile(r"^(10\.1101/.*\d{6,})v\d+$", re.IGNORECASE)
 _URL_RE = re.compile(r"https?://\S+")
-_YEAR_RE = re.compile(r"(?<!\d)(19[5-9]\d|20[0-3]\d)(?!\d)")
+# A year in citation position: "(1991)", "1991;", "1991, 220", "2003." but
+# not "1950 cm-1" or "in 1991 they".
+_YEAR_RE = re.compile(r"(?<![\d.,–—-])(19[5-9]\d|20[0-3]\d)[a-z]?(?=\s*[)\];,.]|\s*$)")
 # Pages only in citation position: "558:309-314", ", 721-723", "pp. 7-16".
-_PAGES_RE = re.compile(r"(?:[:,]\s*|\bpp?\.\s*)(\d{1,6})\s*[–—-]\s*(\d{1,6})(?!\d|\.\d)")
-_ET_AL_RE = re.compile(r"([A-ZÀ-ÖØ-Þ][\w'\-]+(?:\s+[A-ZÀ-ÖØ-Þ][\w'\-]*)?)\s+et\s+al\.", re.UNICODE)
+# A comma right after a digit counts only with a space ("104, 20290-20295"),
+# so "1,200-1,500" is not a page range.
+_PAGES_RE = re.compile(
+    r"(?:(?<!\d),\s*|(?<=\d),\s+|:\s*|\bpp?\.\s*)(\d{1,6})\s*[–—-]\s*(\d{1,6})(?!\d|\.\d|,\d)")
+_UC = "A-ZÀ-ÖØ-ÞĀĂĄĆĈĊČĎĐĒĔĖĘĚĜĞĠĢĤĦĨĪĬĮİĴĶĹĻĽĿŁŃŅŇŊŌŎŐŒŔŖŘŚŜŞŠŢŤŦŨŪŬŮŰŲŴŶŸŹŻŽ"
+_ET_AL_RE = re.compile(rf"([{_UC}][\w'\-]+(?:\s+[{_UC}][\w'\-]*)?)\s+et\s+al\.", re.UNICODE)
 _LIST_MARK_RE = re.compile(r"^\s*(?:[-*+]|\d{1,3}[.)]|\[\^?\d{1,3}\^?\]:?|\(\d{1,3}\))\s*")
 # "Lagane B," (Vancouver) / "Lagane, B." (APA) / "Lagane, Bernard" at the start
 # of a reference-list item.
+# The surname must be followed by initials ("Lagane B,", "Lagane, B.",
+# "Lagane, BJ;"), so "However, Sali et al." is not a reference item.
 _LEAD_AUTHOR_RE = re.compile(
-    r"^\**([A-ZÀ-ÖØ-Þ][\w'\-]+(?:[ -][A-ZÀ-ÖØ-Þ][\w'\-]+)?)(?:,\s*[A-ZÀ-ÖØ-Þ]|\s+[A-Z]{1,3}[,.])",
+    rf"^\**([{_UC}][\w'\-]+(?:[ -][{_UC}][\w'\-]+)?)\**(?:,\s*[{_UC}]{{1,3}}\.|,\s*[{_UC}]{{1,3}}[,;]|,\s*[{_UC}]\.?\s*[{_UC}]\.|\s+[{_UC}]{{1,3}}[,.])",
     re.UNICODE)
+_NOT_SURNAMES = {"However", "Notably", "Recently", "Interestingly", "Moreover", "Furthermore", "Here",
+                 "Thus", "Therefore", "Similarly", "Additionally", "Finally", "First", "Second",
+                 "Importantly", "Indeed", "Also", "In", "For", "See", "Note", "Overall", "Together"}
+_QUOTED_TITLE_RE = re.compile(r"[\"“]([^\"“”\n]{15,300})[\"”]")
+_SPECIES_RE = re.compile(r"^[A-Z][a-z]+ [a-z]+\.?$")
 _ITALIC_RE = re.compile(r"(?<![*\w])\*(?!\*)([^*\n]{3,150})\*(?!\*)|(?<![_\w])_(?!_)([^_\n]{3,150})_(?!_)")
 _JOURNAL_PHRASE_RE = re.compile(
     r"\b((?:[A-Z][a-z]+ )?Journal of (?:the )?[A-Z][\w\-]*(?: (?:and |of |the |&)?[A-Z][\w\-]*){0,5})")
@@ -87,11 +107,61 @@ _STOP = {"of", "the", "and", "&", "for", "in", "on", "a", "an", "de", "der", "un
 def _trim_doi(d: str) -> str:
     while True:
         d0 = d
+        d = _URL_TAIL_RE.sub("", d)
+        d = _BIORXIV_VERSION_RE.sub(r"\1", d)
         d = d.rstrip(".,;:*_~^")
         if d.endswith(")") and d.count(")") > d.count("("):
             d = d[:-1]
         if d == d0:
             return d
+
+
+def _fenced_ranges(content: str) -> list[tuple[int, int]]:
+    out, start = [], None
+    for m in re.finditer(r"^\s*(```|~~~)", content, re.MULTILINE):
+        if start is None:
+            start = m.start()
+        else:
+            out.append((start, m.end()))
+            start = None
+    if start is not None:
+        out.append((start, len(content)))
+    return out
+
+
+# A sentence ends at . ! ? after a lowercase word, a digit or a bracket, before
+# a capital: not after initials or abbreviations ("J. Mol. Biol.", "Sali A.").
+_SENT_END_RE = re.compile(r"(?:\b[a-z][a-z]+|\d|[)\]])[.!?](?=\s+[\"“(*_]?[A-Z])")
+
+
+def _sentence_start(content: str, pos: int, floor: int) -> int:
+    """Start of the DOI's sentence; a stub like "... 129-139. DOI:" reaches
+    back to the sentence before, which carries the citation."""
+    starts = [m.end() for m in _SENT_END_RE.finditer(content, floor, pos)
+              if not content[max(floor, m.start() - 4):m.end()].endswith("et al.")]
+    for st in reversed(starts):
+        if len(re.findall(r"[A-Za-z]{2,}", _URL_RE.sub(" ", content[st:pos]))) >= 5:
+            return st
+    return floor
+
+
+def _sentence_end(content: str, pos: int, ceil: int) -> int:
+    for m in _SENT_END_RE.finditer(content, pos, ceil):
+        if not content[max(0, m.start() - 4):m.end()].endswith("et al."):
+            return m.end()
+    return ceil
+
+
+def _title_cased(q: str) -> bool:
+    words = [w for w in re.findall(r"[A-Za-z][\w'\-]*", q) if len(w) >= 4]
+    return bool(words) and sum(w[0].isupper() for w in words) >= 0.6 * len(words)
+
+
+def _lead_author(line: str) -> Optional[str]:
+    m = _LEAD_AUTHOR_RE.match(_LIST_MARK_RE.sub("", line.lstrip()))
+    if m and m.group(1).split()[0] not in _NOT_SURNAMES:
+        return m.group(1)
+    return None
 
 
 @dataclass
@@ -107,6 +177,8 @@ class Unit:
     problems: list = field(default_factory=list)
     record: Optional[dict] = None
     status: str = "unknown"   # ok | missing | registered | unknown
+    code: bool = False  # inside a fenced code block: existence only
+    ref: bool = False   # a reference-list line or table row, not prose
 
 
 def extract_units(content: str) -> list[Unit]:
@@ -114,30 +186,51 @@ def extract_units(content: str) -> list[Unit]:
     item) or, inside a long paragraph, the stretch since the previous DOI."""
     units: list[Unit] = []
     seen: set[str] = set()
+    fences = _fenced_ranges(content or "")
     for m in _DOI_RE.finditer(content or ""):
+        fence = next(((a, b) for a, b in fences if a <= m.start() < b), None)
         doi = _trim_doi(m.group(0))
         key = doi.lower()
         if key in seen:
             continue
         seen.add(key)
+        if fence:
+            # Code (BibTeX, a script): only existence is checked, and the mark
+            # goes after the block so it cannot corrupt the code.
+            units.append(Unit(doi=doi, start=m.start(), end=m.start() + len(doi), text="",
+                              line_end=fence[1], code=True))
+            if len(units) >= MAX_DOIS:
+                break
+            continue
         line_start = content.rfind("\n", 0, m.start()) + 1
         line_end = content.find("\n", m.end())
         line_end = len(content) if line_end < 0 else line_end
+        line = content[line_start:line_end]
+        # A reference-list item or a table row is one unit however long; prose
+        # is bounded below to the DOI's own sentence.
+        # A bullet alone is not enough: prose is often bulleted.
+        structural = bool(_lead_author(line) or line.lstrip().startswith("|"))
         lo = line_start
         # Previous DOI on the same line bounds this one's description.
         for prev in units:
             if line_start <= prev.end <= m.start():
                 lo = max(lo, prev.end)
-        lo = max(lo, m.start() - 300)
+        lo = max(lo, m.start() - (800 if structural else 300))
+        item = structural and lo == line_start
         hi = min(line_end, m.start() + len(m.group(0)) + 80)
         nxt = _DOI_RE.search(content, m.end())
         if nxt and nxt.start() < hi:
             hi = nxt.start()
+        if not structural:
+            # Prose: only the DOI's own sentence describes it. Text from the
+            # sentence before belongs to another citation.
+            lo = max(lo, _sentence_start(content, m.start(), lo))
+            hi = min(hi, _sentence_end(content, m.start() + len(doi), hi))
         clean = lambda t: _DOI_RE.sub(" ", _URL_RE.sub(" ", t))
         units.append(Unit(doi=doi, start=m.start(), end=m.start() + len(doi),
                           text=clean(content[lo:hi]), line_end=line_end,
                           pre=clean(content[max(lo, m.start() - 150):m.start()]),
-                          item=(lo == line_start)))
+                          item=item, ref=structural))
         if len(units) >= MAX_DOIS:
             break
     return units
@@ -170,7 +263,8 @@ def _crossref_record(msg: dict) -> dict:
             break
     authors = [a for a in msg.get("author") or [] if isinstance(a, dict)]
     # Crossref titles can carry HTML entities ("Crystal Growth &amp; Design").
-    msg = {**msg, **{k: [html.unescape(x) for x in msg.get(k) or [] if isinstance(x, str)]
+    msg = {**msg, **{k: [" ".join(re.sub(r"<[^>]+>", "", html.unescape(x)).split())
+                         for x in msg.get(k) or [] if isinstance(x, str)]
                      for k in ("title", "container-title", "short-container-title")}}
     return {
         "title": first("title"),
@@ -212,7 +306,7 @@ async def lookup(doi: str, client: httpx.AsyncClient) -> tuple[str, Optional[dic
                 out = ("missing", None)
             elif h.status_code == 200:
                 out = ("registered", None)
-    except (httpx.HTTPError, ValueError) as exc:
+    except Exception as exc:   # a malformed record verifies nothing, like a timeout
         logger.info("citecheck lookup failed for %s: %s", doi, exc)
     if out[0] != "unknown":
         if len(_CACHE) >= _CACHE_MAX:
@@ -249,9 +343,9 @@ def cited_surnames(u: "Unit") -> list[str]:
     item, else the nearest "X et al." right before the DOI. Earlier names in
     the paragraph usually belong to other citations, so they are ignored."""
     if u.item:
-        lead = _LEAD_AUTHOR_RE.match(_LIST_MARK_RE.sub("", u.text.lstrip()))
+        lead = _lead_author(u.text)
         if lead:
-            return [lead.group(1)]
+            return [lead]
     found = _ET_AL_RE.findall(u.pre)
     return [_surname_of(found[-1])] if found else []
 
@@ -321,10 +415,21 @@ def check_unit(u: Unit) -> list[str]:
     if u.status == "missing":
         return [f"DOI {u.doi} is not registered (doi.org and Crossref both return 404)"]
     rec = u.record
-    if u.status != "ok" or not rec:
+    if u.status != "ok" or not rec or u.code:
         return []
     problems: list[str] = []
     text = u.text
+
+    # A quoted title that is not the record's: the DOI is the wrong part, the
+    # reference itself may be right. Checking its authors or journal against
+    # the record would only invite "fixing" the reference to the wrong paper.
+    rtitle = rec.get("title") or ""
+    # In prose a quote is often a sentence from the paper, not its title:
+    # there only title-cased quotes count.
+    quoted = [q for q in _QUOTED_TITLE_RE.findall(text) if len(_tokens(q)) >= 3
+              and (u.ref or _title_cased(q))]
+    if rtitle and quoted and all(_similar(q, rtitle) < 0.34 for q in quoted):
+        return [f"DOI {u.doi} belongs to a different paper ('{rtitle}')"]
 
     families = [f for f in rec.get("families") or [] if f]
     if families:
@@ -342,11 +447,17 @@ def check_unit(u: Unit) -> list[str]:
     # All container titles: a book chapter carries the book and its series.
     names = [x for x in (rec.get("journals") or [rec.get("journal"), rec.get("journal_short")]) if x]
     if names and not any(_mentions(text, n) for n in names):
-        cands = [a or b for a, b in _ITALIC_RE.findall(text)] + _JOURNAL_PHRASE_RE.findall(text)
+        # An italic run counts as a journal only where a journal sits in a
+        # citation: followed by a volume, year or pages.
+        # In prose, only before a volume, year or pages; a reference line or
+        # table row is all citation.
+        cands = [m.group(1) or m.group(2) for m in _ITALIC_RE.finditer(text)
+                 if u.ref or re.match(r"[\s,.;:(]*\d", text[m.end():m.end() + 12])]
+        cands += _JOURNAL_PHRASE_RE.findall(text)
         for c in cands:
             c = c.strip(" .,;:")
-            if not _JOURNALISH_RE.match(c):
-                continue      # maths, a formula or prose in italics
+            if not _JOURNALISH_RE.match(c) or _SPECIES_RE.match(c):
+                continue      # maths, a formula, prose or a species name in italics
             if _similar(c, rec.get("title") or "") >= 0.6:
                 continue      # the italic run is the article title
             if any(_phrase_matches(c, n) for n in names):
@@ -401,7 +512,8 @@ def _record_line(u: Unit) -> str:
 CORRECT_SYSTEM = """You fix the citations in an answer written by a scientific research assistant. A verification step looked up every cited DOI in the DOI registry and lists the citations that failed, each with the registry record.
 
 Rules:
-- For each flagged citation, rewrite its bibliographic details (authors, year, title, journal, volume, pages) to match the record exactly.
+- If a DOI belongs to a different paper than the one cited, keep the cited reference as written and delete only that DOI and its link. Never change the reference to the DOI's paper.
+- For each other flagged citation, rewrite its bibliographic details (authors, year, title, journal, volume, pages) to match the record exactly.
 - If a DOI does not exist, delete that DOI. If the sentence relied on that citation alone, keep the statement but drop the citation, or delete the sentence if it only described that non-existent source.
 - For each unsupported author attribution, delete the attribution or rephrase the sentence without the name.
 - Change nothing else. Keep the wording, structure, headings, formatting, links, code and language of every other part.
@@ -436,8 +548,19 @@ def mark_unverified(content: str, bad: list[Unit]) -> str:
         by_end.setdefault(u.line_end, []).append(u)
     out = content
     for end in sorted(by_end, reverse=True):
-        reasons = "; ".join(p for u in by_end[end] for p in u.problems)
-        out = out[:end] + f" **[unverified: {reasons}]**" + out[end:]
+        # Record titles can hold * or _ that would break the bold mark.
+        reasons = re.sub(r"[*_`]", "", "; ".join(p for u in by_end[end] for p in u.problems))
+        mark = f" **[unverified: {reasons}]**"
+        line = out[out.rfind("\n", 0, end) + 1:end]
+        if any(u.code for u in by_end[end]):
+            # After a code block, on its own line: the closing fence stays intact.
+            out = out[:end] + "\n\n" + mark.strip() + out[end:]
+        elif line.lstrip().startswith("|") and line.rstrip().endswith("|"):
+            # Table row: inside the last cell, an extra cell would be dropped.
+            pipe = out.rfind("|", 0, end)
+            out = out[:pipe].rstrip() + mark + " " + out[pipe:]
+        else:
+            out = out[:end] + mark + out[end:]
     return out
 
 

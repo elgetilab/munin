@@ -197,6 +197,53 @@ def test_revision_guard() -> bool:
                   and not citecheck.revision_ok(orig, "x" * 130))
 
 
+def test_review_false_positives() -> bool:
+    cases = {
+        "sentence adverb": "However, Sali et al. showed folding is fast (doi:10.1000/jmb.1).",
+        "species in italics": "Sali et al. showed that *Escherichia coli* folds it fast (10.1000/jmb.1).",
+        "prose range": "In a 1,200-1,500 patient cohort, Sali et al. found it (10.1000/jmb.1).",
+        "wavenumber": "The band at 1950 cm-1 was assigned by Sali et al. (10.1000/jmb.1).",
+        "neighbour after": "Sali et al. showed X (10.1000/jmb.1). Later, Jones (2001) disagreed in *Nature*, 344-350.",
+        "neighbour before": "Jones (2001, *Nature* 12) proposed this mechanism. Sali et al. confirmed it [10.1000/jmb.1].",
+    }
+    bad = {k: _verify(t)[0].problems for k, t in cases.items()}
+    bad = {k: v for k, v in bad.items() if v}
+    return _check("reviewed false positives are not flagged", not bad, str(bad))
+
+
+def test_url_tails_trimmed() -> bool:
+    text = ("https://www.biorxiv.org/content/10.1101/2020.01.01.123456v2.full and "
+            "https://link.springer.com/article/10.1007/s00249-019-01234-5#Sec2 and "
+            "https://doi.org/10.1016/j.bpj.2019.01.001?via=ihub and 10.1073/pnas.123/-/DCSupplemental "
+            "and 10.1002/(SICI)1097-4636(199603)30:3<283::AID-JBM2>3.0.CO;2-M")
+    got = [u.doi for u in citecheck.extract_units(text)]
+    want = ["10.1101/2020.01.01.123456", "10.1007/s00249-019-01234-5", "10.1016/j.bpj.2019.01.001",
+            "10.1073/pnas.123", "10.1002/(SICI)1097-4636(199603)30:3<283::AID-JBM2>3.0.CO;2-M"]
+    return _check("publisher URL tails and SICI DOIs", got == want, str(got))
+
+
+def test_doi_of_another_paper() -> bool:
+    text = ('1. Salikhov K, Stehlik D. "Transient EPR spectra of coupled three-spin systems". '
+            "*Appl Magn Reson* 1996, 10, 1-20. doi:10.1000/jmb.1")
+    us = _verify(text)
+    ok = len(us[0].problems) == 1 and "different paper" in us[0].problems[0]
+    prompt = citecheck.correction_prompt(text, us, [])
+    return _check("a DOI on the wrong paper is one problem, and the fix keeps the reference",
+                  ok and "Never change the reference to the DOI's paper" in citecheck.CORRECT_SYSTEM
+                  and "different paper" in prompt, str(us[0].problems))
+
+
+def test_code_and_table_marks() -> bool:
+    citecheck.lookup = _fake_lookup(missing={"10.1000/nope.9"})
+    code = "```bibtex\n@article{x, doi={10.1000/nope.9}}\n```"
+    a, _ = asyncio.run(citecheck.run(code, mode_override="warn"))
+    table = "| Paper | DOI |\n|---|---|\n| X | 10.1000/nope.9 |"
+    b, _ = asyncio.run(citecheck.run(table, mode_override="warn"))
+    last = b.splitlines()[-1]
+    return _check("code: existence checked, mark after the block; a table mark stays inside the last cell",
+                  a.startswith(code + "\n\n**[unverified: DOI 10.1000/nope.9 is not registered") and last.endswith("|") and last.count("|") == 3 and "[unverified" in last, b)
+
+
 def main() -> int:
     tests = [
         test_correct_citation_passes,
@@ -216,6 +263,10 @@ def main() -> int:
         test_enforce_rejects_truncated_revision,
         test_off_and_clean_are_noops,
         test_revision_guard,
+        test_review_false_positives,
+        test_url_tails_trimmed,
+        test_doi_of_another_paper,
+        test_code_and_table_marks,
     ]
     results: list[bool] = []
     for t in tests:

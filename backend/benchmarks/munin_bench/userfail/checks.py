@@ -17,9 +17,16 @@ ERROR_MARKERS = re.compile(
     r"|\[backend warning\]|maximum context length|produced no output",
     re.IGNORECASE)
 ARTIFACT_LINK = re.compile(r"/api/artifacts/(?:[\w-]+/)?([\w-]{8,})")
-# Old Elsevier DOIs contain parentheses (10.1016/0022-2836(91)90127-X), so
-# they are allowed inside and trimmed only when unbalanced at the end.
-DOI = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\]+", re.IGNORECASE)
+# Same rules as backend/retrieval/citecheck.py (_DOI_RE, _trim_doi): old
+# Elsevier DOIs contain parentheses (10.1016/0022-2836(91)90127-X), kept unless
+# unbalanced at the end; old Wiley SICI DOIs contain <...>; publisher URL tails
+# (#Sec2, ?via=ihub, .full, bioRxiv v2) are not part of the DOI.
+DOI = re.compile(r"\b10\.\d{4,9}/\(SICI\)[^\s\"'\[\]`{}|\\]+|\b10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\]+",
+                 re.IGNORECASE)
+_URL_TAIL = re.compile(
+    r"(?:[#?].*|/-/DC\w*.*|\.full\.pdf|\.full|\.abstract|\.pdf|\.html?|/full|/abstract|/pdf|/epdf|/fulltext)$",
+    re.IGNORECASE)
+_BIORXIV_VERSION = re.compile(r"^(10\.1101/.*\d{6,})v\d+$", re.IGNORECASE)
 
 
 def extract_dois(text: str) -> list[str]:
@@ -27,6 +34,7 @@ def extract_dois(text: str) -> list[str]:
     for d in DOI.findall(text or ""):
         while True:
             d0 = d
+            d = _BIORXIV_VERSION.sub(r"\1", _URL_TAIL.sub("", d))
             d = d.rstrip(".,;:*_~^")
             if d.endswith(")") and d.count(")") > d.count("("):
                 d = d[:-1]
