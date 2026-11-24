@@ -291,11 +291,22 @@ def convert(value, from_unit: str, to_unit: str, g: Optional[float] = None):
 # Spin system
 # ==============================================================================
 
+_NUCLEUS_KW = ("a_mhz", "a_mt", "i", "nucleus", "isotope", "euler_deg", "n", "a_mhz_par", "a_mhz_perp",
+               "azz", "a_par", "a_perp")
+_SYSTEM_KW = ("g", "fwhm_mt", "dbpp_mt", "shape", "g_strain", "a_strain_mhz", "nuclei")
+
+
 def _bad_kw(where: str, kw: dict):
     if not kw:
         return
     k = next(iter(kw))
     low = k.lower()
+    if where == "SpinSystem" and low in _NUCLEUS_KW:
+        raise TypeError(f"SpinSystem({k}=...): hyperfine goes on a Nucleus: "
+                        f"nuclei=[epr.Nucleus('63Cu', A_MHz=[...])] (A_MHz or A_mT, euler_deg, n per nucleus)")
+    if where == "Nucleus" and low in _SYSTEM_KW:
+        raise TypeError(f"Nucleus({k}=...): {k} belongs to the SpinSystem: epr.SpinSystem(g=..., "
+                        f"nuclei=[epr.Nucleus('14N', A_mT=[...])], fwhm_mT=...)")
     if low in ("lw", "lwpp", "linewidth", "lw_mt", "width", "lw_pp", "fwhm", "dbpp", "lw_gauss_mt"):
         raise TypeError(f"{where}: {k}= is ambiguous; name the width by kind and unit: fwhm_mT= (FWHM of "
                         f"the absorption line, EasySpin's Sys.lw) or dBpp_mT= (peak-to-peak width of the "
@@ -1095,9 +1106,10 @@ def _hybrid_direct(gt, groups, freq_GHz, dirs, perturb_only=(), **kw):
 # Orientation grid
 # ==============================================================================
 
-def _symmetry(sys: SpinSystem, groups_list) -> str:
+def _symmetry(sys: SpinSystem, groups_list, strain_axial: bool = False) -> str:
     """'axial' (all tensors diagonal and x = y), 'octant' (all diagonal), or
-    'hemisphere'."""
+    'hemisphere'. strain_axial: treat equal x and y strains as one axial
+    distribution (a cheaper approximation, used in the fit's first stage)."""
     mats = [sys.g_tensor()] + [gr.A for _, gs in groups_list for gr in gs]
     diag = all(np.allclose(m, np.diag(np.diag(m)), atol=1e-9 * max(1.0, np.abs(m).max())) for m in mats)
     if not diag:
@@ -1107,7 +1119,7 @@ def _symmetry(sys: SpinSystem, groups_list) -> str:
         # Strains of x and y are independent distributions: their width
         # depends on phi (cos^4 + sin^4) even when the two FWHMs are equal,
         # so any x/y strain needs the 2D grid.
-        if st is not None and (st[0] > 0 or st[1] > 0):
+        if st is not None and (st[0] > 0 or st[1] > 0) and not (strain_axial and abs(st[0] - st[1]) < 1e-12):
             ax = False
     return "axial" if ax else "octant"
 
@@ -1234,7 +1246,8 @@ def _prepare(sys: SpinSystem):
 
 def _simulate(sys: SpinSystem, x: np.ndarray, freq_GHz: float, harmonic: int, modamp_mT, method: str,
               n_orient: Optional[int], area: float, interp: Optional[int] = None, info: Optional[dict] = None,
-              max_points: Optional[float] = None, grid: Optional[dict] = None, corr_coarse: int = 1):
+              max_points: Optional[float] = None, grid: Optional[dict] = None, corr_coarse: int = 1,
+              strain_axial: bool = False):
     """Core simulation on a uniform increasing axis; no checks. `grid`: a
     dict that fixes the discrete choices (sub-cells, oversampling, padding,
     width classes) after the first call, so a fit sees a simulation that is
@@ -1242,7 +1255,7 @@ def _simulate(sys: SpinSystem, x: np.ndarray, freq_GHz: float, harmonic: int, mo
     gt, gframe = _prepare(sys)
     gw, lw = sys.widths()
     isos = _isotopologues(sys)
-    sym = _symmetry(sys, isos)
+    sym = _symmetry(sys, isos, strain_axial)
     if not n_orient:
         n_orient = _DEFAULT_N_ORIENT[method]
         if sym == "hemisphere" and method in ("hybrid", "perturb"):
@@ -1836,6 +1849,199 @@ def simulate_powder(sys: SpinSystem, field_mT, freq_GHz: float, *, harmonic: int
 
 
 # ==============================================================================
+# Start estimates from the spectrum
+# ==============================================================================
+
+@dataclass
+class PowderStarts(FieldHelp):
+    kind: str
+    values: dict          # the estimates, e.g. {"g_par": 2.24, "A_par_MHz": 580}
+    how: str              # how they were read off the spectrum
+
+    def __repr__(self):
+        vals = ", ".join(f"{k}={v:.5g}" for k, v in self.values.items())
+        return f"PowderStarts({self.kind}: {vals}; {self.how})"
+
+
+def _cu_grid_starts(x, yy, freq_GHz, modamp_mT, line_guess):
+    """Cu(II) starts by scoring quick simulations (plain second order,
+    coarse grid, scale and offset solved linearly) against the spectrum:
+    g_perp by a scan near the strong feature, then g_par x A_par on a grid,
+    then a finer grid around the best; the parallel-line estimate (if any)
+    competes as one more candidate. Returns (g_perp, g_par, A_par_MHz)."""
+    hv_mt = freq_GHz * 1000.0 / MUB_MHZ_PER_MT
+    xu = np.linspace(x[0], x[-1], min(x.size, 1024))
+    yu = np.interp(xu, x, yy)
+    D1 = np.ones((xu.size, 1))
+    grid: dict = {"ratio": 1.1}
+
+    region = {"m": np.ones(xu.size, bool)}
+
+    def cost(gp, gz, az):
+        sys_ = SpinSystem(g=[gp, gz], nuclei=[Nucleus("63Cu", A_MHz=[40.0, az])], fwhm_mT=1.2,
+                          g_strain=[0.004, 0.004, 0.010])
+        m = _simulate(sys_, xu, freq_GHz, 1, modamp_mT, "perturb", 300, 1.0, max_points=3e4, grid=grid,
+                      strain_axial=True)
+        k = region["m"]
+        D = np.column_stack([m[k], D1[k]])
+        c, *_ = np.linalg.lstsq(D, yu[k], rcond=None)
+        r = yu[k] - D @ c
+        return float(r @ r)
+    imx, imn = int(np.argmax(yy)), int(np.argmin(yy))
+    a, b = sorted((imx, imn))
+    gp0 = hv_mt / (0.5 * (x[a] + x[b]))
+    gz0, az0 = (line_guess[1], line_guess[2]) if line_guess else (2.25, 550.0)
+    # g_perp: the strong feature is at or above the perpendicular field
+    gps = gp0 + np.linspace(-0.01, 0.045, 23)
+    gp = min(gps, key=lambda v: cost(v, gz0, az0))
+    # g_par and A_par: scored on the parallel region only (below the
+    # perpendicular feature), where they decide the spectrum
+    region["m"] = xu < hv_mt / gp - 4.0
+    if np.count_nonzero(region["m"]) < 50:
+        region["m"] = np.ones(xu.size, bool)
+    coarse = [(cost(gp, gz, az), gz, az) for gz in np.arange(2.15, 2.385, 0.01)
+              for az in np.arange(350.0, 710.0, 15.0)]
+    if line_guess:
+        coarse.append((cost(gp, line_guess[1], line_guess[2]), line_guess[1], line_guess[2]))
+    coarse.sort()
+    # refine the best three distinct candidates (a ladder one line off fits
+    # three of the four parallel lines and can win on a coarse grid)
+    picked = []
+    for c_, gz, az in coarse:
+        if all(abs(gz - q[1]) > 0.02 or abs(az - q[2]) > 30 for q in picked):
+            picked.append((c_, gz, az))
+        if len(picked) == 3:
+            break
+    fine = [(cost(gp, gz + dg, az + da), gz + dg, az + da)
+            for _, gz, az in picked
+            for dg in np.linspace(-0.01, 0.01, 9) for da in np.linspace(-15.0, 15.0, 7)]
+    _, gz, az = min(fine)
+    region["m"] = np.ones(xu.size, bool)
+    gp = min(gp + np.linspace(-0.006, 0.006, 7), key=lambda v: cost(v, gz, az))
+    return float(gp), float(gz), float(az)
+
+
+def powder_starts(field_mT, y, freq_GHz: float, kind: str, modamp_mT: Optional[float] = None) -> PowderStarts:
+    """Start values for fit_spectrum read off a first-derivative powder
+    spectrum (estimates, not results: refine them with fit_spectrum).
+
+    kind="cu": axial Cu(II) (g_par > g_perp). The parallel hyperfine lines are
+        the low-field features below the strong perpendicular one; their
+        spacing is A_par/(g_par muB), and taking the highest of them as
+        m = -1/2 gives a first g_par. That guess and a grid of g_par x A_par
+        (2.15-2.38, 350-710 MHz) are then scored by quick simulations
+        against the spectrum (g_perp first, near the strong feature), and
+        the best is refined on a finer grid: this does not depend on
+        resolving the parallel lines or on which m they are. About 1 s.
+        Pass modamp_mT when the modulation is large.
+    kind="nitroxide": rigid-limit nitroxide: Azz = half the splitting of the
+        outer extrema (first maximum, last minimum).
+    kind="rhombic": S = 1/2 rhombic g: g_max at the first (low-field)
+        maximum, g_mid at the zero crossing of the central feature, g_min at
+        the last minimum."""
+    from .epr import _turning_points
+    x = np.asarray(field_mT, float).ravel()
+    yy = np.real(np.asarray(y)).astype(float).ravel()
+    if x[-1] < x[0]:
+        x, yy = x[::-1], yy[::-1]
+    hv_mt = freq_GHz * 1000.0 / MUB_MHZ_PER_MT          # g * B in mT
+    mx, mn = _turning_points(x, yy, 0.03)
+    k = kind.lower()
+    if k == "nitroxide":
+        if mx.size == 0 or mn.size == 0:
+            raise ValueError("no extrema found")
+        lo, hi = float(mx.min()), float(mn.max())
+        return PowderStarts("nitroxide", {"Azz_mT": (hi - lo) / 2, "g_iso": hv_mt / ((hi + lo) / 2)},
+                            "Azz = half the outer-extrema splitting (first maximum to last minimum)")
+    if k == "rhombic":
+        if mx.size < 2 or mn.size < 1:
+            raise ValueError("need at least two maxima and one minimum for a rhombic pattern")
+        b_max = float(mx.min())
+        b_min = float(mn.max())
+        # central feature: the strongest max/min pair between the outer two
+        imx, imn = int(np.argmax(yy)), int(np.argmin(yy))
+        inner = [(i, j) for i in np.searchsorted(x, mx) for j in np.searchsorted(x, mn)
+                 if b_max < x[i] < x[j] < b_min]
+        if inner:
+            i, j = max(inner, key=lambda t: yy[t[0]] - yy[t[1]])
+        else:
+            i, j = sorted((imx, imn))
+        seg = slice(min(i, j), max(i, j) + 1)
+        zc = np.nonzero(np.diff(np.sign(yy[seg])))[0]
+        b_mid = float(x[seg][zc[0]]) if zc.size else 0.5 * (x[i] + x[j])
+        return PowderStarts("rhombic", {"g_max": hv_mt / b_max, "g_mid": hv_mt / b_mid, "g_min": hv_mt / b_min},
+                            "g_max at the first maximum, g_mid at the zero crossing of the central feature, "
+                            "g_min at the last minimum")
+    if k == "cu":
+        imx, imn = int(np.argmax(yy)), int(np.argmin(yy))
+        a, b = sorted((imx, imn))
+        zc = np.nonzero(np.diff(np.sign(yy[a:b + 1])))[0]
+        b_perp = float(x[a + zc[0]]) if zc.size else 0.5 * (x[a] + x[b])
+        # parallel lines: maxima at least 5 mT below the strong feature,
+        # counted against the low-field region's own height (they are weak
+        # next to the perpendicular line)
+        low = x < b_perp - 5.0
+        guess = None
+        if np.count_nonzero(low) > 20:
+            lm, _ = _turning_points(x[low], yy[low], 0.15)
+            par = np.sort(lm)
+            if par.size >= 2:
+                spacing = float(par[-1] - par[-2])
+                g_par = hv_mt / (float(par[-1]) - spacing / 2)
+                if 2.1 < g_par < 2.45 and 8.0 < spacing < 25.0:
+                    guess = (hv_mt / b_perp, g_par, spacing * g_par * MUB_MHZ_PER_MT)
+        gp, gz, az = _cu_grid_starts(x, yy, float(freq_GHz), modamp_mT, guess)
+        how = ("g_perp scanned near the strong perpendicular feature; g_par and A_par from a grid "
+               "(2.15-2.38, 350-710 MHz) scored by quick simulations, refined"
+               + ("; the parallel-line spacing estimate (highest line as m = -1/2) competed as a candidate"
+                  if guess else "; the parallel lines were not resolved, so the grid alone decides"))
+        return PowderStarts("cu", {"g_perp": gp, "g_par": gz, "A_par_MHz": az}, how)
+    raise ValueError("kind: 'cu', 'nitroxide' or 'rhombic'")
+
+
+def _auto_start(start_sys: "SpinSystem", params: list, x, y, freq_GHz, modamp_mT=None) -> Optional[dict]:
+    """{param index: value} from powder_starts when the system is clearly
+    one of its kinds (axial g with one I >= 3/2 nucleus whose largest A is
+    along g_par: "cu"; one 14N with the largest A along z and g near 2:
+    "nitroxide"); None otherwise."""
+    try:
+        g = np.asarray(start_sys.g, float)
+        nuc = start_sys.nuclei
+        if len(nuc) != 1:
+            return None
+        isos, _, _ = _mixture(nuc[0].name)
+        spin = max([i.spin for i, _ in isos] or [0])
+        A = np.asarray(nuc[0].A_spec, float)
+        if A.ndim == 0 or A.shape == (3, 3) or g.ndim == 0 or g.shape == (3, 3):
+            return None
+        gp = _principal(g)
+        Ap = _principal(A)
+        out = {}
+        if spin >= 1.5 and abs(gp[0] - gp[1]) < 0.02 and gp[2] > gp[0] and np.argmax(np.abs(Ap)) == 2:
+            est = powder_starts(x, y, freq_GHz, "cu", modamp_mT=modamp_mT).values
+            for j, p in enumerate(params):
+                if p.key == "g" and p.comp in (0, None) and g.size == 2:
+                    out[j] = est["g_perp"]
+                elif p.key == "g" and ((g.size == 2 and p.comp == 1) or (g.size == 3 and p.comp == 2)):
+                    out[j] = est["g_par"]
+                elif p.key == "g" and g.size == 3 and p.comp in (0, 1):
+                    out[j] = est["g_perp"]
+                elif p.key == "A_MHz" and ((A.size == 2 and p.comp == 1) or (A.size == 3 and p.comp == 2)):
+                    out[j] = est["A_par_MHz"] * np.sign(Ap[2] or 1)
+        elif spin == 1.0 and np.all(np.abs(gp - 2.005) < 0.01) and np.argmax(np.abs(Ap)) == 2:
+            est = powder_starts(x, y, freq_GHz, "nitroxide").values
+            giso = float(np.mean(gp))
+            for j, p in enumerate(params):
+                if p.key == "A_mT" and ((A.size == 2 and p.comp == 1) or (A.size == 3 and p.comp == 2)):
+                    out[j] = est["Azz_mT"]
+                elif p.key == "A_MHz" and ((A.size == 2 and p.comp == 1) or (A.size == 3 and p.comp == 2)):
+                    out[j] = est["Azz_mT"] * giso * MUB_MHZ_PER_MT
+        return out or None
+    except (ValueError, IndexError):
+        return None
+
+
+# ==============================================================================
 # fit_spectrum
 # ==============================================================================
 
@@ -1849,6 +2055,8 @@ class _Param:
     half: float
     lo: float
     hi: float
+    phys_lo: float = -math.inf   # physical limit: a range is never widened past it
+    phys_hi: float = math.inf
 
 
 _SUFFIX = {1: [""], 2: ["_perp", "_par"], 3: ["_x", "_y", "_z"]}
@@ -1873,21 +2081,84 @@ def _spec_params(name, key, nucleus, start_arr, half, positive):
         if h == 0:
             continue
         lo, hi = s - h, s + h
+        plo = -math.inf
         if positive:
-            lo = max(lo, 1e-3 * max(abs(s), 1e-6) if s > 0 else 0.0)
+            plo = 1e-3 * max(abs(s), 1e-6) if s > 0 else 0.0
+            lo = max(lo, plo)
         out.append(_Param(name=name + sfx[i], key=key, nucleus=nucleus,
                           comp=(None if start_arr.size == 1 else i), start=float(s), half=float(h),
-                          lo=float(lo), hi=float(hi)))
+                          lo=float(lo), hi=float(hi), phys_lo=float(plo)))
     return out
 
 
 def _per_nucleus(rng, n_nuclei: int) -> list:
     """vary['A_MHz'] as one entry per nucleus; a single nucleus may be given
-    without the outer list (vary={'A_MHz': [20, 50]})."""
-    if n_nuclei == 1 and (np.ndim(rng) == 0 or (np.ndim(rng) == 1 and rng[0] is not None
-                                                and not isinstance(rng[0], (list, tuple, np.ndarray)))):
+    without the outer list (vary={'A_MHz': [20, 50]}), and a scalar means
+    that half-range for every component of every nucleus."""
+    if np.ndim(rng) == 0:
+        return [rng] * n_nuclei
+    if n_nuclei == 1 and (np.ndim(rng) == 1 and rng[0] is not None
+                          and not isinstance(rng[0], (list, tuple, np.ndarray))):
         return [rng]
     return list(rng)
+
+
+def _g_ranges(g: np.ndarray, rng):
+    """vary['g'] shaped like the start g. A scalar is every component; a
+    list that does not match is accepted when it is unambiguous: equal
+    values for a scalar g, [perp, par] for an axial g written as three
+    values with x = y."""
+    r = np.atleast_1d(np.asarray(rng, float)).ravel()
+    gs = np.asarray(g, float)
+    if gs.shape == (3, 3):
+        raise ValueError("vary['g']: a full 3x3 g cannot be varied; give principal values")
+    n = gs.size
+    if r.size in (1, n):
+        return r if r.size == n else r[0]
+    if n == 1 and np.allclose(r, r[0]):
+        return float(r[0])
+    if n == 3 and r.size == 2 and np.isclose(gs[0], gs[1]):
+        return np.array([r[0], r[0], r[1]])
+    shape = {1: "a scalar", 2: "[perp, par]", 3: "[x, y, z]"}[n]
+    raise ValueError(f"vary['g']: {r.size} ranges for a g given as {gs.tolist()}; give {shape} (or one "
+                     f"number for every component)")
+
+
+def _default_vary(start: "SpinSystem") -> dict:
+    """vary when none is given (or vary='all'): g +-0.05 per component, A
+    +-max(50%, 50 MHz) per component (in mT for a nucleus given in mT, 50 MHz
+    converted at the mean g), the linewidth +-80%, strains that the start
+    sets from 0 to 0.02 (g) or 0 to 2x their value (A, at least 20 MHz)."""
+    v: dict = {"g": 0.05 if np.ndim(start.g) == 0 else [0.05] * np.size(start.g)}
+    giso = float(np.trace(start.g_tensor()) / 3)
+    for key in ("A_MHz", "A_mT"):
+        ent = []
+        for nuc in start.nuclei:
+            if nuc.unit != key.split("_")[1]:
+                ent.append(None)
+                continue
+            a = np.abs(np.asarray(nuc.A_spec, float))
+            if a.shape == (3, 3):
+                ent.append(None)
+                continue
+            floor = 50.0 if key == "A_MHz" else 50.0 / (giso * MUB_MHZ_PER_MT)
+            ent.append(np.maximum(0.5 * a, floor).tolist() if a.ndim else max(0.5 * float(a), floor))
+        if any(e is not None for e in ent):
+            v[key] = ent
+    wkey = "fwhm_mT" if start.fwhm_mT is not None else "dBpp_mT"
+    w = np.asarray(getattr(start, wkey), float)
+    v[wkey] = (0.8 * w).tolist() if w.ndim else 0.8 * float(w)
+    if start.g_strain is not None:
+        gsr = np.asarray(start.g_strain, float)
+        # half-range centred to cover 0 to 0.02; [perp, par] when the start is axial
+        gp = _principal(np.asarray(start.g, float)) if np.ndim(start.g) < 2 else None
+        rng_ = [max(0.02 - x, x) for x in gsr]
+        if gp is not None and abs(gp[0] - gp[1]) < 1e-12 and abs(gsr[0] - gsr[1]) < 1e-12:
+            rng_ = [rng_[0], rng_[2]]
+        v["g_strain"] = rng_
+    if start.A_strain_MHz is not None:
+        v["A_strain_MHz"] = [max(x, 20.0) for x in np.asarray(start.A_strain_MHz, float)]
+    return v
 
 
 def _system_params(start: SpinSystem, vary: dict) -> tuple[SpinSystem, list[_Param]]:
@@ -1932,7 +2203,7 @@ def _system_params(start: SpinSystem, vary: dict) -> tuple[SpinSystem, list[_Par
     start = start._replace(nuclei=nuclei)
     for key, rng in vary.items():
         if key == "g":
-            params += _spec_params("g", "g", None, start.g, rng, True)
+            params += _spec_params("g", "g", None, start.g, _g_ranges(start.g, rng), True)
         elif key in ("A_MHz", "A_mT"):
             rr = rng
             rr = _per_nucleus(rr, len(nuclei))
@@ -1940,7 +2211,13 @@ def _system_params(start: SpinSystem, vary: dict) -> tuple[SpinSystem, list[_Par
                 if r is None:
                     continue
                 lab = labels[i]
-                params += _spec_params(f"{key}({lab})", key, i, nuclei[i].A_spec, r, False)
+                ps = _spec_params(f"{key}({lab})", key, i, nuclei[i].A_spec, r, False)
+                for p_ in ps:            # the sign of A is not measured: keep A on its side of 0
+                    if p_.start >= 0:
+                        p_.phys_lo, p_.lo = 0.0, max(p_.lo, 0.0)
+                    else:
+                        p_.phys_hi, p_.hi = 0.0, min(p_.hi, 0.0)
+                params += ps
         elif key in ("fwhm_mT", "dBpp_mT"):
             cur = getattr(start, key)
             if cur is None:
@@ -1968,6 +2245,7 @@ def _system_params(start: SpinSystem, vary: dict) -> tuple[SpinSystem, list[_Par
             ps = _spec_params(key, key, None, cur, rng, False)
             for p_ in ps:
                 p_.lo = max(p_.lo, 0.0)
+                p_.phys_lo = 0.0
                 if axial:                    # perp sets x and y, par sets z
                     p_.comp = -1 if p_.comp == 0 else 2
             params += ps
@@ -2124,9 +2402,25 @@ def _iso_model(sys: SpinSystem, x, freq_GHz, harmonic, modamp_mT, exact: bool = 
         kw = dict(lw_mT=lw / math.sqrt(3), shape="lorentzian")
     else:
         kw = dict(lw_mT=lw / math.sqrt(3), shape="lorentzian", lw_gauss_mT=gw / math.sqrt(2 * math.log(2)))
+    from . import epr as _epr
     y = 0.0
     isos = _isotopologues(sys)
     wsum = sum(w for w, _ in isos)
+    # modulation quadrature: 256 points are needed for over-modulation only;
+    # for a modulation well under the linewidth 24 are exact to 1e-6
+    lw_min = min([w_ for w_ in (gw, lw) if w_ > 0] or [1.0])
+    n_theta = 256 if (modamp_mT or 0) > 0.5 * lw_min else 24
+    old = _epr._ISO_MOD_THETA
+    _epr._ISO_MOD_THETA = n_theta
+    try:
+        y = _iso_sum(sys, x, freq_GHz, harmonic, modamp_mT, exact, isos, wsum, g, kw)
+    finally:
+        _epr._ISO_MOD_THETA = old
+    return y
+
+
+def _iso_sum(sys, x, freq_GHz, harmonic, modamp_mT, exact, isos, wsum, g, kw):
+    y = 0.0
     for w, groups in isos:
         w = w / wsum
         nuc = [(gr.I, gr.A[0, 0] / (g * MUB_MHZ_PER_MT), gr.n) for gr in groups]
@@ -2152,7 +2446,14 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
     start, {"g": ..., "A_MHz": [per nucleus, None if fixed], "A_mT": ...,
     "fwhm_mT"/"dBpp_mT": ..., "g_strain": ..., "A_strain_MHz": ...}, shaped
     like the start values (0 keeps a component fixed). Bounds are start +-
-    range. The scale and a polynomial baseline of `baseline_order` are solved
+    range. vary left out (or vary="all"): g +-0.05 per component, A
+    +-max(50%, 50 MHz), the linewidth +-80%, strains the start sets 0 to
+    0.02. A flat list is fine for one nucleus, and a scalar means every
+    component. A parameter that ends within 2% of its range edge gets a
+    range reaching past that edge (twice the old width ahead of the value,
+    then four times) and the fit is redone, at most twice; the result's notes say so, and a
+    parameter still at an edge is warned about ("ended at its bound").
+    The scale and a polynomial baseline of `baseline_order` are solved
     linearly at every step. The first start is `start`; n_starts - 1 (default
     8 starts in all) more are drawn inside the ranges (seeded, Latin
     hypercube). Powder fits run in stages: (0) a scan with plain
@@ -2173,8 +2474,17 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
     yy = np.real(np.asarray(y)).astype(float).ravel()
     if x.size != yy.size:
         raise ValueError(f"field_mT has {x.size} points and y {yy.size}")
-    if vary is None or not vary:
-        raise ValueError("vary: give the parameters to fit with half-ranges, e.g. vary={'g': 0.01, 'fwhm_mT': 0.3}")
+    callable_model = callable(model) and not isinstance(model, str)
+    if callable_model and (vary is None or isinstance(vary, str) or not vary):
+        raise ValueError("vary: a callable model needs the parameters to fit with half-ranges, "
+                         "e.g. vary={'b0': 0.5, 'w': 0.2}")
+    if not callable_model and (vary is None or (isinstance(vary, str) and vary.lower() == "all")):
+        if not isinstance(start, SpinSystem):
+            raise TypeError("start: an epr.SpinSystem(...) with the starting values")
+        vary = _default_vary(start)
+    elif isinstance(vary, str):
+        raise ValueError(f"vary={vary!r}: give a dict of half-ranges, or vary='all' (or leave it out) for the "
+                         f"default ranges")
     simulate_quick: Optional[Callable] = None     # cheap first-stage simulation (powder)
     notes: list[str] = []
     warns: list[str] = []
@@ -2229,7 +2539,7 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
                 def _quick(theta):
                     s = _apply(start_sys, params, theta)
                     yv = _simulate(s, xu, float(freq_GHz), harmonic, modamp_mT, "perturb", 400, 1.0,
-                                   max_points=5e4, grid=grid_q)
+                                   max_points=5e4, grid=grid_q, strain_axial=True)
                     return _on_user_axis(yv, xs, xu, rev, uniform)
                 simulate_quick = _quick
         else:
@@ -2259,13 +2569,15 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
         c, *_ = np.linalg.lstsq(D, yy, rcond=None)
         return c, D @ c
 
-    # The starts stop at 85% of max_time_s, leaving time for the Jacobian
+    # The starts stop at 80% of max_time_s, leaving time for the Jacobian
     # and the simulation check at the optimum.
-    budget = 0.85 * max_time_s
+    budget = 0.8 * max_time_s
 
     def make_resid(sim, key, limit):
+        """Residual function that stops (raises _OutOfTime) after the
+        monotonic time `limit`."""
         def resid(u):
-            if time.monotonic() - t0 > limit:
+            if time.monotonic() > limit:
                 raise _OutOfTime
             s = sim(th0 + u * h)
             state["n"] += 1
@@ -2277,128 +2589,253 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
             return r
 
         return resid
-    resid = make_resid(simulate, "best", budget)
 
-    if n_starts is None:                 # powder simulations are costlier: fewer, spread-out starts
+    if n_starts is None:
         n_starts = 8
     rng = np.random.default_rng(seed)
-    starts_u = [np.clip(np.zeros(k_par), ulo, uhi)]
-    n_rand = max(0, int(n_starts) - 1)
-    if n_rand and simulate_quick is not None:
-        # Stage 0 (powder): score a Latin hypercube of 15 points per
-        # parameter with the cheap simulation and start from the best ones.
-        # Powder fits have many local minima (a hyperfine ladder assigned
-        # one line off), and a few random starts rarely land in the right
-        # basin.
-        n_scan = 15 * k_par
-        lhs = np.stack([(rng.permutation(n_scan) + rng.random(n_scan)) / n_scan for _ in range(k_par)], axis=1)
-        cand = ulo + (uhi - ulo) * (0.02 + 0.96 * lhs)
-        scores = []
-        for uc in cand:
-            if time.monotonic() - t0 > 0.15 * budget:
-                break
-            sv = simulate_quick(th0 + uc * h)
-            state["n"] += 1
-            _, fv = linear(sv)
-            scores.append(float(np.sum((yy - fv) ** 2)))
 
+    def qcost_of(sim):
         def qcost(uc):
-            sv = simulate_quick(th0 + uc * h)
+            sv = sim(th0 + uc * h)
             state["n"] += 1
             _, fv = linear(sv)
             return float(np.sum((yy - fv) ** 2))
-        # Also two cycles of one-parameter scans from the given start: each
-        # parameter in turn set to the best of 15 values across its range.
-        # Powder spectra are sharp in g_perp and in the g_par/A_par
-        # combination; the scans find those valleys, the optimiser then
-        # follows them.
-        uc = starts_u[0].copy()
-        best_c = qcost(uc)
-        try:
-            for _cycle in range(2):
-                for j in range(k_par):
-                    vals = np.linspace(ulo[j], uhi[j], 15)
-                    for v in vals:
-                        if time.monotonic() - t0 > 0.3 * budget:
+        return qcost
+
+    auto = None
+    if model_name == "powder" and start_sys is not None and max_time_s >= 5:
+        auto = _auto_start(start_sys, params, x, yy, float(freq_GHz), modamp_mT)
+
+    # pairs (g component, A component) on the same principal axis
+    gA_pairs = []
+    for i_g, pg in enumerate(params):
+        if pg.key != "g":
+            continue
+        for i_a, pa in enumerate(params):
+            if pa.key in ("A_MHz", "A_mT") and pa.comp == pg.comp and pg.comp is not None:
+                gA_pairs.append((i_g, i_a))
+    gA_pairs.sort(key=lambda t: -abs(params[t[1]].start))
+
+    def search(blo, bhi, u_first, t_mid, t_end, n_starts_, scan_per, cycles):
+        """One multistart search inside the box [blo, bhi] (u units): the
+        scans and the cheap first stage by t_mid, the refinement by t_end.
+        Returns (results, stage-one results, stopped, number of starts)."""
+        t_s = time.monotonic()
+        span = max(t_mid - t_s, 1e-3)
+        k = k_par
+        starts = [np.clip(u_first, blo, bhi)]
+        if auto:
+            # a start read off the spectrum (powder_starts), when it is inside the box
+            ue = starts[0].copy()
+            inside = True
+            for j, v in auto.items():
+                ue[j] = (v - th0[j]) / h[j]
+                inside &= blo[j] <= ue[j] <= bhi[j]
+            if inside:
+                starts.append(ue)
+        n_rand = max(0, int(n_starts_) - 1)
+        quick = simulate_quick if simulate_quick is not None else simulate
+        staged = simulate_quick is not None or model_name == "iso"
+        if n_rand and staged:
+            # Stage 0: score a Latin hypercube (scan_per points per
+            # parameter) and run one-parameter scans from the first start
+            # (each parameter in turn set to the best of 15 values across
+            # its range). Spectra with hyperfine ladders have many local
+            # minima (a ladder assigned one line off); the scans find the
+            # valleys (g_perp, the g_par/A_par combination), the optimiser
+            # then follows them.
+            qcost = qcost_of(quick)
+            n_scan = scan_per * k
+            lhs = np.stack([(rng.permutation(n_scan) + rng.random(n_scan)) / n_scan for _ in range(k)], axis=1)
+            cand = blo + (bhi - blo) * (0.02 + 0.96 * lhs)
+            scores = []
+            for uc in cand:
+                if time.monotonic() - t_s > 0.2 * span:
+                    break
+                scores.append(qcost(uc))
+            uc = starts[0].copy()
+            best_c = qcost(uc)
+
+            def scan_1d(uc, best_c):
+                for j in range(k):
+                    # g is the sharpest parameter of a powder spectrum (its
+                    # basin is a few thousandths wide): scan it finer
+                    for v in np.linspace(blo[j], bhi[j], 41 if params[j].key == "g" else 21):
+                        if time.monotonic() - t_s > 0.55 * span:
                             raise _OutOfTime
                         trial = uc.copy()
                         trial[j] = v
                         cst = qcost(trial)
                         if cst < best_c:
                             best_c, uc = cst, trial
-        except _OutOfTime:
-            pass
-        starts_u.append(uc)
-        order = np.argsort(scores)
-        for i in order[:max(0, n_rand - 1)]:
-            starts_u.append(cand[i])
-    elif n_rand:
-        # Latin hypercube: each parameter's range is cut into n_rand strata
-        # and every stratum is used once, so few starts still cover it
-        lhs = np.stack([(rng.permutation(n_rand) + rng.random(n_rand)) / n_rand for _ in range(k_par)], axis=1)
-        for row in lhs:
-            starts_u.append(ulo + (uhi - ulo) * (0.1 + 0.8 * row))
-    results = []
-    stopped = False
-    if simulate_quick is not None:
-        # Two stages: every start on the cheap simulation (up to 60% of the
-        # budget), then the best one or two distinct minima refined on the
-        # full one. The start comparison (several minima) uses stage one.
-        resid_q = make_resid(simulate_quick, "best_quick", 0.6 * budget)
-        stage1 = []
-        for u0 in starts_u:
+                return uc, best_c
+
+            def scan_2d(uc, best_c):
+                # g and A on the same axis together: the g_par/A_par valley of
+                # a hyperfine ladder is diagonal, which one-parameter scans
+                # cross only slowly
+                for n_pair, (i_g, i_a) in enumerate(gA_pairs):
+                    base = uc.copy()
+                    m = 31 if n_pair == 0 else 13          # the largest coupling first, finest
+                    for vg in np.linspace(blo[i_g], bhi[i_g], m):
+                        for va in np.linspace(blo[i_a], bhi[i_a], m):
+                            if time.monotonic() - t_s > 0.55 * span:
+                                raise _OutOfTime
+                            trial = base.copy()
+                            trial[i_g], trial[i_a] = vg, va
+                            cst = qcost(trial)
+                            if cst < best_c:
+                                best_c, uc = cst, trial
+                return uc, best_c
             try:
-                r = optimize.least_squares(resid_q, u0, bounds=(ulo, uhi), method="trf", x_scale=1.0,
-                                           diff_step=1e-4, max_nfev=10, xtol=1e-5, ftol=1e-6)
-                stage1.append({"u": r.x, "cost": float(2 * r.cost), "jac": None})
+                for _cycle in range(cycles):
+                    uc, best_c = scan_1d(uc, best_c)
+                    uc, best_c = scan_2d(uc, best_c)
             except _OutOfTime:
-                stopped = True
-                break
-        if not stage1 and state["best_quick"] is not None:
-            stage1.append({"u": state["best_quick"][1], "cost": state["best_quick"][0], "jac": None})
-        cands = sorted(stage1, key=lambda d: d["cost"])
-        picked = cands[:1]
-        for d in cands[1:]:
-            if d["cost"] <= 1.3 * cands[0]["cost"] and np.max(np.abs(d["u"] - cands[0]["u"])) > 0.1:
-                picked.append(d)
-                break
-        n_started = len(starts_u)
-        for i_p, d in enumerate(picked):
-            if i_p and time.monotonic() - t0 > 0.5 * budget:
-                break
+                pass
+            starts.append(uc)
+            for i in np.argsort(scores)[:max(0, n_rand - 1)]:
+                starts.append(cand[i])
+        elif n_rand:
+            lhs = np.stack([(rng.permutation(n_rand) + rng.random(n_rand)) / n_rand for _ in range(k)], axis=1)
+            for row in lhs:
+                starts.append(blo + (bhi - blo) * (0.1 + 0.8 * row))
+        results_, stopped_ = [], False
+        resid_full = make_resid(simulate, "best", t_end)
+        if simulate_quick is not None:
+            # Two stages: a few optimiser steps from every start on the cheap
+            # simulation, then the best one (two if time allows) refined on
+            # the full one. The start comparison (several minima) uses stage one.
+            resid_q = make_resid(simulate_quick, "best_quick", t_s + span)
+            stage1 = []
+            for u0 in starts:
+                try:
+                    r = optimize.least_squares(resid_q, u0, bounds=(blo, bhi), method="trf", x_scale=1.0,
+                                               diff_step=1e-4, max_nfev=10, xtol=1e-5, ftol=1e-6)
+                    stage1.append({"u": r.x, "cost": float(2 * r.cost), "jac": None})
+                except _OutOfTime:
+                    # the cheap stage has its own share of the time; running out
+                    # of it is not an early stop of the fit (the refinement follows)
+                    break
+            if not stage1 and state["best_quick"] is not None:
+                stage1.append({"u": state["best_quick"][1], "cost": state["best_quick"][0], "jac": None})
+            cands = sorted(stage1, key=lambda d: d["cost"])
+            picked = cands[:1]
+            for d in cands[1:]:
+                if d["cost"] <= 1.3 * cands[0]["cost"] and np.max(np.abs(d["u"] - cands[0]["u"])) > 0.1:
+                    picked.append(d)
+                    break
+            for i_p, d in enumerate(picked):
+                if i_p and time.monotonic() > t_s + 0.5 * (t_end - t_s):
+                    break
+                try:
+                    r = optimize.least_squares(resid_full, d["u"], bounds=(blo, bhi), method="trf", x_scale=1.0,
+                                               diff_step=1e-4, max_nfev=40, xtol=1e-6, ftol=1e-8)
+                    results_.append({"u": r.x, "cost": float(2 * r.cost), "jac": r.jac})
+                except _OutOfTime:
+                    stopped_ = True
+                    break
+            return results_, stage1, stopped_, len(starts)
+        for u0 in starts:
             try:
-                r = optimize.least_squares(resid, d["u"], bounds=(ulo, uhi), method="trf", x_scale=1.0,
-                                           diff_step=1e-4, max_nfev=25, xtol=1e-6, ftol=1e-7)
-                results.append({"u": r.x, "cost": float(2 * r.cost), "jac": r.jac})
+                r = optimize.least_squares(resid_full, u0, bounds=(blo, bhi), method="trf", x_scale=1.0,
+                                           diff_step=1e-4, max_nfev=60 * (k + 1), xtol=1e-8, ftol=1e-10)
+                results_.append({"u": r.x, "cost": float(2 * r.cost), "jac": r.jac})
             except _OutOfTime:
-                stopped = True
+                stopped_ = True
                 break
-        ms_results = stage1
-    else:
-        n_started = len(starts_u)
-        for u0 in starts_u:
-            try:
-                r = optimize.least_squares(resid, u0, bounds=(ulo, uhi), method="trf", x_scale=1.0,
-                                           diff_step=1e-4, max_nfev=60 * (k_par + 1), xtol=1e-8, ftol=1e-10)
-                results.append({"u": r.x, "cost": float(2 * r.cost), "jac": r.jac})
-            except _OutOfTime:
-                stopped = True
-                break
-        ms_results = results
+        return results_, results_, stopped_, len(starts)
+
+    def pick_best(results_):
+        if results_:
+            b = min(results_, key=lambda d: d["cost"])
+            if state["best"] is not None and state["best"][0] < b["cost"] * (1 - 1e-9):
+                b = {"u": state["best"][1], "cost": state["best"][0], "jac": None}
+            return b
+        if state["best"] is None:
+            if state["best_quick"] is None:
+                # nothing finished in time: report the start itself
+                make_resid(simulate, "best", math.inf)(np.clip(np.zeros(k_par), ulo, uhi))
+            else:
+                state["best"] = state["best_quick"]
+        return {"u": state["best"][1], "cost": state["best"][0], "jac": None}
+
+    ulo0, uhi0 = ulo.copy(), uhi.copy()
+    plo_u = np.array([(p.phys_lo - p.start) / p.half for p in params])
+    phi_u = np.array([(p.phys_hi - p.start) / p.half for p in params])
+    widen_log = []
+    if auto:
+        # The spectrum's own estimate (powder_starts) outside a range moves
+        # that range to include it: a start far from the spectrum is the
+        # usual reason a powder fit ends in the wrong basin.
+        for j, v in auto.items():
+            ue = (v - th0[j]) / h[j]
+            if not (ulo[j] <= ue <= uhi[j]):
+                old = (th0[j] + ulo[j] * h[j], th0[j] + uhi[j] * h[j])
+                margin = 0.25 * (uhi0[j] - ulo0[j])
+                ulo[j] = max(min(ulo[j], ue - margin), plo_u[j])
+                uhi[j] = min(max(uhi[j], ue + margin), phi_u[j])
+                widen_log.append(f"{params[j].name}: the range [{old[0]:.5g}, {old[1]:.5g}] did not contain the "
+                                 f"value read off the spectrum ({v:.5g}, powder_starts); used "
+                                 f"[{th0[j] + ulo[j] * h[j]:.5g}, {th0[j] + uhi[j] * h[j]:.5g}]")
+    # The first search's scans and cheap stage get 45% of the budget, so that
+    # a widening (below) still has time; its refinement may use all of it.
+    results, ms_results, stopped, n_started = search(ulo, uhi, np.zeros(k_par), t0 + 0.45 * budget,
+                                                     t0 + budget, n_starts, 15, 2)
+    best = pick_best(results)
+
+    # Bounds that widen: a parameter that ends within 2% of its range edge
+    # (not a physical limit) gets a range that reaches past that edge (the
+    # old half-width behind the value, twice the old full width ahead of it,
+    # then four times), and the fit is redone from there with the same
+    # multistart (at most two times, inside max_time_s).
+    def at_edge(u_, blo, bhi):
+        w = bhi - blo
+        lo_e = (u_ - blo < 0.02 * w) & (blo > plo_u + 1e-9)
+        hi_e = (bhi - u_ < 0.02 * w) & (bhi < phi_u - 1e-9)
+        return lo_e | hi_e
+
+    for round_ in (1, 2):
+        edge = at_edge(best["u"], ulo, uhi)
+        if not np.any(edge) or time.monotonic() - t0 > 0.85 * budget:
+            break
+        nlo, nhi = ulo.copy(), uhi.copy()
+        for j in np.nonzero(edge)[0]:
+            # extend past the edge that was hit: the old half-width behind
+            # the value, 2x (then 4x) the full width ahead of it
+            half0 = (uhi0[j] - ulo0[j]) / 2
+            ahead = 2 * half0 * 2 ** round_
+            if best["u"][j] - ulo[j] < uhi[j] - best["u"][j]:     # lower edge
+                nlo[j], nhi[j] = best["u"][j] - ahead, best["u"][j] + half0
+            else:
+                nlo[j], nhi[j] = best["u"][j] - half0, best["u"][j] + ahead
+            nlo[j], nhi[j] = max(nlo[j], plo_u[j]), min(nhi[j], phi_u[j])
+            p_ = params[j]
+            widen_log.append(f"{p_.name} ended at the edge of [{th0[j] + ulo[j] * h[j]:.5g}, "
+                             f"{th0[j] + uhi[j] * h[j]:.5g}]; refitted with [{th0[j] + nlo[j] * h[j]:.5g}, "
+                             f"{th0[j] + nhi[j] * h[j]:.5g}]")
+        ulo, uhi = nlo, nhi
+        t_left = t0 + budget - time.monotonic()
+        t_round = time.monotonic() + (t_left / 2 if round_ == 1 else t_left)
+        r2, ms2, st2, n2 = search(ulo, uhi, best["u"], time.monotonic() + 0.6 * (t_round - time.monotonic()),
+                                  t_round, n_starts, 15, 2)
+        # a round's own deadline is not the fit's: only report an early stop
+        # when the whole budget is used up
+        stopped = stopped or (st2 and time.monotonic() > t0 + 0.95 * budget)
+        if r2 or state["best"] is not None:
+            best = pick_best(r2 + ([best] if best.get("jac") is not None else []))
+        results = r2 or results
+        if ms2:
+            ms_results, n_started = ms2, n2
+    for p_, (lo_u, hi_u) in zip(params, zip(ulo, uhi)):
+        p_.lo, p_.hi = float(p_.start + lo_u * p_.half), float(p_.start + hi_u * p_.half)
+    if widen_log:
+        notes.append("ranges moved by fit_spectrum (a parameter at the edge of its range, or a range that "
+                     "missed the value read off the spectrum): " + "; ".join(widen_log))
     if stopped:
         warns.append(f"stopped at max_time_s={max_time_s:g} s after {state['n']} simulations "
                      f"({len(ms_results)} of {n_started} starts finished): the best fit so far is reported; "
                      f"raise max_time_s (and run_python's timeout_s) or narrow the ranges")
-    if not results and state["best"] is None:
-        if state["best_quick"] is None:
-            raise RuntimeError("no simulation finished within max_time_s; raise it")
-        state["best"] = state["best_quick"]
-    if results:
-        best = min(results, key=lambda d: d["cost"])
-        if state["best"] is not None and state["best"][0] < best["cost"] * (1 - 1e-9):
-            best = {"u": state["best"][1], "cost": state["best"][0], "jac": None}
-    else:
-        best = {"u": state["best"][1], "cost": state["best"][0], "jac": None}
     u = best["u"]
     theta = th0 + u * h
     s = simulate(theta)
@@ -2440,9 +2877,16 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
                 warns.append(f"{names[i]} and {names[j]} are correlated (r = {R[i, j]:+.3f}): the spectrum does "
                              f"not separate them; their CIs are wide, consider fixing one")
     for j, p in enumerate(params):
-        if abs(u[j] - ulo[j]) < 1e-3 or abs(u[j] - uhi[j]) < 1e-3:
-            warns.append(f"{p.name} = {theta[j]:.6g} ended at its bound [{p.lo:.6g}, {p.hi:.6g}]: widen its "
-                         f"range in vary; its CI is not meaningful")
+        at_lo = abs(u[j] - ulo[j]) < 1e-3
+        at_hi = abs(u[j] - uhi[j]) < 1e-3
+        physical = (at_lo and ulo[j] <= plo_u[j] + 1e-9) or (at_hi and uhi[j] >= phi_u[j] - 1e-9)
+        if physical:
+            notes.append(f"{p.name} = {theta[j]:.6g} is at its physical limit (no CI on that side)")
+        elif at_lo or at_hi:
+            warns.append(f"{p.name} = {theta[j]:.6g} ended at its bound [{p.lo:.6g}, {p.hi:.6g}] after "
+                         f"{len(widen_log)} automatic range move(s): start it from an estimate (guide('epr-sim')) "
+                         f"or widen its range in vary; do not report this value or a typical one; its CI is "
+                         f"not meaningful")
     # multistart agreement (on the first stage when there are two)
     if len(ms_results) > 1:
         ms_best = min(ms_results, key=lambda d: d["cost"])
@@ -2472,9 +2916,14 @@ def fit_spectrum(field_mT, y, *, model="powder", start=None, vary: Optional[dict
                              f"minima: check the result against the spectrum")
     z = _runs_z(res)
     if z < -3 and rms > 1e-9 * (np.ptp(yy) or 1.0):
+        extra = ""
+        if model_name == "powder" and start_sys is not None and start_sys.g_strain is None \
+                and np.ptp(_principal(np.asarray(start_sys.g, float)) if np.ndim(start_sys.g) < 2 else [0]) > 0.05:
+            extra = ("; frozen metal spectra usually need g strain (the parallel lines are broader): add "
+                     "g_strain=[0.004, 0.004, 0.01] to the SpinSystem and vary it")
         warns.append(f"the residual has structure (runs test z = {z:.1f}: long stretches of one sign): the "
                      f"model misses features of the spectrum (wrong model, a missing nucleus or species, "
-                     f"slow motion in a powder fit, or a baseline)")
+                     f"slow motion in a powder fit, or a baseline){extra}")
     fit_sys = None
     if start_sys is not None:
         fit_sys = _apply(start_sys, params, theta)

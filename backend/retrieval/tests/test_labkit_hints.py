@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ.setdefault("CHATS_DB_PATH", os.path.join(tempfile.mkdtemp(prefix="munin-test-lkh-"), "chats.db"))
 
 import labkit_hints  # noqa: E402
-from labkit_hints import HintState, fit_hint, upload_hint  # noqa: E402
+from labkit_hints import HintState, fit_hint, output_hint, upload_hint  # noqa: E402
 
 # The model's own script from Phase 4 run 1 (s1_decay1, fresh set, run 3),
 # trimmed: an lmfit one-phase decay whose "Y0" is really the span.
@@ -718,6 +718,48 @@ def test_easyspin_slice1_hints():
                   f"{nitro and nitro[0]} {deer and deer[0]}")
 
 
+PEAK_PICK = ("import numpy as np\nfrom labkit import epr\nfrom scipy.signal import find_peaks\n"
+             "d = epr.load('inputs/heme.DSC')\nfield = d.field_mT\ny = d.real\n"
+             "peaks, _ = find_peaks(y, height=1000)\nfor p in peaks:\n"
+             "    print(field[p], 71.4477 * d.freq_GHz / field[p])\n")
+
+
+def test_labkit019_sim_context_hints():
+    frozen = "heme.DSC is an X-band CW-EPR spectrum at 10 K of a low-spin ferric heme in frozen solution. Report the three principal g-values."
+    radical = "anion.DSC is the CW-EPR spectrum of the pyrazine radical anion in fluid solution (two equivalent 14N and four equivalent 1H)."
+    esp = "cu.par / cu.spc are an older Bruker ESP CW-EPR file of a single broad line. Report the g-value at the zero crossing and the peak-to-peak linewidth."
+    fluid_nx = "label.csv is a nitroxide spin label in fluid solution; report the rotational correlation time."
+    deer_q = "deer.csv is a DEER trace of a frozen protein sample; report the mean distance."
+    powder = fit_hint(PEAK_PICK, context=frozen)
+    multi = fit_hint(PEAK_PICK.replace("heme", "anion"), context=radical)
+    no_ctx = fit_hint(PEAK_PICK)
+    esp_h = fit_hint(PEAK_PICK + "# Cu(II) complex\n", context=esp)
+    nx_h = fit_hint(PEAK_PICK + "aN = 1.5\n", context=fluid_nx)
+    deer_h = fit_hint(PEAK_PICK, context=deer_q)
+    covered = fit_hint(PEAK_PICK + "r = epr.fit_spectrum(d.field_mT, d.y, model='powder', start=sys)\n", context=frozen)
+    st = HintState()
+    first = st.hint_for("c", PEAK_PICK, context=frozen)
+    second = st.hint_for("c", PEAK_PICK + "w = 2\n", context=frozen)
+    out = output_hint("r = epr.fit_spectrum(x, y, model='powder', start=s)", "WARNINGS: A_z = 2 ended at its bound [1, 2]")
+    out_none = output_hint("print(1)", "ended at its bound")
+    st2 = HintState()
+    o1 = st2.output_hint_for("c", "epr.fit_spectrum(x)", "ended at its bound")
+    o2 = st2.output_hint_for("c", "epr.fit_spectrum(x)", "ended at its bound")
+    sim = lambda h: bool(h) and h[0] == "epr_sim_context"
+    return _check("LABKIT-019: a frozen or multi-nucleus question measured by hand gets epr_sim_context "
+                  "(fit_spectrum, not fit_line); not without the question, not for a zero-crossing/"
+                  "peak-to-peak task, a fluid nitroxide, DEER, or once fit_spectrum is called; the line "
+                  "hints stand down for it; a fit that ended at its bound gets epr_bound once",
+                  sim(powder) and "fit_spectrum" in powder[1] and "never a typical or literature value" in powder[1]
+                  and sim(multi) and not sim(no_ctx) and not sim(esp_h) and not sim(nx_h) and not sim(deer_h)
+                  and not sim(covered)
+                  and sim(first) and (second is None or second[0] not in ("epr_lineshape", "epr_g"))
+                  and out and out[0] == "epr_bound" and out_none is None and o1 and o2 is None,
+                  f"{powder and powder[0]} {multi and multi[0]} {no_ctx and no_ctx[0]} {esp_h and esp_h[0]} "
+                  f"{nx_h and nx_h[0]} {deer_h and deer_h[0]} {covered and covered[0]} {second and second[0]} "
+                  f"{out and out[0]} {o1 and o1[0]} {o2}")
+
+
 TESTS = [
     test_labkit_source_reading_gets_the_guide,
     test_audit_flag_and_labkit_tool_message,
@@ -741,6 +783,7 @@ TESTS = [
     test_deer_round3_hints,
     test_cw_round3_hints,
     test_easyspin_slice1_hints,
+    test_labkit019_sim_context_hints,
 ]
 
 

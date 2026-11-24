@@ -101,6 +101,22 @@ class EPRData(FieldHelp):
     def real(self) -> np.ndarray:
         return np.real(self.y)
 
+    # read-only aliases for names models reach for first
+    @property
+    def field(self) -> np.ndarray:
+        """Alias of field_mT (mT)."""
+        return self.field_mT
+
+    @property
+    def signal(self) -> np.ndarray:
+        """Alias of y."""
+        return self.y
+
+    @property
+    def intensity(self) -> np.ndarray:
+        """Alias of y."""
+        return self.y
+
     def __repr__(self):
         ax = "field" if self.kind == "cw" else "time"
         unit = "mT" if self.kind == "cw" else "us"
@@ -563,6 +579,50 @@ class LineFit(FieldHelp):
                 f"{self.area:.6g} (absorption integral, intensity*mT); warnings: {self.warnings})")
 
 
+_POWDER_WARNING = ("this looks like a frozen/powder spectrum: aN here is not Azz and peaks are not g-values; "
+                   "fit it with epr.fit_spectrum(model='powder'), see guide('epr-sim')")
+
+
+def _turning_points(x, y, rel_prominence: float = 0.08):
+    """Significant extrema of a derivative spectrum: positions (mT) of the
+    maxima and minima with a prominence over rel_prominence of the
+    peak-to-peak height, after a light smoothing over about 0.1 mT."""
+    from scipy.signal import find_peaks
+    x = np.asarray(x, float)
+    yy = np.real(np.asarray(y)).astype(float)
+    dx = abs(x[1] - x[0]) if x.size > 1 else 1.0
+    k = max(1, int(round(0.1 / max(dx, 1e-12))))
+    if k > 1:
+        yy = np.convolve(yy, np.ones(k) / k, mode="same")
+    prom = rel_prominence * (np.max(yy) - np.min(yy))
+    mx, _ = find_peaks(yy, prominence=prom)
+    mn, _ = find_peaks(-yy, prominence=prom)
+    return x[mx], x[mn]
+
+
+def _powder_check(x, y, nitroxide: bool) -> Optional[str]:
+    """None, or the powder-pattern warning. Two criteria (LABKIT-019):
+    a nitroxide whose outer extrema (first maximum, last minimum) are more
+    than 4 mT apart (2 Azz of a rigid label is about 7 mT; 2 aN + dBpp of a
+    tumbling one under 4 mT), or more than 3 turning points spread over more
+    than 20 mT (a metal powder pattern)."""
+    try:
+        mx, mn = _turning_points(x, y)
+        mx3, mn3 = _turning_points(x, y, 0.03)      # weak features too (Cu parallel lines)
+    except (ValueError, IndexError):
+        return None
+    if mx.size == 0 or mn.size == 0:
+        return None
+    if nitroxide:
+        lo_f, hi_f = (np.min(mx), np.max(mn)) if x[-1] > x[0] else (np.max(mx), np.min(mn))
+        if abs(hi_f - lo_f) > 4.0:
+            return _POWDER_WARNING
+    allp = np.sort(np.concatenate([mx3, mn3]))
+    if allp.size > 3 and allp[-1] - allp[0] > 20.0:
+        return _POWDER_WARNING
+    return None
+
+
 def fit_line(field_mT, y, *, shape: str = "lorentzian", freq_GHz=None, window=None,
              baseline: int = 1) -> LineFit:
     """Least-squares fit of ONE first-derivative line (Lorentzian, Gaussian or
@@ -618,6 +678,9 @@ def fit_line(field_mT, y, *, shape: str = "lorentzian", freq_GHz=None, window=No
     span = x[-1] - x[0]
     if span < 10 * dbpp:
         warns.append(f"window {span:.3g} mT is under 10 linewidths: the area is truncated")
+    pw = _powder_check(x, yy, nitroxide=False)
+    if pw:
+        warns.append(pw)
     g = g_value(p[0], freq_GHz) if freq_GHz else None
     rms = float(np.sqrt(np.mean((model(p) - yy) ** 2)))
     return LineFit(shape={"lor": "lorentzian", "gau": "gaussian", "voi": "voigt"}[s], B0_mT=float(p[0]),
@@ -819,10 +882,12 @@ def nitroxide_hyperfine(field_mT, y, *, freq_GHz=None) -> Nitroxide:
     Heights are derivative peak-to-peak heights (for kivelson_tau)."""
     x, yy = _window(field_mT, y, None)
     from scipy.signal import find_peaks
+    pw = _powder_check(x, yy, nitroxide=True)
     prom = 0.1 * (np.max(yy) - np.min(yy))
     pk, _ = find_peaks(yy, prominence=prom)
     if len(pk) < 3:
-        raise ValueError("found fewer than three lines; is this a fast-motion nitroxide spectrum?")
+        raise ValueError("found fewer than three lines; is this a fast-motion nitroxide spectrum?"
+                         + (f" ({pw})" if pw else ""))
     pk = np.sort(pk[np.argsort(yy[pk])[-3:]])
     tr, _ = find_peaks(-yy, prominence=prom)
     p0 = []
@@ -847,6 +912,8 @@ def nitroxide_hyperfine(field_mT, y, *, freq_GHz=None) -> Nitroxide:
     g = g_value(0.5 * (pos[-1] + pos[+1]), freq_GHz) if freq_GHz else None
     a_mhz = a * 1e-3 * (g or G_E) * MU_B / H / 1e6
     warns = []
+    if pw:
+        warns.append(pw)
     if not (1.2 < a < 2.0):
         warns.append(f"aN = {a:.3g} mT is outside the usual 1.3-1.8 mT of nitroxides")
     return Nitroxide(aN_mT=float(a), aN_MHz=float(a_mhz), g_iso=g, positions_mT={k: float(v) for k, v in pos.items()},
@@ -996,6 +1063,9 @@ def _lines_exact(freq_GHz, g, nuclei):
     return pos, amp / amp.sum()
 
 
+_ISO_MOD_THETA = 256          # modulation quadrature points in simulate_iso (fit_spectrum lowers it)
+
+
 def simulate_iso(field_mT, freq_GHz, g, *, nuclei: Sequence = (), lw_mT: float = 0.1,
                  shape: str = "lorentzian", lw_gauss_mT: Optional[float] = None, harmonic: int = 1,
                  modamp_mT: Optional[float] = None, area: float = 1.0,
@@ -1062,7 +1132,7 @@ def simulate_iso(field_mT, freq_GHz, g, *, nuclei: Sequence = (), lw_mT: float =
     if harmonic == 0:
         return absorption(x)
     if modamp_mT:
-        return modulate_abs(absorption, x, modamp_mT)
+        return modulate_abs(absorption, x, modamp_mT, n_theta=_ISO_MOD_THETA)
     h = 1e-4 * (x[1] - x[0]) if x.size > 1 else 1e-6
     return (absorption(x + h) - absorption(x - h)) / (2 * h)
 
@@ -1714,5 +1784,5 @@ def _populations(r, P, min_fraction: float = 0.05) -> list:
 # Powder simulation, fitting, units and isotopes (labkit/epr_sim.py)
 # ==============================================================================
 
-from .epr_sim import (Isotope, Nucleus, SpectrumFit, SpinSystem, convert, fit_spectrum,  # noqa: E402
-                      isotope, known_isotopes, simulate_powder)
+from .epr_sim import (Isotope, Nucleus, PowderStarts, SpectrumFit, SpinSystem, convert,  # noqa: E402
+                      fit_spectrum, isotope, known_isotopes, powder_starts, simulate_powder)

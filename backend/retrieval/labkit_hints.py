@@ -214,6 +214,74 @@ _MULTIPLET = re.compile(r"(?i)\ba_?[nh]\b|\ba_?(14)?n\b|hyperfine|multiplet|bino
 _SIM_CALLS = _calls_any("simulate_powder", "fit_spectrum", "simulate_iso", "convert")
 _SIM_TAIL = "; see labkit.guide('epr-sim')."
 _NITROXIDE = re.compile(r"(?i)nitroxide|\btempo|kivelson|tau_?c\b|spin.?label")
+# LABKIT-019: a frozen, powder or anisotropic spectrum, or a multi-nucleus
+# hyperfine pattern, analysed with the isotropic line tools or by hand. In
+# es1-labkit the rhombic, radical and frozen-nitroxide runs got epr_lineshape
+# or epr_g (fit_line, nitroxide_hyperfine), the wrong tools there.
+_POWDER_CTX = re.compile(
+    r"(?i)frozen|\b77\s*K\b|\bpowder\b|immobili[sz]ed|rigid|rhombic|principal|g_?tensor"
+    r"|\bg_?(par|perp|para|parallel|perpendicular|max|mid|min|xx|yy|zz)\b|\bA_?(zz|par|parallel)\b"
+    r"|\bheme\b|\bCu\s*\(?II\)?|copper")
+_HAS_AN = re.compile(r"(?i)\ba_?(14)?n\b|\ba_?nitrogen|14N")
+_HAS_AH = re.compile(r"(?i)\ba_?(1)?h\b|\ba_?proton|1H\b")
+# The question asks for a zero-crossing g or a peak-to-peak width: line tools are right.
+_ISO_TASK = re.compile(r"(?i)zero.?crossing|peak.?to.?peak|\bdBpp\b")
+_ISO_TOOLS = _calls_any("fit_line", "nitroxide_hyperfine", "g_value", "peak_to_peak")
+_SIM_FIT_CALLS = _calls_any("simulate_powder", "fit_spectrum", "simulate_iso")
+# Hints that point at the isotropic line tools or at a hand simulation; they
+# stand down while epr_sim_context applies.
+_ISO_LINE_HINTS = {"epr_lineshape", "epr_g", "epr_powder", "epr_iso_fit"}
+
+
+def _multi_nucleus(c: str) -> bool:
+    return bool(_HAS_AN.search(c) and _HAS_AH.search(c)) or bool(re.search(r"(?i)pyrazin|semiquinon", c))
+
+
+def wants_context(code: str) -> bool:
+    """Whether the hints need the user's text for this code (CW-EPR only), so
+    the caller reads the conversation only then."""
+    return isinstance(code, str) and _cw_epr(code, True)
+
+
+def _sim_context(c: str, context: str = "") -> bool:
+    """CW-EPR code on a powder or multi-nucleus spectrum that measures lines by
+    hand or with the isotropic tools (not DEER, not a nitroxide triplet in
+    fluid solution). `context` is the user's text in this conversation: the
+    code alone often does not say "frozen" or name the nuclei."""
+    if not _cw_epr(c, True):
+        return False
+    # What the spectrum is comes from the question only: code words are the
+    # model's assumptions (an ESP single-line run wrote "Cu(II)" and would
+    # have been sent to a powder fit). Without the question, the older
+    # epr_powder / epr_iso_fit hints (hand simulations) apply as before.
+    if not (context or "").strip():
+        return False
+    src = context
+    if _DEER_CTX.search(src) or _deer_ish(src) or _ISO_TASK.search(src):
+        return False
+    powder = bool(_POWDER_CTX.search(src))
+    multi = _multi_nucleus(src) and not (_NITROXIDE.search(src) and not powder)
+    if not (powder or multi):
+        return False
+    return bool(_EXTREMA.search(c) or _ANY_FIT.search(c) or _G_BY_HAND.search(c) or _ISO_TOOLS.search(c)
+                or _LINESHAPE.search(c))
+
+
+_SIM_CONTEXT_HINT = (
+    "This looks like a frozen/powder or multi-nucleus EPR spectrum analysed with line tools. "
+    "Peaks and zero crossings of a powder spectrum are not g-values or A-values, and "
+    "nitroxide_hyperfine/fit_line give isotropic numbers (aN is not Azz). Fit the whole spectrum: "
+    "sys = epr.SpinSystem(g=[gx, gy, gz], nuclei=[epr.Nucleus('63Cu' or 'Cu' or '14N', "
+    "A_MHz=[Ax, Ay, Az])], fwhm_mT=...) (hyperfine goes on the Nucleus; no nuclei for a bare "
+    "rhombic g); r = epr.fit_spectrum(d.field_mT, d.y, model='powder', start=sys, "
+    "freq_GHz=d.freq_GHz, modamp_mT=d.modamp_mT); print(r). For a liquid-solution radical with "
+    "several nuclei: epr.Nucleus('14N', A_mT=..., n=2), epr.Nucleus('1H', A_mT=..., n=4) and "
+    "model='iso'. Start values: st = epr.powder_starts(d.field_mT, d.real, d.freq_GHz, "
+    "kind='cu' | 'nitroxide' | 'rhombic'); print(st). Natural copper is 'Cu' (not '63Cu'), and "
+    "frozen metal spectra need g_strain=[0.004, 0.004, 0.01] in the SpinSystem. vary is optional; "
+    "ranges move by themselves. Report the fitted values with their warnings, never a typical or "
+    "literature value"
+    + _SIM_TAIL)
 
 _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
     ("epr_read", lambda c: bool(_EPR_FILE.search(c) and _EPR_READ_BY_HAND.search(c)),
@@ -340,7 +408,7 @@ _CUSTOM_HINT = (
 
 
 def fit_hint(code: str, labkit_in_use: bool = False,
-             given: frozenset[str] | set[str] = frozenset()) -> Optional[tuple[str, str]]:
+             given: frozenset[str] | set[str] = frozenset(), context: str = "") -> Optional[tuple[str, str]]:
     """(key, hint) when `code` hand-rolls something labkit has, else None.
 
     `labkit_in_use`: the conversation has used labkit before. Domain hints
@@ -349,10 +417,12 @@ def fit_hint(code: str, labkit_in_use: bool = False,
     `given`: hint keys the conversation already had; the next applicable one
     is returned instead (run 4's JASCO script matched the CD hint, already
     given, and so never got the HT cutoff one).
+    `context`: the user's messages in the conversation; only the powder and
+    multi-nucleus check (epr_sim_context) reads it.
     """
     if not isinstance(code, str):
         return None
-    for found in _candidates(code, labkit_in_use):
+    for found in _candidates(code, labkit_in_use, context):
         if found[0] in _GENERAL:
             # Only the first general hint counts, as before round 5: a decay
             # script whose hint was given does not fall through to custom_fit.
@@ -367,7 +437,7 @@ def fit_hint(code: str, labkit_in_use: bool = False,
 _GENERAL = {k for k, _, _ in _MODELS} | {"standard_curve", "custom_fit"}
 
 
-def _candidates(code: str, labkit_in_use: bool):
+def _candidates(code: str, labkit_in_use: bool, context: str = ""):
     """Every hint that applies to `code`, most specific first."""
     uses = labkit_in_use or bool(_USES_LABKIT.search(code))
     deer = _deer_context(code)
@@ -377,8 +447,13 @@ def _candidates(code: str, labkit_in_use: bool):
             "processing chain (read_bruker takes the data type from DTYPA, "
             "process_1d, reference, peaks, integrate); see labkit.guide('nmr'). "
             "Keep your own code for steps labkit.nmr does not cover."))
+    sim_ctx = not deer and _sim_context(code, context)
+    if sim_ctx and not _SIM_FIT_CALLS.search(code):
+        yield ("epr_sim_context", _SIM_CONTEXT_HINT)
     for key, applies, covered, hint in _DOMAIN:
         if deer and key in _NOT_FOR_DEER:
+            continue
+        if sim_ctx and key in _ISO_LINE_HINTS:
             continue
         if applies(code) and not covered.search(code):
             yield (key, hint)
@@ -422,17 +497,46 @@ class HintState:
             self._seen.popitem(last=False)
         return entry
 
-    def hint_for(self, conv_id: str, code: str) -> Optional[tuple[str, str]]:
+    def hint_for(self, conv_id: str, code: str, context: str = "") -> Optional[tuple[str, str]]:
         """(kind, hint) for this run, or None (already given; general fit
         hints also stop once the conversation has used labkit)."""
         entry = self._entry(conv_id)
-        found = fit_hint(code, labkit_in_use="uses_labkit" in entry, given=entry)
+        found = fit_hint(code, labkit_in_use="uses_labkit" in entry, given=entry, context=context)
         if isinstance(code, str) and _USES_LABKIT.search(code):
             entry.add("uses_labkit")
         if found is None:
             return None
         entry.add(found[0])
         return found
+
+    def output_hint_for(self, conv_id: str, code: str, stdout: str) -> Optional[tuple[str, str]]:
+        """(kind, hint) from what a run printed, or None. Once per conversation."""
+        found = output_hint(code, stdout)
+        if found is None:
+            return None
+        entry = self._entry(conv_id)
+        if found[0] in entry:
+            return None
+        entry.add(found[0])
+        return found
+
+
+# LABKIT-019: in es1-labkit four runs saw "ended at its bound" from
+# fit_spectrum and then reported the bound, a "typical" value or a literature
+# value instead of refitting.
+_BOUND_WARNING = re.compile(r"ended at its bound")
+
+
+def output_hint(code: str, stdout: str) -> Optional[tuple[str, str]]:
+    if not isinstance(code, str) or not isinstance(stdout, str):
+        return None
+    if _BOUND_WARNING.search(stdout) and re.search(r"\bfit_spectrum\s*\(", code):
+        return ("epr_bound", (
+            "A fitted parameter ended at its bound, so that value is not a result. Refit with the "
+            "start moved toward where the spectrum puts it (guide('epr-sim') shows how to estimate "
+            "starts) or omit vary for the default ranges. Do not report the bound, a typical value "
+            "or a literature value in its place; if no fit converges, say so in the answer."))
+    return None
 
 
 # --- uploads ------------------------------------------------------------------

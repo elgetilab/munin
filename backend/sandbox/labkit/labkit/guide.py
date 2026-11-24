@@ -196,44 +196,75 @@ fit a powder or isotropic model to them.
 TOPICS["epr-sim"] = """\
 from labkit import epr      # field mT, frequency GHz; conventions follow EasySpin (Stoll 2006)
 Units are in the keyword names; there is no bare lw= or A= (EasySpin's Sys.lw is a FWHM,
-Sys.lwpp peak to peak, Sys.A in MHz).
+Sys.lwpp peak to peak, Sys.A in MHz). Hyperfine goes on a Nucleus, not on the SpinSystem.
+d = epr.load(path): d.field_mT (alias d.field), d.real / d.y (alias d.signal), d.freq_GHz
 sys = epr.SpinSystem(g=[gx, gy, gz],                  # or g=2.005, or [g_perp, g_par]
                      nuclei=[epr.Nucleus("63Cu", A_MHz=[Ax, Ay, Az])],   # or A_mT=, n=2 for
                      fwhm_mT=1.0, shape="gaussian",     # equivalent nuclei, euler_deg=(a, b, c)
                      g_strain=None, A_strain_MHz=None)  # strains as FWHM; dBpp_mT= instead of fwhm
 "Cu" (no mass) = natural 63Cu/65Cu: A is given for 63Cu (most abundant), 65Cu scaled by gn.
 y = epr.simulate_powder(sys, d.field_mT, d.freq_GHz, harmonic=1, modamp_mT=None)
-    S = 1/2, second-order perturbation; method="exact" diagonalises (slower, no fits).
+    S = 1/2; default method "hybrid" (each nucleus diagonalised exactly); method="exact"
+    diagonalises the whole system (slower).
     It prints warnings (perturbation error, grid, linewidth under 3 field steps, lines outside
     the sweep): report them. S > 1/2 raises an error.
 y = epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[epr.Nucleus("14N", A_mT=0.72, n=2)],
                      lw_mT=0.05, exact=True)     # Breit-Rabi positions for large couplings
 Fit: r = epr.fit_spectrum(d.field_mT, d.real, model="powder" | "iso", start=sys,
-                          vary={"g": [0.02, 0.02, 0.05], "A_MHz": [[0, 0, 100]], "fwhm_mT": 0.5},
-                          freq_GHz=d.freq_GHz, max_time_s=20)
-     vary = +- half-range per parameter, shaped like the start values (0 = fixed);
-     scale and baseline are fitted linearly; several starts; stops at max_time_s.
-     print(r); r.params, r.ci (95%), r.fit, r.residual_rms, r.warnings
-     Warnings mean: a parameter at its bound (widen vary), two parameters correlated
-     (g_perp vs linewidth: report both with CIs), other starts disagree (more than one minimum),
-     structure in the residual (wrong model: e.g. slow motion, a second species).
+                          freq_GHz=d.freq_GHz, modamp_mT=d.modamp_mT)     # vary optional
+     vary left out: g +-0.05, A +-50% (at least 50 MHz), width +-80%, strains 0-0.02.
+     Or vary={"g": [0.02, 0.05], "A_MHz": [30, 100], "fwhm_mT": 0.5}: +- half-ranges shaped like
+     the start (0 = fixed; one nucleus may be a flat list; one number = every component).
+     A parameter that ends at the edge of its range: fit_spectrum moves the range and refits by
+     itself (r.notes says so). If r.warnings still says "ended at its bound", the start was far
+     off: estimate it from the spectrum (below) and refit. Never report a bound, a typical or a
+     literature value in place of a fitted one.
+     print(r); r.params, r.ci (95%), r.fit, r.residual_rms, r.warnings, r.notes
+     Warnings mean: two parameters correlated (g_perp vs linewidth: report both with CIs), other
+     starts disagree (more than one minimum), structure in the residual (wrong model: slow
+     motion, a second species, or missing g strain in a frozen metal spectrum).
+Start values from the spectrum (estimates to start a fit, not results):
+     st = epr.powder_starts(d.field_mT, d.real, d.freq_GHz, kind="cu" | "nitroxide" | "rhombic",
+                            modamp_mT=d.modamp_mT)
+     print(st); st.values
+     "cu": g_perp near the strong perpendicular feature, g_par and A_par from the low-field
+           parallel lines (their spacing, and a grid of quick simulations scored on them)
+     "nitroxide": Azz = half the outer-extrema splitting (first maximum to last minimum)
+     "rhombic": g_max at the first maximum, g_mid at the central zero crossing, g_min at the
+           last minimum
+     fit_spectrum also reads these off the spectrum itself for an axial Cu or a nitroxide start.
 Units: epr.convert(552, "MHz", "1e-4 cm-1"); epr.convert(2.85, "mT", "MHz", g=2.10)
        field <-> energy needs the g of THAT line (never g_e unless g is 2.0023); no g, no answer
 epr.isotope("63Cu") -> .spin, .gn, .abundance
-Recipes:
-  Cu(II) frozen solution: start from the spectrum: g_perp near the strong high-field feature,
-    g_par and A_par from the low-field parallel lines (spacing ~ A_par in mT; g_par is the
-    centre of the four, NOT a zero crossing). Axial: two values each, [perp, par]:
-      sys = epr.SpinSystem(g=[2.05, 2.25], nuclei=[epr.Nucleus("Cu", A_MHz=[40, 550])],
-                           fwhm_mT=1.0, g_strain=[0.005, 0.01])   # parallel lines are broader
+Recipes (they run as printed on a BES3T or text file loaded as d = epr.load(...)):
+  Cu(II) frozen solution (axial: two values each, [perp, par]; "Cu" = natural 63Cu/65Cu):
+      st = epr.powder_starts(d.field_mT, d.real, d.freq_GHz, kind="cu", modamp_mT=d.modamp_mT).values
+      sys = epr.SpinSystem(g=[st["g_perp"], st["g_par"]],
+                           nuclei=[epr.Nucleus("Cu", A_MHz=[40, st["A_par_MHz"]])],
+                           fwhm_mT=1.0, g_strain=[0.004, 0.004, 0.01])   # parallel lines broader
       r = epr.fit_spectrum(d.field_mT, d.real, model="powder", start=sys, freq_GHz=d.freq_GHz,
-                           modamp_mT=d.modamp_mT, vary={"g": [0.02, 0.05], "A_MHz": [[30, 100]],
-                           "fwhm_mT": 0.8, "g_strain": [0.005, 0.01]})
-    "Cu" = natural mixture; report g_par, g_perp, |A_par| in MHz and 1e-4 cm-1 with CIs.
-  Frozen nitroxide (rigid limit, 77 K): 2 Azz = outer-extrema splitting (a start value),
-    refine Azz with fit_spectrum(model="powder") on Nucleus("14N", A_mT=[Axx, Ayy, Azz]).
+                           modamp_mT=d.modamp_mT)
+      print(r)   # report g_par, g_perp, |A_par| in MHz and in 1e-4 cm-1 (epr.convert), with CIs
+    g_par is the centre of the parallel lines, NOT a zero crossing.
+  Frozen nitroxide (rigid limit, 77 K): Azz is NOT what nitroxide_hyperfine gives (that is the
+    tumbling aN); half the outer-extrema splitting is the start, the fit refines it:
+      st = epr.powder_starts(d.field_mT, d.real, d.freq_GHz, kind="nitroxide").values
+      sys = epr.SpinSystem(g=[2.0085, 2.0060, 2.0022],
+                           nuclei=[epr.Nucleus("14N", A_mT=[0.6, 0.6, st["Azz_mT"]])], fwhm_mT=0.6)
+      r = epr.fit_spectrum(d.field_mT, d.real, model="powder", start=sys, freq_GHz=d.freq_GHz,
+                           modamp_mT=d.modamp_mT)
+      print(r.params["A_mT(14N)_z"])
+  Rhombic S = 1/2 (low-spin heme): turning points give the starts, the fit gives the values:
+      st = epr.powder_starts(d.field_mT, d.real, d.freq_GHz, kind="rhombic").values
+      sys = epr.SpinSystem(g=[st["g_min"], st["g_mid"], st["g_max"]], fwhm_mT=1.0,
+                           g_strain=[0.02, 0.01, 0.02])
+      r = epr.fit_spectrum(d.field_mT, d.real, model="powder", start=sys, freq_GHz=d.freq_GHz,
+                           modamp_mT=d.modamp_mT)
   Isotropic radical, several nuclei: fit_spectrum(model="iso") with one Nucleus per kind
-    (n = how many are equivalent); fit the whole spectrum, do not count peaks.
+    (n = how many are equivalent); fit the whole spectrum, do not count peaks:
+      sys = epr.SpinSystem(g=2.0035, nuclei=[epr.Nucleus("14N", A_mT=0.7, n=2),
+                           epr.Nucleus("1H", A_mT=0.3, n=4)], dBpp_mT=0.05, shape="lorentzian")
+      r = epr.fit_spectrum(d.field_mT, d.real, model="iso", start=sys, freq_GHz=d.freq_GHz)
 """
 
 TOPICS["deer"] = """\

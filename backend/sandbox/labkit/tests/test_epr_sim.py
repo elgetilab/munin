@@ -540,7 +540,10 @@ def test_fit_callable_model_and_warnings():
     y = _noisy(two_lines(x, 0.3, 1.0, 0.0), 0.01, 3)
     r = epr.fit_spectrum(x, y, model=two_lines, start={"b0": 0.0, "w": 1.2, "w2": 0.0},
                          vary={"b0": 0.2, "w": 0.5, "w2": 1.0})
-    assert any("ended at its bound" in w and "b0" in w for w in r.warnings)
+    # b0 (0.3) is outside its range (0 +- 0.2): the range moves and the fit gets it
+    assert abs(r.params["b0"] - 0.3) < 0.01
+    assert any("b0 ended at the edge" in n for n in r.notes)
+    assert not any("ended at its bound" in w and "b0" in w for w in r.warnings)
     # residual structure: fit a single Gaussian to two separated lines
     y2 = two_lines(x, -1.0, 0.5, 0) + two_lines(x, 1.5, 0.5, 0)
     r2 = epr.fit_spectrum(x, _noisy(y2, 0.002, 4), model=two_lines, start={"b0": 0.0, "w": 1.0, "w2": 0.0},
@@ -593,3 +596,215 @@ def test_fit_keyword_errors():
         epr.fit_spectrum(x, x * 0, start=s, vary={"g": 0.01})
     with pytest.raises(ValueError, match="slice 2"):
         epr.fit_spectrum(x, x * 0, model="slow", start=s, freq_GHz=9.5, vary={"g": 0.01})
+
+
+# ==============================================================================
+# LABKIT-019 (0.3.1): bounds that move, optional vary, clearer errors,
+# EPRData aliases, powder checks, start estimates
+# ==============================================================================
+
+SYN = Path(__file__).resolve().parent / "data" / "synthetic"
+
+
+def _syn(name):
+    """Spectra made by the independent S8 simulator (s8_powder.py, exact
+    diagonalisation / Breit-Rabi, converged grid; see data/synthetic/README)."""
+    import json
+    z = np.load(SYN / f"{name}.npz")
+    return z["field_mT"], z["y"].astype(float), json.loads(str(z["truth"]))
+
+
+def _as_data(name):
+    x, y, t = _syn(name)
+    return epr.EPRData(kind="cw", x=x, y=y, x_unit_file="mT", freq_GHz=t["freq_GHz"],
+                       modamp_mT=t.get("modamp_mT")), t
+
+
+def test_bounds_move_cu_from_a_far_start():
+    # A_par started at 120 MHz with +-100 (the es1 Cu #2 start); truth 575 MHz
+    x, y, t = _syn("cu_powder")
+    start = epr.SpinSystem(g=[2.05, 2.2], nuclei=[epr.Nucleus("Cu", A_MHz=[50, 120])], fwhm_mT=1.0,
+                           g_strain=[0.005, 0.005, 0.01])
+    r = quiet(epr.fit_spectrum, x, y, model="powder", start=start, freq_GHz=t["freq_GHz"], modamp_mT=0.4,
+              vary={"g": [0.08, 0.1], "A_MHz": [[20, 100]], "fwhm_mT": 0.5, "g_strain": [0.005, 0.01]})
+    p = r.params
+    assert abs(p["g_par"] - t["g_par"]) < 0.003 and abs(p["g_perp"] - t["g_perp"]) < 0.003
+    assert abs(p["A_MHz(Cu)_par"] / t["A_par_MHz"] - 1) < 0.05
+    assert any("ranges moved" in n for n in r.notes)
+    assert not any("ended at its bound" in w for w in r.warnings)
+    assert r.elapsed_s < 22
+
+
+def test_bounds_move_nitroxide_azz():
+    # Azz started at 1.5 mT with +-0.5 (es1 nitroxide #1/#3); truth 3.38
+    x, y, t = _syn("nitroxide_rigid")
+    start = epr.SpinSystem(g=t["g"], nuclei=[epr.Nucleus("14N", A_mT=[0.6, 0.6, 1.5])], fwhm_mT=0.6)
+    r = quiet(epr.fit_spectrum, x, y, model="powder", start=start, freq_GHz=t["freq_GHz"], modamp_mT=0.2,
+              vary={"A_mT": [[0.2, 0.2, 0.5]], "fwhm_mT": 0.3})
+    assert abs(r.params["A_mT(14N)_z"] - t["Azz_mT"]) < 0.08
+    assert r.elapsed_s < 22
+
+
+def test_bounds_move_radical_ah():
+    # aH started at 0.3 mT with +-0.05 (es1 radical #2); truth 0.218, below the range
+    x, y, t = _syn("radical")
+    start = epr.SpinSystem(g=2.0035, nuclei=[epr.Nucleus("14N", A_mT=0.7, n=2), epr.Nucleus("1H", A_mT=0.3, n=4)],
+                           dBpp_mT=0.05, shape="lorentzian")
+    r = quiet(epr.fit_spectrum, x, y, model="iso", start=start, freq_GHz=t["freq_GHz"],
+              vary={"g": 0.001, "A_mT": [0.05, 0.05], "dBpp_mT": 0.02})
+    assert abs(r.params["A_mT(14N)"] - t["aN_mT"]) < 0.005 and abs(r.params["A_mT(1H)"] - t["aH_mT"]) < 0.005
+    assert any("A_mT(1H) ended at the edge" in n for n in r.notes)
+    # vary left out: the default ranges reach the same values
+    r2 = quiet(epr.fit_spectrum, x, y, model="iso", start=start, freq_GHz=t["freq_GHz"])
+    assert abs(r2.params["A_mT(1H)"] - t["aH_mT"]) < 0.005 and abs(r2.params["A_mT(14N)"] - t["aN_mT"]) < 0.005
+    assert r.elapsed_s < 22 and r2.elapsed_s < 22
+
+
+def test_bound_warning_kept_when_still_at_edge():
+    # the value (100) is far past what two moves of a +-2 range reach
+    x = np.linspace(0, 10, 500)
+
+    def curve(field_mT, c):
+        return np.exp(-field_mT / c)
+    y = curve(x, 100.0) + np.random.default_rng(1).normal(0, 0.001, x.size)
+    r = epr.fit_spectrum(x, y, model=curve, start={"c": 3.0}, vary={"c": 2.0}, n_starts=2, baseline_order=-1)
+    assert any("ended at its bound" in w for w in r.warnings)
+    assert any("ranges moved" in n for n in r.notes)
+
+
+def test_vary_shapes_and_defaults():
+    st = epr.SpinSystem(g=[2.05, 2.25], nuclei=[epr.Nucleus("63Cu", A_MHz=[40, 550])], fwhm_mT=1.0,
+                        g_strain=[0.004, 0.004, 0.01])
+    _, ps = epr_sim._system_params(st, epr_sim._default_vary(st))
+    d = {p.name: p for p in ps}
+    assert abs(d["g_par"].half - 0.05) < 1e-12 and abs(d["A_MHz(63Cu)_par"].half - 275) < 1e-9
+    assert abs(d["A_MHz(63Cu)_perp"].half - 50) < 1e-9 and abs(d["fwhm_mT"].half - 0.8) < 1e-12
+    assert "g_strain_perp" in d and d["g_strain_par"].lo == 0.0 and d["g_strain_par"].hi >= 0.02 - 1e-12
+    # flat list for one nucleus, scalar for every component, list for a scalar g
+    _, ps = epr_sim._system_params(st, {"A_MHz": [30, 100]})
+    assert [p.half for p in ps] == [30, 100]
+    _, ps = epr_sim._system_params(st, {"A_MHz": 50})
+    assert [p.half for p in ps] == [50, 50]
+    iso = epr.SpinSystem(g=2.003, nuclei=[epr.Nucleus("14N", A_mT=0.7, n=2), epr.Nucleus("1H", A_mT=0.3, n=4)],
+                         dBpp_mT=0.05)
+    _, ps = epr_sim._system_params(iso, {"g": [0.002, 0.002], "A_mT": 0.05})
+    assert [p.name for p in ps] == ["g", "A_mT(14N)", "A_mT(1H)"]
+    with pytest.raises(ValueError, match="vary\\['g'\\]"):
+        epr_sim._system_params(iso, {"g": [0.002, 0.003]})
+    with pytest.raises(ValueError, match="vary='all'"):
+        epr.fit_spectrum(np.linspace(330, 340, 64), np.zeros(64), start=iso, freq_GHz=9.4, vary="some")
+
+
+def test_misplaced_keywords_name_their_place():
+    with pytest.raises(TypeError, match=r"hyperfine goes on a Nucleus: nuclei=\[epr.Nucleus\('63Cu', A_MHz=\[...\]\)\]"):
+        epr.SpinSystem(g=2.1, A_MHz=[20, 500], fwhm_mT=1)
+    for kw in ({"A_mT": 1.0}, {"I": 1.5}, {"nucleus": "Cu"}):
+        with pytest.raises(TypeError, match="hyperfine goes on a Nucleus"):
+            epr.SpinSystem(g=2.1, fwhm_mT=1, **kw)
+    with pytest.raises(TypeError, match="belongs to the SpinSystem"):
+        epr.Nucleus("14N", A_mT=1.6, fwhm_mT=0.5)
+
+
+def test_eprdata_aliases():
+    d, _ = _as_data("radical")
+    assert d.field is d.field_mT and d.signal is d.y and d.intensity is d.y
+    with pytest.raises(AttributeError, match="did you mean 'field_mT'"):
+        d.field_mt
+
+
+def test_powder_check_in_line_tools():
+    d, _ = _as_data("nitroxide_rigid")
+    try:
+        nx = epr.nitroxide_hyperfine(d.field_mT, d.real)
+        assert any("frozen/powder spectrum" in w and "fit_spectrum(model='powder')" in w for w in nx.warnings)
+    except ValueError as e:                      # too few lines: the error carries the same text
+        assert "frozen/powder spectrum" in str(e)
+    for name in ("rhombic", "cu_powder"):
+        d2, _ = _as_data(name)
+        lf = epr.fit_line(d2.field_mT, d2.real, shape="gaussian")
+        assert any("frozen/powder spectrum" in w for w in lf.warnings), name
+    # isotropic spectra never trigger it
+    x = np.linspace(330, 345, 2048)
+    for nuc, lw in (([(1, 1.6, 1)], 0.12), ([(1, 1.7, 1)], 0.3), ([], 0.2), ([(1, 0.72, 2), (0.5, 0.26, 4)], 0.05)):
+        y = epr.simulate_iso(x, 9.45, 2.0058, nuclei=nuc, lw_mT=lw)
+        assert not any("powder" in w for w in epr.fit_line(x, y).warnings)
+        if len(nuc) == 1:
+            assert not any("powder" in w for w in epr.nitroxide_hyperfine(x, y).warnings)
+
+
+def test_powder_check_on_existing_s8_fixtures():
+    # the isotropic S8 CW fixtures never trigger the powder warning; the
+    # powder ones do (checked when the benchmark fixtures are present)
+    root = Path(__file__).resolve().parents[3] / "benchmarks" / "fixtures"
+    if not root.exists():
+        pytest.skip("benchmark fixtures not present")
+    from labkit.epr import _powder_check
+    powder = ("s8_cw_cu_powder", "s8_cw_nitroxide_rigid", "s8_cw_rhombic")
+    n = 0
+    for case in sorted(list((root / "lab" / "cases").glob("s8_cw_*")) + list((root / "lab_fresh" / "cases").glob("s8_cw_*"))):
+        for f in case.iterdir():
+            if f.suffix not in (".DSC", ".txt", ".csv", ".spc"):
+                continue
+            try:
+                d = epr.load(f)
+            except Exception:
+                continue
+            if d.kind != "cw":
+                continue
+            yv = np.real(d.y) if np.ndim(d.y) == 1 else np.real(d.y[0])
+            flagged = bool(_powder_check(d.field_mT, yv, True) or _powder_check(d.field_mT, yv, False))
+            is_powder = case.name.startswith(powder)
+            assert flagged == is_powder, f.name
+            n += 1
+    assert n > 40
+
+
+def test_powder_starts():
+    for name, kind, keys, tol in (("cu_powder", "cu", {"g_par": "g_par", "g_perp": "g_perp", "A_par_MHz": "A_par_MHz"},
+                                   {"g_par": 0.003, "g_perp": 0.005, "A_par_MHz": 0.05 * 575}),
+                                  ("nitroxide_rigid", "nitroxide", {"Azz_mT": "Azz_mT"}, {"Azz_mT": 0.08}),
+                                  ("rhombic", "rhombic", {"g_max": "g_max", "g_mid": "g_mid", "g_min": "g_min"},
+                                   {"g_max": 0.003, "g_mid": 0.003, "g_min": 0.003})):
+        x, y, t = _syn(name)
+        st = epr.powder_starts(x, y, t["freq_GHz"], kind)
+        for k, tk in keys.items():
+            assert abs(st.values[k] - t[tk]) < tol[k], (name, k, st.values[k], t[tk])
+        assert kind in repr(st)
+
+
+def test_guide_recipes_run_as_printed():
+    import re
+    from labkit.guide import TOPICS
+    txt = TOPICS["epr-sim"]
+    for title, name, check in (("Frozen nitroxide", "nitroxide_rigid",
+                                lambda r, t: abs(r.params["A_mT(14N)_z"] - t["Azz_mT"]) < 0.08),
+                               ("Rhombic S = 1/2", "rhombic",
+                                lambda r, t: abs(r.params["g_z"] - t["g_max"]) < 0.003
+                                and abs(r.params["g_x"] - t["g_min"]) < 0.003)):
+        lines = txt[txt.index(title):].split("\n")[1:]
+        code = []
+        for line in lines:
+            if line.startswith("      "):
+                code.append(line[6:])
+            elif code and not line.startswith("      "):
+                if re.match(r"^    \S", line) and not code[-1].endswith(","):
+                    if not line.strip().startswith(("print", "r =", "st =", "sys =")):
+                        break
+                if not line.startswith("    "):
+                    break
+        d, t = _as_data(name)
+        ns = {"epr": epr, "d": d}
+        with contextlib.redirect_stdout(io.StringIO()):
+            exec("\n".join(code), ns)
+        assert check(ns["r"], t), title
+
+
+def test_powder_starts_cu_without_resolved_parallel_lines():
+    # a window that cuts off the low-field parallel lines: no line-spacing
+    # estimate, the grid of quick simulations still gives a start and says so
+    x, y, t = _syn("cu_powder")
+    keep = x > 304.0
+    st = epr.powder_starts(x[keep], y[keep], t["freq_GHz"], "cu", modamp_mT=0.4)
+    assert "not resolved" in st.how
+    assert 2.15 <= st.values["g_par"] <= 2.38 and 350 <= st.values["A_par_MHz"] <= 710
+    assert abs(st.values["g_perp"] - t["g_perp"]) < 0.05

@@ -177,6 +177,21 @@ async def _file_source(conv_id: str, filename: str) -> Optional[str]:
     return script_for_file(messages, filename)
 
 
+async def _user_text(conv_id: str) -> str:
+    """The user's messages in this conversation (last 4, 4000 chars), for the
+    hints that need what the question says, not only the code (LABKIT-019).
+    Best effort: empty on any problem."""
+    try:
+        import asyncio
+        import chat_store  # lazy: avoids a circular import at module init
+        messages = await asyncio.wait_for(chat_store.get_messages_after_index(conv_id, -1), timeout=2.0)
+    except Exception as e:
+        logger.info("hint context skipped: %s", e)
+        return ""
+    texts = [m.get("content") for m in messages if m.get("role") == "user" and isinstance(m.get("content"), str)]
+    return "\n".join(texts[-4:])[-4000:]
+
+
 async def _base_source(conv_id: str) -> Optional[str]:
     """Most recent source executed in this conversation, or None."""
     cached = _last_source.get(conv_id)
@@ -292,11 +307,20 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
     )
     # A hand-rolled fit of a model labkit has (LAB-ADOPTION-PLAN.md), once
     # per conversation and hint, never after the conversation used labkit.
-    hint = _labkit_hints.hint_for(conv_id, code)
+    context = await _user_text(conv_id) if labkit_hints.wants_context(code) else ""
+    hint = _labkit_hints.hint_for(conv_id, code, context=context)
     if hint:
         payload["labkit_hint"] = hint[1]
         # One line per hint so an eval can count them (LABKIT-011-PLAN.md).
         logger.info("labkit_hint kind=%s conv=%s", hint[0], conv_id)
+    try:
+        out_hint = _labkit_hints.output_hint_for(conv_id, code, str(payload.get("stdout") or ""))
+    except Exception as e:
+        logger.info("output hint skipped: %s", e)
+        out_hint = None
+    if out_hint:
+        payload["labkit_hint"] = (payload["labkit_hint"] + " " + out_hint[1]) if hint else out_hint[1]
+        logger.info("labkit_hint kind=%s conv=%s", out_hint[0], conv_id)
     # An array typed into the code that starts like an uploaded column and
     # then departs from it (advisory; once per file and column per turn).
     try:
