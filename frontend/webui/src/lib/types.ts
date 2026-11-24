@@ -224,6 +224,9 @@ export type SSEEvent =
   | { type: 'reconnecting'; data: { attempt: number; max_attempts: number; delay_s: number } }
   | { type: 'memory_proposed'; data: MemoryProposal }
   | { type: 'compact_boundary'; data: CompactBoundary }
+  // The answer as saved, when the server changed it after streaming
+  // (citation check corrections, [unverified] marks, audit warnings).
+  | { type: 'answer_revised'; data: { content: string; notes?: { checked?: number; corrected?: number; unverified?: number } } }
   | { type: 'plan_updated'; data: Plan }
   | { type: 'plan_approval_required'; data: PlanApprovalRequired }
   | { type: 'error'; data: { message: string } }

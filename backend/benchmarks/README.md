@@ -120,6 +120,57 @@ python -m munin_bench.frozen_variants.regen_variants \
 Track A measures the *ranker* on the frozen input; expansion drift under a
 model swap is a live-harness behaviour measured by Track D/E, not here.
 
+## User-failure regression track (Track UF)
+
+A private test set built from real conversations where Munin failed a user:
+reported chats, corrections, re-asks and error markers. Each case replays the
+user's turns against the live chat API. Mechanical checks cover empty answers,
+error markers, links to artifacts that do not exist, DOIs that do not
+resolve, tools, files and language. A pinned Claude Opus 5.5 judge then grades
+the final answer against a rubric whose facts were verified when the case was
+written.
+
+The cases are user text, so they are **not in git**. They live in
+`/opt/munin/data/evals/user-failures/` (mode 700, created by `deploy.sh`;
+override with `MUNIN_USERFAIL_DIR`). Answers and verdicts stay there under
+`runs/<tag>/`. Committed scorecards in `scorecards/userfail/` hold case ids,
+categories, tiers and pass/fail only. This is an internal regression track,
+not a paper scorecard, so it is not copied into `docs/paper-kit/`. Users are
+told about it in the guide (`#quality`).
+
+```bash
+cd backend/benchmarks
+pip install --target=$HOME/.cache/munin_bench_deps_userfail anthropic   # once
+export ANTHROPIC_API_KEY=...          # or `ant auth login`
+UF="env PYTHONPATH=$HOME/.cache/munin_bench_deps_userfail:. python3 -m munin_bench.userfail.run"
+$UF validate
+$UF run   --tag 2026-11-24_sage --workers 2     # replay + mechanical checks (resumable)
+$UF judge --tag 2026-11-24_sage                 # Batch API, about $5-10 per 100 cases
+$UF score --tag 2026-11-24_sage                 # -> scorecards/userfail/<tag>.json
+$UF recheck --tag 2026-11-24_sage               # re-run the checks on stored answers (checker fixes)
+$UF compare scorecards/userfail/A.json scorecards/userfail/B.json
+$UF compare A_r1.json,A_r2.json,A_r3.json B_r1.json,B_r2.json,B_r3.json   # replicates
+```
+
+A harness step that only rewrites the final answer (today: `citecheck` in
+enforce mode) is measured without replaying: `python -m
+munin_bench.userfail.postfix --src <tag> --out <tag>+cc [--ids ...]` applies
+it to stored answers, carries the verdicts of unchanged answers over, and the
+two arms then differ in that step alone. Judge and score `<tag>+cc` as usual.
+
+Single runs are noisy: on the first baseline, 12 of 77 cases and 64 of 249
+rubric points flipped between two runs with no relevant change. Compare arms
+of 2 to 3 replicates each. `compare` then uses the per-case pass rate over the
+replicates, and also tests rubric points met (`criteria`), which moves before
+whole cases do.
+
+Each scorecard stamps the harness (git sha, retrieval image) and the served
+model (`/api/system`). `compare` reports the fixed and regressed cases with
+an exact McNemar p, per tier. To separate the two causes, change one thing
+per pair of runs: same model with a new harness measures the harness, and the
+same harness with a new model measures the model. Mechanical-tier cases mostly
+measure the harness; rubric-tier cases mostly measure the model.
+
 ## Layout
 
 ```

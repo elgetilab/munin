@@ -32,6 +32,7 @@ test_calculator.py                       hermetic
 test_chat_context_fit.py                 hermetic
 test_chatdb_txn.py                       hermetic
 test_citation_audit.py                   hermetic
+test_citecheck.py                        hermetic
 test_clarification_persistence.py        hermetic
 test_compaction.py                       hermetic
 test_compile_latex_args.py               hermetic

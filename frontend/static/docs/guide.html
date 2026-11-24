@@ -52,6 +52,7 @@
                     <li><a href="#api-access">API Access</a></li>
                     <li><a href="#opencode">Using Munin with opencode</a></li>
                     <li><a href="#credit">Crediting Munin in a paper</a></li>
+                    <li><a href="#quality">How failed answers improve Munin</a></li>
                     <li><a href="#tips">Tips</a></li>
                 </ol>
             </div>
@@ -395,6 +396,16 @@ opencode</pre>
                 <li><strong>What answered you, and when:</strong> in Chat, open <strong>Settings</strong> and go to <strong>Credit Munin in a paper</strong>. Pick the date range of your project to see which models answered your requests, with checkpoint, revision and token counts, and a disclosure statement you can paste and complete. A CSV export is there too.</li>
                 <li><strong>Templates, references and publisher rules:</strong> the <a href="{{env "MUNIN_URL_HOME"}}/cite">Cite Munin</a> page.</li>
                 <li>Today the model is <strong>{{ $model }}</strong>{{ with $b.developer }} by {{ . }}{{ end }}; it changes over time, which is why the statement should come from your own usage and not from this page.</li>
+            </ul>
+
+            <h2 id="quality">How failed answers improve Munin</h2>
+            <p>When Munin gets something wrong (you report a chat, correct an answer, or have to ask again), that exchange may become a test case. Every new version of Munin, and every new model, is run against these cases, so a problem that was fixed stays fixed.</p>
+            <ul>
+                <li><strong>What is kept:</strong> your question, any file it needs, and a note on what a good answer should contain. Your name and email are not part of a test case.</li>
+                <li><strong>Where:</strong> only on the Munin server, outside the public source code. Published results show pass rates, never your questions.</li>
+                <li><strong>Grading:</strong> to grade a test run, the question, the expected answer and Munin's new answer are sent to a fixed Claude model through Anthropic's API. Under Anthropic's API terms this data is not used to train their models.</li>
+                <li><strong>Temporary chats</strong> are not stored, so they are never used.</li>
+                <li><strong>Opting out:</strong> write to <a href="mailto:{{env "MUNIN_SUPPORT_EMAIL"}}">support</a> and we remove your conversations from the test set.</li>
             </ul>
 
             <h2 id="tips">Tips</h2>

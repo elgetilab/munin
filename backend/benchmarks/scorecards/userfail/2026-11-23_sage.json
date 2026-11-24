@@ -1,0 +1,1763 @@
+{
+ "track": "userfail",
+ "tag": "2026-11-23_sage",
+ "date": "2026-11-23",
+ "harness": {
+  "git_sha": "869c0dbbd1a8",
+  "retrieval_image": "sha256:f3517280ad10"
+ },
+ "model": {
+  "served_name": "sage-a1.5",
+  "display": "Sage-A1.5",
+  "revision": "12e664ccaf57",
+  "fallback_active": false
+ },
+ "retrieval_images": [
+  "unknown"
+ ],
+ "infra_errors": [
+  "uf-f0383",
+  "uf-f0389",
+  "uf-f0390",
+  "uf-f0391",
+  "uf-f0402",
+  "uf-f0403",
+  "uf-f0405",
+  "uf-f0419",
+  "uf-f0442",
+  "uf-f0461",
+  "uf-f0465",
+  "uf-f0477",
+  "uf-f0478",
+  "uf-f0480",
+  "uf-f0481",
+  "uf-f0483",
+  "uf-f0495",
+  "uf-f0496",
+  "uf-f0501",
+  "uf-f0510",
+  "uf-f0517",
+  "uf-f0518",
+  "uf-f0519",
+  "uf-f0537",
+  "uf-f0539",
+  "uf-f0548",
+  "uf-f0559",
+  "uf-rep_676a3238",
+  "uf-rep_689f8df3",
+  "uf-rep_993a5fc6",
+  "uf-rep_a42384f0",
+  "uf-rep_cbb006ff",
+  "uf-rep_d28ef78e",
+  "uf-rep_e45e3f2b"
+ ],
+ "judge": {
+  "model": "claude-opus-5-5",
+  "effort": "high"
+ },
+ "overall": {
+  "n": 111,
+  "graded": 77,
+  "pass": 19,
+  "rate": 0.247
+ },
+ "by_tier": {
+  "mechanical": {
+   "n": 24,
+   "graded": 15,
+   "pass": 7,
+   "rate": 0.467
+  },
+  "rubric": {
+   "n": 87,
+   "graded": 62,
+   "pass": 12,
+   "rate": 0.194
+  }
+ },
+ "mechanical_only": {
+  "n": 111,
+  "graded": 111,
+  "pass": 55,
+  "rate": 0.495
+ },
+ "criteria": {
+  "met": 133,
+  "total": 249,
+  "rate": 0.534
+ },
+ "by_category": {
+  "code_error": {
+   "n": 13,
+   "graded": 10,
+   "pass": 3,
+   "rate": 0.3
+  },
+  "context_lost": {
+   "n": 1,
+   "graded": 1,
+   "pass": 0,
+   "rate": 0.0
+  },
+  "fabricated_citation": {
+   "n": 13,
+   "graded": 10,
+   "pass": 1,
+   "rate": 0.1
+  },
+  "file_or_attachment": {
+   "n": 5,
+   "graded": 3,
+   "pass": 0,
+   "rate": 0.0
+  },
+  "incomplete_or_truncated": {
+   "n": 21,
+   "graded": 17,
+   "pass": 3,
+   "rate": 0.176
+  },
+  "instruction_not_followed": {
+   "n": 11,
+   "graded": 5,
+   "pass": 2,
+   "rate": 0.4
+  },
+  "latency_or_timeout": {
+   "n": 1,
+   "graded": 0,
+   "pass": 0,
+   "rate": null
+  },
+  "over_refusal_or_abstain": {
+   "n": 3,
+   "graded": 3,
+   "pass": 0,
+   "rate": 0.0
+  },
+  "rendering_or_format": {
+   "n": 1,
+   "graded": 0,
+   "pass": 0,
+   "rate": null
+  },
+  "retrieval_miss": {
+   "n": 2,
+   "graded": 2,
+   "pass": 1,
+   "rate": 0.5
+  },
+  "tool_failure": {
+   "n": 18,
+   "graded": 11,
+   "pass": 7,
+   "rate": 0.636
+  },
+  "wrong_fact": {
+   "n": 22,
+   "graded": 15,
+   "pass": 2,
+   "rate": 0.133
+  }
+ },
+ "cases": [
+  {
+   "id": "uf-f0013",
+   "category": "file_or_attachment",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "artifact"
+   ]
+  },
+  {
+   "id": "uf-f0030",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0039",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0043",
+   "category": "retrieval_miss",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0044",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": true,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": [
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0049",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0054",
+   "category": "instruction_not_followed",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0055",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0061",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0062",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0066",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0072",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0077",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": [
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0084",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0092",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0094",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0099",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0100",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0105",
+   "category": "over_refusal_or_abstain",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": [
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0108",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0109",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0110",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": [
+    "language"
+   ]
+  },
+  {
+   "id": "uf-f0113",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0114",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0116",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0119",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0120",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0125",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0127",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0128",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0129",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": [
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0135",
+   "category": "code_error",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0154",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false
+   ],
+   "failed_checks": [
+    "language"
+   ]
+  },
+  {
+   "id": "uf-f0155",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0157",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0158",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0159",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0165",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0169",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0172",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0173",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0177",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": [
+    "no_clarification"
+   ]
+  },
+  {
+   "id": "uf-f0178",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0188",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0195",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0196",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "no_clarification",
+    "contains",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0201",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0202",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0203",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0208",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0209",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": [
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0214",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0215",
+   "category": "file_or_attachment",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "tool_used"
+   ]
+  },
+  {
+   "id": "uf-f0224",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0225",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0226",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": [
+    "no_phantom_artifact"
+   ]
+  },
+  {
+   "id": "uf-f0239",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0261",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0264",
+   "category": "file_or_attachment",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": [
+    "tool_used"
+   ]
+  },
+  {
+   "id": "uf-f0274",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0275",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    true,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0291",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0316",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0317",
+   "category": "retrieval_miss",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0319",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0329",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    true,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0330",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    true
+   ],
+   "failed_checks": [
+    "artifact",
+    "dois_resolve",
+    "tool_used"
+   ]
+  },
+  {
+   "id": "uf-f0334",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    false,
+    false
+   ],
+   "failed_checks": [
+    "artifact",
+    "dois_resolve"
+   ]
+  },
+  {
+   "id": "uf-f0337",
+   "category": "instruction_not_followed",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "no_clarification"
+   ]
+  },
+  {
+   "id": "uf-f0345",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    true,
+    false
+   ],
+   "failed_checks": [
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0346",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": true,
+   "pass": true,
+   "criteria": [
+    true,
+    true,
+    true
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0347",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": true,
+   "judge_pass": null,
+   "pass": true,
+   "criteria": [],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0361",
+   "category": "over_refusal_or_abstain",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": false,
+   "criteria": [],
+   "failed_checks": [
+    "no_clarification"
+   ]
+  },
+  {
+   "id": "uf-f0362",
+   "category": "over_refusal_or_abstain",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0363",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    true,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0383",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "no_error_marker",
+    "artifact"
+   ]
+  },
+  {
+   "id": "uf-f0384",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": true,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false
+   ],
+   "failed_checks": []
+  },
+  {
+   "id": "uf-f0385",
+   "category": "context_lost",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": false,
+   "pass": false,
+   "criteria": [
+    false,
+    false,
+    false,
+    false
+   ],
+   "failed_checks": [
+    "contains",
+    "contains",
+    "not_contains"
+   ]
+  },
+  {
+   "id": "uf-f0389",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "tool_used"
+   ]
+  },
+  {
+   "id": "uf-f0390",
+   "category": "latency_or_timeout",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "artifact"
+   ]
+  },
+  {
+   "id": "uf-f0391",
+   "category": "incomplete_or_truncated",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "artifact"
+   ]
+  },
+  {
+   "id": "uf-f0402",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0403",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0405",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0419",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0442",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0461",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0465",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0477",
+   "category": "rendering_or_format",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "language"
+   ]
+  },
+  {
+   "id": "uf-f0478",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "language"
+   ]
+  },
+  {
+   "id": "uf-f0480",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0481",
+   "category": "code_error",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0483",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0495",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "language"
+   ]
+  },
+  {
+   "id": "uf-f0496",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0501",
+   "category": "file_or_attachment",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "artifact"
+   ]
+  },
+  {
+   "id": "uf-f0510",
+   "category": "incomplete_or_truncated",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0517",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0518",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0519",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-f0537",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "language"
+   ]
+  },
+  {
+   "id": "uf-f0539",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0548",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "tool_used",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-f0559",
+   "category": "fabricated_citation",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-rep_676a3238",
+   "category": "instruction_not_followed",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-rep_689f8df3",
+   "category": "tool_failure",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "tool_used",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-rep_993a5fc6",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-rep_a42384f0",
+   "category": "wrong_fact",
+   "tier": "rubric",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker"
+   ]
+  },
+  {
+   "id": "uf-rep_cbb006ff",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "tool_used",
+    "artifact",
+    "contains"
+   ]
+  },
+  {
+   "id": "uf-rep_d28ef78e",
+   "category": "file_or_attachment",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "artifact"
+   ]
+  },
+  {
+   "id": "uf-rep_e45e3f2b",
+   "category": "tool_failure",
+   "tier": "mechanical",
+   "mech_pass": false,
+   "judge_pass": null,
+   "pass": null,
+   "criteria": [],
+   "failed_checks": [
+    "nonempty",
+    "no_error_marker",
+    "tool_used",
+    "artifact"
+   ]
+  }
+ ]
+}
