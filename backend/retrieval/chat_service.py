@@ -4011,15 +4011,16 @@ async def stream_chat_completion(
         _ledger_notes = None
         # The ledger's records are grounding too: the References the server
         # renders from them carry full author lists no tool result showed.
-        _ledger_grounding = ("\n" + json.dumps([e.record for e in ledger.entries.values()],
-                                                ensure_ascii=False, default=str)
-                             if ledger is not None else "")
+        # Built after enrich, which adds the Crossref author lists.
         if ledger is not None and not had_stream_error and not _cancelled():
             try:
                 await ledger.enrich([s for s in ledger.cited_ids(final_content) if s[0] == "S"])
                 final_content, _ledger_notes = ledger.render(final_content)
             except Exception:
                 logger.exception("source ledger render failed; answer left as written")
+        _ledger_grounding = ("\n" + json.dumps([e.record for e in ledger.entries.values()],
+                                                ensure_ascii=False, default=str)
+                             if ledger is not None else "")
         if not had_stream_error and not _cancelled() and citecheck.mode() != "off":
             _, _ungrounded_pre, _ = audit_citation_claims_in_content(
                 final_content, final_tool_calls,
