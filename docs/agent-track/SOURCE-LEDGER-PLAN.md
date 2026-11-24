@@ -71,11 +71,10 @@ without replaying raw results.
 
 ### 6. Context budget (the research the owner asked for)
 
-Verified: the KV pool holds about 211K tokens (`vllm-service` log: "GPU KV
-cache size: 210,993 tokens"; 10 of 40 layers keep KV, FP8). The 64K limit is
-`VLLM_MAX_MODEL_LEN=65536` in `config/models/sage-a1.5.env`, a setting. The
-model declares 262,144 positions. With `max_num_seqs=2`, 98,304 per sequence
-fits two full sequences without preemption.
+The window stays at 64K. The KV pool holds about 211K tokens, but it is shared
+by the users served at once; 64K per sequence is the production constraint
+(owner, 2026-11-24). So the harness has to work inside 64K, and the changes
+below are the main lever, not a bigger window.
 
 Literature (sources in the research notes): masking old observations matches
 or beats LLM summarisation at half the cost (The Complexity Trap, 2025);
@@ -94,8 +93,11 @@ Changes, in order:
    `{"_elided": true, "sources": ["S7", "S9"], "handle": "R12"}` instead of
    "re-run the tool", cleared in batches so the prefix cache is not broken on
    every step.
-4. **Window**: measure 64K vs 96K on the eval instance (needle tests below plus
-   the user-failure slice); raise production only if 96K is not worse.
+4. **Budget per call** (64K): system and tool schemas up to about 9K, the
+   sources block up to 1.5K, history up to about 12K (oldest compacted first),
+   current-turn tool results up to about 24K (each view 3K by default),
+   generation reserve 16K. Enforced with the real tokenizer that
+   `chat_context.py` already loads.
 
 ### 7. Tests
 
@@ -113,7 +115,7 @@ user data, committed with its cases):
 - cross-turn: turn 3 cites a paper found in turn 1
 - artifact reuse: turn 2 links an artifact made in turn 1
 - needle in a tool result: a fact planted in passage k of a large search
-  envelope, k = 1..8, at 64K and 96K
+  envelope, k = 1..8, at 64K
 - long session: 15 to 25 tool calls, then a recall question about the first
 - mechanical checks only (exact ids, links resolve, the needle value), so no
   judge is needed; the user-failure slice keeps the Opus judge
@@ -138,7 +140,7 @@ at least 90% on citation by id.
 1. Ledger, harvest, render, persona rule, frontend chip; unit tests.
 2. Grounding track; baseline it on the eval instance.
 3. Ledger arm on the eval instance; compare.
-4. Context-budget changes 1 to 3, measured the same way; then the 64K/96K arm.
+4. Context-budget changes 1 to 4, measured the same way.
 5. Deploy what passes.
 
 ## Open questions (defaults in bold)
@@ -152,6 +154,5 @@ at least 90% on citation by id.
 3. Reference style:
    - **numbered `[1]` in the text, a References list at the end**
    - author-year in the text
-4. Window:
-   - **measure 96K on the eval instance first, then decide for production**
-   - raise production to 96K now
+
+Question 4 (window) is settled: 64K stays.
