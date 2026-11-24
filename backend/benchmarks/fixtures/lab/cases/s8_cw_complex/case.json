@@ -1,0 +1,38 @@
+{
+ "id": "s8_cw_complex",
+ "suite": "S8",
+ "inputs": [
+  "spec.DSC",
+  "spec.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "spec.DSC / spec.DTA hold a CW-EPR spectrum recorded with both quadrature channels. The line is Lorentzian. Report the peak-to-peak width of the derivative line (dBpp_mT) and the full width at half maximum of the absorption line (fwhm_mT), both in mT.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "dBpp_mT",
+     "truth": "truth:dBpp_mT",
+     "rtol": 0.03
+    },
+    {
+     "type": "numeric",
+     "key": "fwhm_mT",
+     "truth": "truth:fwhm_mT",
+     "rtol": 0.03
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "dBpp_mT": "mT",
+  "fwhm_mT": "mT"
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:complex_interleaved",
+  "trap:little_endian",
+  "trap:pp_vs_fwhm"
+ ],
+ "provenance": "synthetic, s8.cw_complex_le"
+}

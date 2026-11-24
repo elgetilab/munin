@@ -324,6 +324,58 @@ with tempfile.TemporaryDirectory() as tmp:
               os.path.exists(mine) and open(mine, "rb").read()
               == open(os.path.join(tmp, "outputs", name), "rb").read())
 
+# ---- bundles carry labkit (EPR-PLAN.md Part C) ---------------------------------
+
+L = "llllllll-0000-4000-8000-0000000000c3".replace("l", "c")
+run(L, "import labkit, json\nr = labkit.fit('linear', [1, 2, 3, 4], [2.1, 3.9, 6.2, 7.8])\n"
+       "print('labkit from', labkit.__file__)\n"
+       "json.dump({'slope': round(r.params['Slope'], 6)}, open('slope.json', 'w'))\n")
+lz = zipfile.ZipFile(io.BytesIO(c.get(f"/bundle/{L}").content))
+names = lz.namelist()
+man = json.loads(lz.read("MANIFEST.json"))
+check("a bundle that uses labkit carries its sources and license",
+      "labkit/__init__.py" in names and "labkit/fit.py" in names and "labkit/LICENSE" in names and "labkit/THIRD_PARTY_NOTICES" in names
+      and man.get("vendored", {}).get("labkit", {}).get("version"), str(man.get("vendored"))[:200])
+with tempfile.TemporaryDirectory() as tmp:
+    lz.extractall(tmp)
+    proc = subprocess.run([sys.executable, "analysis.py"], cwd=tmp, capture_output=True, text=True, timeout=120)
+    check("analysis.py imports the bundled labkit, not the installed one",
+          proc.returncode == 0 and f"labkit from {os.path.realpath(tmp)}" in proc.stdout.replace(tmp, os.path.realpath(tmp)),
+          (proc.stdout + proc.stderr)[-300:])
+    check("and reproduces its output",
+          open(os.path.join(tmp, "slope.json"), "rb").read() == lz.read("outputs/slope.json"))
+plain = zipfile.ZipFile(io.BytesIO(c.get(f"/bundle/{C}").content)).namelist()
+check("a bundle that does not use labkit carries none", not any(n.startswith("labkit/") for n in plain))
+
+# ---- failed runs that wrote files (LABKIT-017-PLAN.md) -----------------------
+
+F = "ffffffff-0000-4000-8000-0000000000f1"
+run(F, "import pandas as pd\n"
+       "pd.DataFrame({'g': ['A', 'B'], 'p': [0.01, 0.2]}).to_csv('tukey.csv', index=False)\n"
+       "print(tukey.summary)\n")                       # writes the file, then NameError
+run(F, "y = 1 / 0\n")                                   # fails, writes nothing
+run(F, "import pandas as pd\n"
+       "t = pd.read_csv('tukey.csv')\n"
+       "t.assign(sig=t.p < 0.05).to_csv('summary.csv', index=False)\n")
+fz = zipfile.ZipFile(io.BytesIO(c.get(f"/bundle/{F}").content))
+script = fz.read("analysis.py").decode()
+check("a failed run that wrote a file is replayed in analysis.py",
+      "# --- run 1 (failed), produced: tukey.csv ---" in script
+      and "_munin_failed_run(1, " in script and "def _munin_failed_run" in script, script[:800])
+check("a failed run that wrote nothing is left out of analysis.py",
+      "1 / 0" not in script and "run 2 (failed)" not in script, script[-600:])
+with tempfile.TemporaryDirectory() as tmp:
+    fz.extractall(tmp)
+    proc = subprocess.run([sys.executable, "analysis.py"], cwd=tmp, capture_output=True, text=True,
+                          timeout=120)
+    check("analysis.py goes on after the replayed failure",
+          proc.returncode == 0 and "run 1 raised NameError" in proc.stdout,
+          (proc.stdout + proc.stderr)[-500:])
+    for name in ("tukey.csv", "summary.csv"):
+        mine = os.path.join(tmp, name)
+        check(f"and remakes {name} byte for byte",
+              os.path.exists(mine) and open(mine, "rb").read() == fz.read(f"outputs/{name}"))
+
 # ---- persistence across a kernel restart --------------------------------------
 
 c.delete(f"/kernels/{A}")

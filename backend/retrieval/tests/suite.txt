@@ -127,6 +127,7 @@ test_tool_search.py                      hermetic
 test_tool_validation.py                  hermetic
 test_turn_results.py                     hermetic
 test_labkit_hints.py                     hermetic
+test_retype_check.py                     hermetic
 test_results_outline.py                  hermetic
 test_upload_cancel.py                    hermetic
 test_upload_doi_hint.py                  hermetic

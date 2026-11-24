@@ -1,0 +1,37 @@
+{
+ "id": "s8_cw_g_bes3t_f3",
+ "suite": "S8",
+ "inputs": [
+  "sample.DSC",
+  "sample.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "sample.DSC / sample.DTA are a Bruker Xepr CW-EPR spectrum (BES3T) of a radical with a single line. Report its g-value (g) and the peak-to-peak linewidth of the first-derivative line in mT (dBpp_mT).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "g",
+     "truth": "truth:g",
+     "atol": 0.0002
+    },
+    {
+     "type": "numeric",
+     "key": "dBpp_mT",
+     "truth": "truth:dBpp_mT",
+     "atol": 0.01
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "g": "",
+  "dBpp_mT": "mT"
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:units_G_mT",
+  "trap:frequency_from_file"
+ ],
+ "provenance": "synthetic Lorentzian derivative, s8.cw_g_bes3t"
+}

@@ -5,7 +5,8 @@ TOPICS: dict[str, str] = {}
 
 TOPICS["overview"] = """\
 labkit: vetted helpers for lab data analysis. Topics: guide('fit'), guide('read'),
-guide('nmr'), guide('stats'), guide('cd'), guide('plot').
+guide('nmr'), guide('stats'), guide('cd'), guide('plot'), guide('epr'), guide('epr-sim'),
+guide('deer').
 - fit:   Prism-style nonlinear regression with Prism's parameter NAMES and defaults
 - read:  instrument files (NanoDrop, Gen5, plate grids, JASCO, any table); refuses binaries
 - nmr:   Bruker 1D processing, peaks, integration, Sparky lists, CSP, titration Kd,
@@ -13,6 +14,12 @@ guide('nmr'), guide('stats'), guide('cd'), guide('plot').
 - stats: two-way ANOVA (Type III), post-hoc on the pooled error, asterisks
 - cd:    mean residue ellipticity, HT cutoff
 - plot:  save_figure at exact mm size, seeded jitter
+- epr:   CW-EPR: Bruker BES3T/ESP/ASCII files, g, linewidths, double integral, spin
+         counting, nitroxide aN and tau_c, power saturation, isotropic simulation
+- epr-sim: spin systems, powder (frozen solution) and isotropic simulation, fitting a
+         simulation to a spectrum, unit conversions (MHz, mT, 1e-4 cm-1), isotopes
+- deer:  4-pulse DEER: phase, zero time, one-step fit of P(r), modulation depth,
+         background; distance limits of the trace
 Every result says what it is: print() it. Warnings in a result are for the user:
 report them in the answer, do not drop them.
 """
@@ -106,7 +113,7 @@ nmr.hetnoe(sat, ref, noise_sat=, noise_ref=) -> {res: {"hetNOE", "err"} or None}
 NOESY buildup:
 nmr.read_integrals("100ms.txt")  TopSpin integral list -> DataFrame (integral, f2_ppm,
        f1_ppm) in file order
-nmr.noe_buildup(mixing_s, {pair: [A at each t]}, {pair: A_ii(0)} or one number)
+nmr.noe_buildup(mixing_s, {pair: [A at each t]}, {pair or diagonal peak: A_ii(0)} or one number)
        A(t) = (A0/2)(1 - exp(-2 sigma t)) exp(-t/T), A(0) = 0 included, grid of starts
        -> {pair: {"sigma", "sigma_ci", "T", "T_ci", "warnings"} or None}; t in SECONDS
 Per-residue and per-pair results are dicts keyed by residue or pair: write them that
@@ -138,9 +145,134 @@ jitter(center, n, seed=0)  reproducible x scatter (an unseeded jitter makes a re
 """
 
 
+TOPICS["epr"] = """\
+from labkit import epr          # field in mT, frequency in GHz, everywhere
+DEER/PELDOR traces (time axis, distances): guide('deer'). This topic is CW.
+d = epr.load("inputs/sample.DSC")   # Bruker BES3T (.DSC+.DTA), ESP (.par+.spc), ASCII (x_unit= if
+                                    # the header has no unit). Converts G -> mT; print(d) shows it all
+d.field_mT, d.y (complex if both channels: use d.real), d.freq_GHz (from MWFQ, the MEASURED
+  frequency; never assume 9.5 GHz), d.power_mW, d.modamp_mT, d.gain_dB, d.n_scans, d.sctnorm
+2D (power series, scans): d.y[i] is the slice at d.y2[i] (d.y2_unit, e.g. attenuation dB)
+One line:   lf = epr.fit_line(d.field_mT, d.real, shape="lorentzian"|"gaussian"|"voigt",
+                              freq_GHz=d.freq_GHz)
+            lf.g, lf.B0_mT, lf.dBpp_mT (derivative peak-to-peak), lf.fwhm_mT (absorption FWHM:
+            Lorentzian sqrt(3)*dBpp, Gaussian 1.1774*dBpp), lf.area
+            epr.g_value(B_mT, freq_GHz) = 71.447735 * nu / B; epr.peak_to_peak, epr.zero_crossing
+Spikes:     y_clean, idx = epr.despike(d.field_mT, d.real, max_width=3)   # 1-3 point glitches only
+            never mask by amplitude (abs(y) > K): in a derivative spectrum the largest points are the line
+Calibrate:  field_corr, offset = epr.calibrate_field(d.field_mT, B0_of_DPPH_mT, 2.0036, freq_GHz)
+            epr.frequency_correct(field_mT, freq_GHz, target_GHz)   # scales, does not shift
+Spins:      sc = epr.spin_count(sample, standard, standard_amount=100, unit="uM",
+                                S_sample=0.5, S_standard=0.5)     # both EPRData from epr.load
+            normalises each DOUBLE integral by 10^(gain_dB/20), sqrt(power), modulation amplitude
+            (linear) and scans (unless SctNorm); print(sc) shows every factor
+            epr.double_integral(field_mT, y, wings=0.1) baseline-corrects before AND after the
+            first integration; the window must span 20+ linewidths (it warns)
+Nitroxide:  nx = epr.nitroxide_hyperfine(d.field_mT, d.real, freq_GHz=d.freq_GHz)
+            nx.aN_mT, nx.aN_MHz (half the OUTER-line spacing), nx.g_iso, nx.dBpp_mT[0],
+            nx.heights[+1] (LOW field), nx.heights[0], nx.heights[-1] (HIGH field)
+            epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])
+Saturation: P = epr.attenuation_to_mW(d.y2, p_max_mW=200)
+            A = [epr.peak_to_peak(d.field_mT, row)["Ypp"] for row in d.real]
+            r = epr.power_saturation_fit(P, A); r.params["P_half"], r.params["epsilon"]
+            (P_half = power at half saturation; not the older b-form P')
+Text files (CSV/TXT/DAT export, field in G or mT): d = epr.load("inputs/spec.csv") reads the
+            header unit (x_unit="G" if it has none) and gives d.field_mT, d.y, then as above:
+  linewidth   epr.fit_line(d.field_mT, d.y, shape="gaussian").fwhm_mT   # not curve_fit by hand
+  Kivelson    nx = epr.nitroxide_hyperfine(d.field_mT, d.y)
+              k = epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])
+              k["tau_c_s"] (dBpp in mT; heights from the raw derivative, no smoothing)
+  spin ratio  epr.double_integral(a.field_mT, a.y).value / epr.double_integral(b.field_mT, b.y).value
+              (same settings and S; otherwise spin_count normalises gain, power, modamp, scans)
+Simulate:   epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[(1, 1.6, 1)], lw_mT=0.12,
+                             linewidth_mI=(A, B, C), second_order=True, modamp_mT=0.1)
+            (lw_mT here is the derivative peak-to-peak width)
+Powder (frozen solution), fitting a simulation, units, isotopes: guide('epr-sim').
+Not in labkit yet: slow-motion spectra (room-temperature spin labels outside the Kivelson
+regime, EasySpin chili) and S > 1/2 (high-spin Fe(III), Mn(II), triplets): say so, do not
+fit a powder or isotropic model to them.
+"""
+
+TOPICS["epr-sim"] = """\
+from labkit import epr      # field mT, frequency GHz; conventions follow EasySpin (Stoll 2006)
+Units are in the keyword names; there is no bare lw= or A= (EasySpin's Sys.lw is a FWHM,
+Sys.lwpp peak to peak, Sys.A in MHz).
+sys = epr.SpinSystem(g=[gx, gy, gz],                  # or g=2.005, or [g_perp, g_par]
+                     nuclei=[epr.Nucleus("63Cu", A_MHz=[Ax, Ay, Az])],   # or A_mT=, n=2 for
+                     fwhm_mT=1.0, shape="gaussian",     # equivalent nuclei, euler_deg=(a, b, c)
+                     g_strain=None, A_strain_MHz=None)  # strains as FWHM; dBpp_mT= instead of fwhm
+"Cu" (no mass) = natural 63Cu/65Cu: A is given for 63Cu (most abundant), 65Cu scaled by gn.
+y = epr.simulate_powder(sys, d.field_mT, d.freq_GHz, harmonic=1, modamp_mT=None)
+    S = 1/2, second-order perturbation; method="exact" diagonalises (slower, no fits).
+    It prints warnings (perturbation error, grid, linewidth under 3 field steps, lines outside
+    the sweep): report them. S > 1/2 raises an error.
+y = epr.simulate_iso(field_mT, freq_GHz, g, nuclei=[epr.Nucleus("14N", A_mT=0.72, n=2)],
+                     lw_mT=0.05, exact=True)     # Breit-Rabi positions for large couplings
+Fit: r = epr.fit_spectrum(d.field_mT, d.real, model="powder" | "iso", start=sys,
+                          vary={"g": [0.02, 0.02, 0.05], "A_MHz": [[0, 0, 100]], "fwhm_mT": 0.5},
+                          freq_GHz=d.freq_GHz, max_time_s=20)
+     vary = +- half-range per parameter, shaped like the start values (0 = fixed);
+     scale and baseline are fitted linearly; several starts; stops at max_time_s.
+     print(r); r.params, r.ci (95%), r.fit, r.residual_rms, r.warnings
+     Warnings mean: a parameter at its bound (widen vary), two parameters correlated
+     (g_perp vs linewidth: report both with CIs), other starts disagree (more than one minimum),
+     structure in the residual (wrong model: e.g. slow motion, a second species).
+Units: epr.convert(552, "MHz", "1e-4 cm-1"); epr.convert(2.85, "mT", "MHz", g=2.10)
+       field <-> energy needs the g of THAT line (never g_e unless g is 2.0023); no g, no answer
+epr.isotope("63Cu") -> .spin, .gn, .abundance
+Recipes:
+  Cu(II) frozen solution: start from the spectrum: g_perp near the strong high-field feature,
+    g_par and A_par from the low-field parallel lines (spacing ~ A_par in mT; g_par is the
+    centre of the four, NOT a zero crossing). Axial: two values each, [perp, par]:
+      sys = epr.SpinSystem(g=[2.05, 2.25], nuclei=[epr.Nucleus("Cu", A_MHz=[40, 550])],
+                           fwhm_mT=1.0, g_strain=[0.005, 0.01])   # parallel lines are broader
+      r = epr.fit_spectrum(d.field_mT, d.real, model="powder", start=sys, freq_GHz=d.freq_GHz,
+                           modamp_mT=d.modamp_mT, vary={"g": [0.02, 0.05], "A_MHz": [[30, 100]],
+                           "fwhm_mT": 0.8, "g_strain": [0.005, 0.01]})
+    "Cu" = natural mixture; report g_par, g_perp, |A_par| in MHz and 1e-4 cm-1 with CIs.
+  Frozen nitroxide (rigid limit, 77 K): 2 Azz = outer-extrema splitting (a start value),
+    refine Azz with fit_spectrum(model="powder") on Nucleus("14N", A_mT=[Axx, Ayy, Azz]).
+  Isotropic radical, several nuclei: fit_spectrum(model="iso") with one Nucleus per kind
+    (n = how many are equivalent); fit the whole spectrum, do not count peaks.
+"""
+
+TOPICS["deer"] = """\
+from labkit import epr          # time in us, distance in nm, P in 1/nm
+d = epr.load("inputs/deer.DSC")          # or a CSV/ASCII trace (x_unit="ns" if not in the header)
+V = epr.average_scans(d.y) if d.y.ndim == 2 else d.y     # 2D BES3T: one row per scan
+r = epr.fit_deer(d.t_us, V)              # phases complex V, finds the zero time, fits P(r),
+print(r)                                 # lambda, background (and t0) in ONE step
+r.mean_nm, r.std_nm (std, not FWHM), r.modal_nm, r.populations (modes with fractions),
+r.lam (= r.mod_depth), r.k_per_us, r.conc_uM (3D background), r.t0_ns, r.phase_deg, r.warnings
+r.main_nm: the main distance of the reliable part (when the trace is too short for a long
+         component, from a fit allowed past the limit; summary() says "main distance (reliable
+         part)"): report it as the main distance
+r.r_nm, r.P: the distribution; r.summary(): the block a report needs (white paper 2021)
+Background: the sample decides, not the fit (both often fit equally well):
+         frozen solution: background="hom3d" (default; gives r.conc_uM)
+         membrane, liposome, micelle, bicelle: background="strexp", dim=2.0 (spins in a plane)
+         crowded or unknown geometry: background="strexp" (d fitted, 1-3)
+         If the question does not say, ask the user; fit_deer warns when the choice matters.
+Options: method="gauss", n_gauss=2 (parametric) when the trace is short or a model-free P(r)
+         is too broad;
+         n_boot=100 for 95% CIs (r.ci, r.P_ci95)
+Never take |V|; never subtract the background (fit_deer divides, in one step).
+The trace length limits what it can measure: epr.distance_limits(tmax_us) -> mean distance up
+to 3.73*tmax^(1/3) nm, width/shape up to 2.96*tmax^(1/3) nm. fit_deer limits P(r) to that
+range and WARNS when the trace seems to hold longer distances: report that as unreliable.
+Labelling efficiency: f = epr.labeling_efficiency(r.lam, inversion=p, scheme="both_equal")
+         p = pump inversion efficiency (from the question or the spectrometer, not assumed);
+         "both_equal": both sites labelled alike, f = lambda / p;
+         "one_full": site 1 fully labelled, f = lambda / (2p - lambda). Prints the formula.
+         lambda is r.lam from fit_deer, never 1 - V(end)/V(0) (that includes the background)
+Concentration (frozen solution): r.conc_uM from the hom3d rate, no hand fit of the decay.
+epr.simulate_deer(t_us, r_nm, P, lam, conc_uM=..., phase_deg=..., noise=...) for checks.
+"""
+
+
 def guide(topic: str = "overview") -> None:
     """Print the labkit reference for one topic (default: the overview)."""
-    key = (topic or "overview").lower()
+    key = (topic or "overview").lower().replace("_", "-")
     if key not in TOPICS:
         print(f"unknown topic {topic!r}; topics: {', '.join(TOPICS)}")
         return

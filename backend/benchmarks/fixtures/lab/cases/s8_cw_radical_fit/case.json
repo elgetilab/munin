@@ -1,0 +1,39 @@
+{
+ "id": "s8_cw_radical_fit",
+ "suite": "S8",
+ "inputs": [
+  "anion.DSC",
+  "anion.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "anion.DSC / anion.DTA (Bruker BES3T) is the CW-EPR spectrum of the pyrazine radical anion in fluid solution at room temperature (two equivalent 14N and four equivalent 1H). Report the isotropic hyperfine couplings in mT: aN_mT for the nitrogens and aH_mT for the protons.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "aN_mT",
+     "truth": "truth:aN_mT",
+     "atol": 0.005
+    },
+    {
+     "type": "numeric",
+     "key": "aH_mT",
+     "truth": "truth:aH_mT",
+     "atol": 0.005
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "aN_mT": "mT",
+  "aH_mT": "mT"
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:multiplet_counting",
+  "trap:fit_not_peak_picking",
+  "trap:units_G_mT",
+  "sim:iso"
+ ],
+ "provenance": "synthetic isotropic spectrum (s8_powder.cw_radical_fit): exact Breit-Rabi per nucleus, shifts added over 2 x 14N + 4 x 1H, a_mT -> MHz at g_iso, Lorentzian lines"
+}

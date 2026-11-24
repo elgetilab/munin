@@ -1,0 +1,53 @@
+{
+ "id": "s8_deer_bes3t_f2",
+ "suite": "S8",
+ "inputs": [
+  "deer.DSC",
+  "deer.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "deer.DSC/.DTA is a Q-band 4-pulse DEER measurement from Xepr, saved scan by scan. Report the mean distance (mean_nm), the standard deviation of the distribution (std_nm), the modulation depth (mod_depth) and the zero time in ns (t0_ns).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "mean_nm",
+     "truth": "truth:mean_nm",
+     "atol": 0.1
+    },
+    {
+     "type": "numeric",
+     "key": "std_nm",
+     "truth": "truth:std_nm",
+     "atol": 0.12
+    },
+    {
+     "type": "numeric",
+     "key": "mod_depth",
+     "truth": "truth:mod_depth",
+     "atol": 0.03
+    },
+    {
+     "type": "numeric",
+     "key": "t0_ns",
+     "truth": "truth:t0_ns",
+     "atol": 16
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "mean_nm": "nm",
+  "std_nm": "nm",
+  "mod_depth": "",
+  "t0_ns": "ns"
+ },
+ "tags": [
+  "format:bes3t_2d",
+  "trap:complex_interleaved",
+  "trap:average_scans",
+  "trap:phase_correction",
+  "trap:zero_time"
+ ],
+ "provenance": "synthetic, s8.deer_bes3t"
+}

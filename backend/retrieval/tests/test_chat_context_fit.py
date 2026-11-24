@@ -155,10 +155,11 @@ def test_budget_elides_pending_as_last_resort_to_avoid_overflow():
     pending_idx = len(msgs) - 1
     out, n = cc.budget_tool_results(msgs, target_tokens=12_000)
     assert n == 1
-    assert out[pending_idx]["content"] == cc._ELIDED_TOOL_RESULT
+    # 2026-11-21: the cut result keeps its head, not the bare stub
+    assert '"_trimmed": true' in out[pending_idx]["content"]
     assert cc.prompt_tokens(out) <= 12_000
     # persisted conversation untouched
-    assert msgs[pending_idx]["content"] != cc._ELIDED_TOOL_RESULT
+    assert msgs[pending_idx]["content"] == _big(200_000)
 
 
 def test_budget_elides_largest_pending_first():
@@ -174,12 +175,74 @@ def test_budget_elides_largest_pending_first():
         {"role": "tool", "tool_call_id": "c", "content": _big(8_000)},    # smallest
     ]
     out, n = cc.budget_tool_results(msgs, target_tokens=10_000)
-    assert n == 2  # the two largest elided
-    assert out[3]["content"] == cc._ELIDED_TOOL_RESULT   # a (largest)
-    assert out[4]["content"] == cc._ELIDED_TOOL_RESULT   # b
+    assert n == 2  # the two largest cut
+    assert '"_trimmed": true' in out[3]["content"]       # a (largest), head kept
+    assert '"_trimmed": true' in out[4]["content"]       # b
     assert out[5]["content"] == _big(8_000)              # c (smallest) kept
     assert cc.prompt_tokens(out) <= 10_000
 
+
+
+# --- 2026-11-21: the model must see what it just ran (LABKIT-016-PLAN.md) ----
+
+def _blind_case(result_chars: int = 2_000):
+    _real_counts()
+    # A 37 KB numeric text pasted into the user message fills the soft target
+    # before any tool runs. Old behaviour: every pending result became the stub
+    # and the model probed the sandbox with print('hello').
+    numbers = "\n".join(f"{i}\t{3300 + i * 0.1:.3f}\t{(-1) ** i * 1.234567e+00}"
+                         for i in range(1400))
+    return [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "[Attached document: defect.txt]\n\n" + numbers},
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "type": "function",
+             "function": {"name": "run_python", "arguments": '{"code": "print(1)"}'}}]},
+        {"role": "tool", "tool_call_id": "c1", "content": "x" * result_chars},
+    ]
+
+
+def test_pending_result_kept_when_only_over_soft_target():
+    msgs = _blind_case()
+    base = cc.prompt_tokens(msgs[:-1])
+    # over the soft target, under the hard limit: nothing pending is touched
+    out, counts = cc.budget_loop_messages(
+        msgs, target_tokens=base - 100, hard_tokens=base + 10_000)
+    assert out[-1]["content"] == msgs[-1]["content"]
+    assert counts["pending"] == 0 and counts["pending_stub"] == 0
+    assert counts["pending_total"] == 1
+
+
+def test_pending_result_over_hard_limit_keeps_its_head():
+    msgs = _blind_case(result_chars=40_000)
+    base = cc.prompt_tokens(msgs[:-1])
+    out, counts = cc.budget_loop_messages(
+        msgs, target_tokens=base - 100, hard_tokens=base + 2_000)
+    assert counts["pending"] == 1 and counts["pending_stub"] == 0
+    assert '"_trimmed": true' in out[-1]["content"]
+    assert "x" * 100 in out[-1]["content"]
+
+
+def test_pending_result_stub_only_when_preview_cannot_fit():
+    msgs = _blind_case(result_chars=40_000)
+    base = cc.prompt_tokens(msgs[:-1])
+    out, counts = cc.budget_loop_messages(
+        msgs, target_tokens=base - 100, hard_tokens=base + 20)
+    assert counts["pending_stub"] == 1 == counts["pending_total"]
+    assert out[-1]["content"] == cc._ELIDED_TOOL_RESULT
+
+
+def test_elided_stub_no_longer_says_rerun():
+    assert "re-run" not in cc._ELIDED_TOOL_RESULT
+    assert "print only the part you need" in cc._ELIDED_TOOL_RESULT
+    # an old-form stub counts as already elided (a second pass changes nothing)
+    msgs = [{"role": "system", "content": "s"}, {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "a"}]},
+            {"role": "tool", "tool_call_id": "a", "content": cc._ELIDED_TOOL_RESULT_V1},
+            {"role": "assistant", "content": "", "tool_calls": [{"id": "b"}]},
+            {"role": "tool", "tool_call_id": "b", "content": "y" * 4000}]
+    out, counts = cc.budget_loop_messages(msgs, target_tokens=10, hard_tokens=10_000)
+    assert out[3]["content"] == cc._ELIDED_TOOL_RESULT_V1 and counts["results"] == 0
 
 # --- 2026-08: the two prompt costs no budget guard could see -----------------
 #
@@ -441,8 +504,9 @@ def test_budget_tool_results_wrapper_counts_all_elisions():
     _real_counts()
     msgs = _code_turn(6)
     out, n = cc.budget_tool_results(msgs, target_tokens=cc.prompt_tokens(msgs) // 2)
-    _, counts = cc.budget_loop_messages(msgs, target_tokens=cc.prompt_tokens(msgs) // 2)
-    assert n == sum(counts.values()) and n > 0
+    half = cc.prompt_tokens(msgs) // 2
+    _, counts = cc.budget_loop_messages(msgs, target_tokens=half, hard_tokens=half)
+    assert n == counts["results"] + counts["args"] + counts["pending"] and n > 0
 
 
 def test_turn_start_budget_leaves_room_for_schema_and_turn():

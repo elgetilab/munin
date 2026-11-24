@@ -1,0 +1,101 @@
+{
+  "case": "garlic_simplest",
+  "program": "garlic",
+  "in_slice1": true,
+  "skip_reason": null,
+  "what_it_tests": "isotropic S=1/2, one 1H, narrow Lorentzian, Breit-Rabi (exact) positions",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/garlic_simplest.m",
+    "data_file": "tests/data/garlic_simplest.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "x": [
+        1024
+      ],
+      "y": [
+        1024
+      ]
+    },
+    "field_var": "x",
+    "spectrum_var": "y"
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.0,
+      2.0
+    ],
+    "nuclei": [
+      {
+        "name": "1H",
+        "I": 0.5,
+        "A_MHz": [
+          10.0,
+          10.0,
+          10.0
+        ],
+        "A_frame_euler_deg": null,
+        "n": 1
+      }
+    ],
+    "lw": {
+      "easyspin_field": "Sys.lw",
+      "easyspin_value": [
+        0.0,
+        0.01
+      ],
+      "gaussian_fwhm_mT": 0.0,
+      "lorentzian_fwhm_mT": 0.01,
+      "gaussian_dBpp_mT": 0.0,
+      "lorentzian_dBpp_mT": 0.005773502691896258
+    },
+    "g_strain_fwhm": null,
+    "A_strain_MHz": null
+  },
+  "exp": {
+    "mwFreq_GHz": 9.7,
+    "range_mT": [
+      345.34280418501316,
+      347.700042955564
+    ],
+    "nPoints": 1024,
+    "axis": "data.x from the .mat",
+    "harmonic": 1,
+    "modamp_mT": null,
+    "temperature_K": null,
+    "mwPhase_rad": 0.0
+  },
+  "opt": {
+    "Method": "exact (garlic default: Breit-Rabi fixed-point solver incl. nuclear Zeeman)",
+    "AccumMethod": "binning (default)"
+  },
+  "comparison": {
+    "field_offset_steps": 0.0
+  },
+  "resfields_mT": [
+    346.34280371,
+    346.70004248
+  ],
+  "note": "Range automatic in EasySpin; stored data.x runs 345.3432..347.7000 (1024 points), use it. garlic (no fast motion) builds the spectrum with Opt.AccumMethod='binning': makespec(...,'round') snaps each line to the NEAREST grid point, then convolves with a sampled lineshape. An analytic-line simulator cannot reproduce the snapping, so the reference itself carries a grid error. Measured: exact Breit-Rabi + analytic Lorentzian derivative differs from the reference by 2.6e-2 of max; the same with nearest-grid snapping reproduces it to 9e-12. resfields_mT are those exact Breit-Rabi positions (CODATA constants, gn(1H) = 5.585694702), a tighter check if labkit exposes line positions.",
+  "easyspin_check": [
+    "ok = areequal(x,olddata.x,1e-10,'rel') && areequal(y,olddata.y,1e-4,'rel');"
+  ],
+  "matlab_source": [
+    "Sys = struct('g',2,'Nucs','1H','lw',[0,0.01],'A',10);",
+    "Exp = struct('mwFreq',9.7);",
+    "Opt = struct('Verbosity',opt.Verbosity);",
+    "[x,y] = garlic(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

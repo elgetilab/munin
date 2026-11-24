@@ -1,0 +1,125 @@
+{
+  "case": "pepper_iso_customabund",
+  "program": "pepper",
+  "in_slice1": true,
+  "skip_reason": null,
+  "what_it_tests": "custom 50/50 63Cu/65Cu mixture, perturbation, fine axis",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_iso_customabund.m",
+    "data_file": "tests/data/pepper_iso_customabund.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        10000
+      ]
+    },
+    "field_var": null,
+    "spectrum_var": "y"
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.0,
+      2.2
+    ],
+    "g_frame_euler_deg": null,
+    "nuclei": [
+      {
+        "name": "(63,65)Cu",
+        "I": 1.5,
+        "A_MHz": [
+          50.0,
+          50.0,
+          400.0
+        ],
+        "A_frame_euler_deg": null,
+        "n": 1,
+        "A_refers_to": "63Cu",
+        "isotopologues": [
+          {
+            "name": "63Cu",
+            "weight": 0.5,
+            "A_MHz": [
+              50.0,
+              50.0,
+              400.0
+            ]
+          },
+          {
+            "name": "65Cu",
+            "weight": 0.5,
+            "A_MHz": [
+              53.55939901694931,
+              53.55939901694931,
+              428.47519213559445
+            ]
+          }
+        ]
+      }
+    ],
+    "lw": {
+      "easyspin_field": "Sys.lwpp",
+      "easyspin_value": 0.3,
+      "gaussian_fwhm_mT": 0.3532230067546424,
+      "lorentzian_fwhm_mT": 0.0,
+      "gaussian_dBpp_mT": 0.3,
+      "lorentzian_dBpp_mT": 0.0
+    },
+    "g_strain_fwhm": null,
+    "A_strain_MHz": null
+  },
+  "exp": {
+    "mwFreq_GHz": 9.5,
+    "range_mT": [
+      280.0,
+      350.0
+    ],
+    "nPoints": 10000,
+    "axis": "numpy.linspace(range_mT[0], range_mT[1], nPoints)",
+    "harmonic": 1,
+    "modamp_mT": null,
+    "temperature_K": null,
+    "mwPhase_rad": 0.0
+  },
+  "opt": {
+    "Method": "perturb (= perturb2, second order)",
+    "GridSize": [
+      61,
+      4
+    ],
+    "GridSize_note": "Opt.GridSize = 61 (interpolation default 4)"
+  },
+  "comparison": {
+    "field_offset_steps": 0.5
+  },
+  "note": "Sys.Nucs = '(63,65)Cu', Sys.Abund = [1 1]: equal weights. With tied abundances the reference isotope for A is the first one (63Cu; MATLAB max returns the first maximum). The labkit API has no custom abundances, so the harness sums the two isotopologues as separate systems with these weights. pepper's projection step (no strains) returns ref[i] ~ true(x[i] + dx/2): an independent converged powder sum matched axiallw, rhombiclw, ordering_axial row 0, pt_gonly, iso_12c and modamp best with the simulator evaluated at x + 0.5*dx (residual 4e-4 to 9e-3 there, 3e-2 to 2.7e-1 at x). The g-strain case (pepper's summation path) needs no offset.",
+  "easyspin_check": [
+    "ok = areequal(y/max(y),olddata.y/max(olddata.y),1e-5,'abs');"
+  ],
+  "matlab_source": [
+    "Sys.S = 1/2;",
+    "Sys.g = [2 2.2];",
+    "Sys.Nucs = '(63,65)Cu';",
+    "Sys.A = [50 400];",
+    "Sys.Abund = [1 1];",
+    "Sys.lwpp = 0.3;",
+    "Exp.mwFreq = 9.5;",
+    "Exp.Range = [280 350];",
+    "Exp.nPoints = 1e4;",
+    "Opt.GridSize = 61;",
+    "Opt.Method = 'perturb';",
+    "[x,y] = pepper(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

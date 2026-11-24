@@ -1,0 +1,43 @@
+{
+ "id": "s8_deer_bimodal_f2",
+ "suite": "S8",
+ "inputs": [
+  "bimodal.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "bimodal.csv is a phased 4-pulse DEER trace (time zero at the first point) of a protein that may populate more than one conformation. Report the distance of the shorter (r1_nm) and longer (r2_nm) population if there are two (null for r2_nm if only one), and the fraction of the shorter one (fraction1).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "r1_nm",
+     "truth": "truth:r1_nm",
+     "atol": 0.15
+    },
+    {
+     "type": "numeric",
+     "key": "r2_nm",
+     "truth": "truth:r2_nm",
+     "atol": 0.15
+    },
+    {
+     "type": "numeric",
+     "key": "fraction1",
+     "truth": "truth:fraction1",
+     "atol": 0.1
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "r1_nm": "nm",
+  "r2_nm": "nm",
+  "fraction1": ""
+ },
+ "tags": [
+  "format:csv",
+  "trap:single_gaussian",
+  "trap:oversmoothing"
+ ],
+ "provenance": "synthetic, s8.deer_bimodal"
+}

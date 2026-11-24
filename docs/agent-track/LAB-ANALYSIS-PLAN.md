@@ -404,3 +404,9 @@ about model capability, re-run S1-S7 (both arms) on every backbone we can
 serve, starting with gpt-oss, and compare paired against the backbone results.
 This is required, not optional, and tracked in `TODO.md`. Haiku is excluded
 because it is only a fallback.
+
+## S8 EPR suite (2026-11-19, `EPR-PLAN.md`)
+
+21 synthetic CW-EPR and DEER cases. Baseline (labkit 0.1.5) 17/63; with
+labkit 0.2.0 (`labkit.epr`, EPR hints) 49/63, paired 36/4, p = 2e-7; fresh
+`_f1` 47/63. Next round: `LABKIT-015-PLAN.md`.

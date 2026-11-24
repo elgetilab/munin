@@ -225,6 +225,105 @@ def test_text_only_model_gets_a_note_instead_of_an_attached_image():
     assert len(calls) == 1 and atts and atts[0]["source"] == "inline"
 
 
+
+# --- 2026-11-21: numeric text is a data file (LABKIT-016-PLAN.md) -------------
+
+_DEFECT = "Index\tField [G]\tIntensity []\n" + "".join(
+    f"{i + 1}\t{3300 + i * 0.1:.3f}\t{(-1) ** i * 1.139363:e}\n" for i in range(1400))
+
+
+def test_numeric_table_detection():
+    assert document_store.looks_like_numeric_table(_DEFECT)
+    csv = "# exported\nwavelength,abs\n" + "".join(f"{200 + i},{0.01 * i:.3f}\n" for i in range(50))
+    assert document_store.looks_like_numeric_table(csv)
+    prose = "\n".join(f"Line {i} of a letter about the 2024 budget, page {i}." for i in range(60))
+    assert not document_store.looks_like_numeric_table(prose)
+    assert not document_store.looks_like_numeric_table("1 2\n3 4\n")   # too short to tell
+    mixed = "\n".join(["Results: 1 2 3"] * 30 + ["1 2 3"] * 30)
+    assert not document_store.looks_like_numeric_table(mixed)
+
+
+def test_numeric_txt_is_a_data_file_with_a_preview():
+    content = [{"type": "document", "document_id": "doc_n", "filename": "defect.txt"}]
+    blocks, atts, calls = _resolve(content, stored_name="defect.txt",
+                                   data=_DEFECT.encode(), doc_text=_DEFECT)
+    joined = _text_of(blocks)
+    assert "[Attached data file: defect.txt" in joined
+    assert ("It has 1401 lines; the first 8 lines (the first 7 of 1400 data rows):" in joined
+            and "Field [G]" in joined)
+    assert "3300.000" in joined and "3399.900" not in joined     # head only
+    assert len(joined) < 2500
+    assert atts[0]["kind"] == "data" and len(calls) == 1
+
+
+def test_numeric_txt_in_a_temporary_chat_is_still_inlined_but_capped():
+    # No sandbox in a temporary chat, so the text is the only way in; the
+    # token cap keeps it well below the window.
+    content = [{"type": "document", "document_id": "doc_t", "filename": "defect.txt"}]
+    saved = cs.chat_context.approx_tokens
+    cs.chat_context.approx_tokens = lambda text: len(text)        # ~1 token per char
+    try:
+        blocks, _, calls = _resolve(content, stored_name="defect.txt", data=_DEFECT.encode(),
+                                    doc_text=_DEFECT, ephemeral=True)
+    finally:
+        cs.chat_context.approx_tokens = saved
+    joined = _text_of(blocks)
+    assert calls == []
+    assert "[document truncated to fit the context window" in joined
+    assert len(joined) <= cs._inline_cap_tokens() + 500
+
+
+def test_csv_data_file_note_has_a_preview():
+    data = b"t_s,signal\n" + b"".join(f"{i},{i * 2.5:.4f}\n".encode() for i in range(300))
+    content = [{"type": "document", "document_id": "doc_c", "filename": "decay.csv"}]
+    blocks, _, _ = _resolve(content, stored_name="decay.csv", data=data)
+    joined = _text_of(blocks)
+    assert "It has 301 lines; the first 8 lines (the first 7 of 300 data rows):" in joined
+    assert "t_s,signal" in joined and "6,15.0000" in joined and "7,17.5000" not in joined
+
+
+# 2026-11-22 (LABKIT-018-PLAN.md, change 2): the model copied the 8 rows the
+# preview showed and invented the rest. A file that fits the preview is shown
+# whole, and a cut preview says how many data rows it holds of how many.
+_THURBER_HEAD = "x,y\n-3.067E0,80.574E0\n-2.981E0,84.248E0\n"
+
+
+def test_small_file_is_shown_whole():
+    data = (_THURBER_HEAD + "".join(f"{-2.9 + i * 0.05:.3f}E0,{90 + i:.3f}E0\n" for i in range(35))).encode()
+    assert len(data) < cs.PREVIEW_MAX_CHARS
+    content = [{"type": "document", "document_id": "doc_w", "filename": "thurber.csv"}]
+    blocks, _, _ = _resolve(content, stored_name="thurber.csv", data=data)
+    joined = _text_of(blocks)
+    assert "It has 38 lines, 37 data rows, shown whole:" in joined
+    assert "-1.200E0,124.000E0" in joined          # the last row is there
+    assert "the first" not in joined
+
+
+def test_row_count_ignores_comments_and_a_missing_last_newline():
+    data = b"# exported by the reader\nconc,abs\n" + b"\n".join(
+        f"{i},{0.1 * i:.2f}".encode() for i in range(400))
+    content = [{"type": "document", "document_id": "doc_r", "filename": "std.csv"}]
+    blocks, _, _ = _resolve(content, stored_name="std.csv", data=data)
+    joined = _text_of(blocks)
+    assert "It has 402 lines; the first 8 lines (the first 6 of 400 data rows):" in joined, joined
+
+
+def test_binary_data_file_gets_no_preview():
+    content = [{"type": "document", "document_id": "doc_b", "filename": "spec.DTA"}]
+    blocks, _, _ = _resolve(content, stored_name="spec.DTA", data=b"\x00\x01\x02" * 100)
+    assert "lines; the first" not in _text_of(blocks)
+
+
+def test_long_prose_is_capped_in_tokens():
+    prose = "The committee met on Tuesday and discussed the budget. " * 4000   # ~220K chars
+    content = [{"type": "document", "document_id": "doc_p", "filename": "minutes.txt"}]
+    blocks, atts, _ = _resolve(content, stored_name="minutes.txt", doc_text=prose)
+    joined = _text_of(blocks)
+    assert "The committee met" in joined and atts[0].get("kind") != "data"
+    assert "[document truncated to fit the context window; the whole file is in the code sandbox" in joined
+    assert cs.chat_context.approx_tokens(joined) <= cs._inline_cap_tokens() + 300
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for t in tests:

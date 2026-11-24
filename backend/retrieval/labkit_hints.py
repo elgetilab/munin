@@ -111,7 +111,197 @@ def _calls(*funcs: str) -> re.Pattern:
     return re.compile(rf"\.(?:{alt})\s*\(|from\s+labkit[\w.]*\s+import[^\n]*\b(?:{alt})\b")
 
 
+# EPR (EPR-PLAN.md): Bruker EPR files read by hand, DEER inversions by hand
+# (or with DeerLab, which is not installed), spin counting by hand, g-values
+# from constants typed in.
+_EPR_FILE = re.compile(r"(?i)\.dta\b|\.dsc\b|\.spc\b|\bbes3t\b|\bMWFQ\b|\bXPTS\b|\bBSEQ\b|\bIKKF\b")
+_EPR_READ_BY_HAND = re.compile(r"\bfromfile\b|\bfrombuffer\b|struct\.unpack|['\"]>f8['\"]|['\"]>i4['\"]|\bdtype\s*=")
+_DEER = re.compile(r"(?i)\bdeer\b|\bpeldor\b|dipolar|\bdeerlab\b|\bdl\.(fit|dipolarmodel|dipolarkernel|deerload|correctphase)")
+_DEER_INVERT = re.compile(r"\b(lstsq|pinv|nnls|curve_fit|least_squares|minimize|tikhonov|fresnel)\b|(?i:deerlab)")
+_DOUBLE_INT = re.compile(r"\b(cumsum|cumtrapz|cumulative_trapezoid)\b")
+_EPR_CONTEXT = re.compile(r"(?i)\bspins?\b|tempol|double.?integ|\bepr\b|\besr\b|\bmodamp\b|\bgauss\b|\bRCAG\b")
+_G_BY_HAND = re.compile(r"(?i)\bmu_?b\b|bohr|9\.27\d*e-24|71\.44|0\.7144|714\.4|13\.996")
+_EPR_HINT_TAIL = "; see labkit.guide('epr')."
+# Round 2 (LABKIT-015-PLAN.md): CW spectra from text files were measured by
+# hand in S8 (Kivelson, Gaussian linewidth, power saturation); no hint
+# covered peak-to-peak widths, line heights or a saturation curve.
+_CW_EPR_WORDS = re.compile(r"(?i)\b(cw.?)?epr\b|\besr\b|dI/dB|\bfield_?(G|mT)\b|field\s*\[\s*(G|mT)\s*\]"
+                           r"|\bB_(G|mT)\b|kivelson|nitroxide|tempol|\bdpph\b|\bdBpp\b|\bg[-_ ]?(value|factor|iso)\b"
+                           r"|spin.?label|hyperfine|\bmodamp\b|microwave")
+# labkit's own names ("from labkit import epr", "epr.load(") are not EPR context
+_LABKIT_REFS = re.compile(r"\bepr\.\w+|from\s+labkit[\w.]*\s+import[^\n]*|import\s+labkit[^\n]*|labkit\.\w+")
+_DEER_CTX = re.compile(r"(?i)\bdeer\b|\bpeldor\b|dipolar|\bt_us\b|\btime_ns\b|modulation.?depth|fit_deer")
+# Round 3 (LABKIT-018-PLAN.md): DEER code the old pattern missed. `\bdeer\b`
+# does not match deer_raw.csv, and quad.csv carries no DEER word; the scripts
+# that fitted by hand said dipolar, mod_depth or typed the dipolar constant
+# (52.04 MHz nm^3, 2 pi times that is 327).
+# The constant counts only in a formula (52.1 / r**3, 2*pi*52.04, 52.1 MHz),
+# not as a number in a data list.
+_DIPOLAR_CONSTANT = r"(?<![\w.])(?:52\.[01]\d*|32[67]\.\d+)(?![\w.])"
+_DEER_ISH = re.compile(r"(?i)(?<![a-z])deer|peldor|dipolar|mod_?depth|modulation.?depth"
+                       rf"|{_DIPOLAR_CONSTANT}\s*(?:/|\*|MHz)|\*\s*{_DIPOLAR_CONSTANT}")
+_GUIDE_REFS = re.compile(r"\bguide\s*\([^)]*\)")
+
+
+_LABKIT_CHAINS = re.compile(r"\b(?:labkit|epr)(?:\.\w+)+")
+
+
+def _deer_ish(c: str) -> bool:
+    """DEER words outside labkit's own names (epr.fit_deer, guide('deer'));
+    code that names fit_deer at all (calls it, reads its help) is past the
+    pointer."""
+    if re.search(r"\bfit_deer\b", c):
+        return False
+    c = _LABKIT_CHAINS.sub(" ", _LABKIT_REFS.sub(" ", _GUIDE_REFS.sub(" ", c)))
+    return bool(_DEER_ISH.search(c))
+
+
+def _deer_context(c: str) -> bool:
+    """DEER code, including code that calls fit_deer: the other domain hints
+    and the general fit hints do not apply to it (round 3 runs got the
+    relaxation hint for T2, Michaelis-Menten for V_max, epr_g for mu_B)."""
+    return bool(_DEER_CTX.search(c) or _deer_ish(c))
+
+
+# Hints that never apply to DEER code.
+_NOT_FOR_DEER = {"relaxation", "epr_g", "epr_integral", "kd", "noe_buildup", "epr_powder", "epr_iso_fit"}
+
+
+def _cw_epr(c: str, labkit_epr_counts: bool = False) -> bool:
+    """CW-EPR code (not DEER). EPR words outside labkit's own names; with
+    labkit_epr_counts, data loaded with labkit.epr also counts."""
+    if _DEER_CTX.search(c):
+        return False
+    if labkit_epr_counts and re.search(r"\bepr\.\w+\s*\(", c):
+        return True
+    return bool(_CW_EPR_WORDS.search(_LABKIT_REFS.sub(" ", c)))
+
+
+# Measuring a line by hand: locating extrema AND computing a width or height from them.
+_EXTREMA = re.compile(r"\b(find_peaks|argmax|argmin|idxmax|idxmin)\b")
+_LINESHAPE = re.compile(r"(?i)peak.?to.?peak|\bdBpp\b|\bfwhm\b|\bhwhm\b|line.?width|kivelson|6\.51e-10"
+                        r"|\bheights?\b|\bh0\b|\bh_?[pm]1\b")
+_POWER = re.compile(r"(?i)p_?half|p1/2|saturat|attenuat|sqrt\(\s*p(ower)?\b")
+# Masking a CW spectrum by amplitude, abs(y) > K or abs(y) < K: in round 3
+# this removed the lines themselves as "spikes" (449 and 127 points).
+_AMPLITUDE_MASK = re.compile(r"\babs\(\s*[\w.\[\]]+\s*\)\s*[<>]=?\s*(?:\d|\.\d|[A-Za-z_])")
+
+
+def _calls_any(*funcs: str) -> re.Pattern:
+    alt = "|".join(funcs)
+    # epr.<func>( or imported from labkit.epr: a bare load( is json.load or np.load
+    return re.compile(rf"\bepr\.(?:{alt})\s*\(|from\s+labkit\.epr\s+import[^\n]*\b(?:{alt})\b")
+
+
+# Reading labkit's own source or help() to learn a call: 20.5% of the calls in
+# runs that hit the turn budget, 7.6% elsewhere (LABKIT-016-PLAN.md).
+_LABKIT_SOURCE = re.compile(
+    r"inspect\.(?:getsource|getsourcelines|getfile|signature)\s*\(\s*labkit"
+    r"|\blabkit(?:\.\w+)*\.__file__"
+    r"|open\([^)\n]*labkit[^)\n]*\.py"
+    r"|\bhelp\(\s*labkit")
+_GUIDE_CALL = re.compile(r"\bguide\s*\(")
+
+# EasySpin port, slice 1 (EASYSPIN-PORT-PLAN.md): EasySpin-style code (MATLAB
+# names, a MATLAB bridge) and hand-written powder or multiplet simulations.
+_EASYSPIN = re.compile(r"\b(Sys|Exp|Opt|FitOpt)\.(g|A|Nucs|lwpp|lw|gStrain|AStrain|mwFreq|Range|CenterSweep"
+                       r"|nPoints|Harmonic|ModAmp)\b|\b(pepper|garlic|chili|esfit|resfields|eigfields)\s*\("
+                       r"|\bimport\s+matlab\b|\boct2py\b|(?i:\beasyspin\b)")
+_ORIENT_GRID = re.compile(r"(?i)\btheta\b|\bphi\b|linspace\(\s*0\s*,\s*(np\.|math\.)?pi|arccos|\bcos_?t\b")
+_ANISO_G = re.compile(r"(?i)\bg_?(par|perp|para|parallel|perpendicular|xx|yy|zz|x|y|z|1|2|3|eff)\b|\bA_?(par|perp|zz|xx|yy)\b"
+                      r"|g_?tensor|\bpowder\b|frozen")
+_MULTIPLET = re.compile(r"(?i)\ba_?[nh]\b|\ba_?(14)?n\b|hyperfine|multiplet|binom|\bcomb\b|\bm_?[iI]\b|stick")
+_SIM_CALLS = _calls_any("simulate_powder", "fit_spectrum", "simulate_iso", "convert")
+_SIM_TAIL = "; see labkit.guide('epr-sim')."
+_NITROXIDE = re.compile(r"(?i)nitroxide|\btempo|kivelson|tau_?c\b|spin.?label")
+
 _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
+    ("epr_read", lambda c: bool(_EPR_FILE.search(c) and _EPR_READ_BY_HAND.search(c)),
+     _calls_any("load", "load_bes3t", "load_esp", "load_ascii"),
+     "This reads a Bruker EPR file by hand. labkit.epr.load(path) reads BES3T (.DSC/.DTA: "
+     "byte order, complex interleaving, 2D layout, axis = XMIN + linspace(0, XWID, XPTS)), ESP "
+     ".par/.spc and ASCII exports, converts the field to mT (or time to us), and gives "
+     "freq_GHz (from MWFQ, in Hz in the file), power_mW, modamp_mT, gain_dB, n_scans"
+     + _EPR_HINT_TAIL),
+    ("epr_easyspin", lambda c: bool(_EASYSPIN.search(c)), _SIM_CALLS,
+     "This is EasySpin-style code; MATLAB and EasySpin are not installed. labkit.epr follows "
+     "EasySpin's conventions with unit-named keywords: sys = epr.SpinSystem(g=[gx, gy, gz], "
+     "nuclei=[epr.Nucleus('63Cu', A_MHz=[Ax, Ay, Az])], fwhm_mT=...) (Sys.lw is a FWHM, Sys.lwpp "
+     "peak to peak; A is in MHz as in EasySpin, or A_mT=); epr.simulate_powder(sys, field_mT, "
+     "freq_GHz) is pepper for S = 1/2, epr.simulate_iso(..., exact=True) is garlic, and "
+     "epr.fit_spectrum(field_mT, y, model='powder', start=sys, vary={...}, freq_GHz=...) is esfit"
+     + _SIM_TAIL),
+    ("epr_powder", lambda c: bool(_cw_epr(c, True) and _ORIENT_GRID.search(c) and _ANISO_G.search(c)),
+     _SIM_CALLS,
+     "This simulates a powder (frozen-solution) EPR spectrum by hand. labkit.epr does it for "
+     "S = 1/2: sys = epr.SpinSystem(g=[g_perp, g_perp, g_par], nuclei=[epr.Nucleus('Cu', "
+     "A_MHz=[A_perp, A_perp, A_par])], fwhm_mT=...); y = epr.simulate_powder(sys, d.field_mT, "
+     "d.freq_GHz) (second order, the 1/g intensity factor, natural isotopes for 'Cu'); then "
+     "r = epr.fit_spectrum(d.field_mT, d.y, model='powder', start=sys, vary={'g': [...], "
+     "'A_MHz': [[...]], 'fwhm_mT': ...}, freq_GHz=d.freq_GHz); print(r) gives values, CIs and "
+     "warnings. g_par is not a zero crossing; read it from a fit. epr.convert(A, 'MHz', "
+     "'1e-4 cm-1') and epr.convert(a, 'mT', 'MHz', g=...) convert units at the spectrum's g"
+     + _SIM_TAIL),
+    # Nitroxide triplets keep the epr_lineshape hint (nitroxide_hyperfine, kivelson_tau).
+    ("epr_iso_fit", lambda c: bool(_cw_epr(c, True) and _MULTIPLET.search(c) and _ANY_FIT.search(c)
+                                   and not _NITROXIDE.search(c)),
+     _calls_any("simulate_powder", "fit_spectrum", "simulate_iso", "convert", "nitroxide_hyperfine"),
+     "This fits hyperfine couplings by hand. labkit.epr does it: sys = epr.SpinSystem(g=2.005, "
+     "nuclei=[epr.Nucleus('14N', A_mT=0.7, n=2), epr.Nucleus('1H', A_mT=0.3, n=4)], fwhm_mT=0.05); "
+     "r = epr.fit_spectrum(d.field_mT, d.y, model='iso', start=sys, vary={'A_mT': [0.1, 0.1], "
+     "'fwhm_mT': 0.03}, freq_GHz=d.freq_GHz); print(r). A fit of the whole spectrum, not peak "
+     "picking; overlapping lines make counted spacings wrong" + _SIM_TAIL),
+    # Round 3: on the first DEER script that does not call fit_deer, fit call
+    # or not (four hand analyses never got it, LABKIT-018-PLAN.md).
+    ("deer", lambda c: bool((_DEER.search(c) and _DEER_INVERT.search(c)) or _deer_ish(c)),
+     _calls_any("fit_deer"),
+     "This works on a DEER trace by hand (DeerLab is not installed). Three lines do it: "
+     "r = labkit.epr.fit_deer(t_us, V); print(r); then r.lam (modulation depth), r.mean_nm, "
+     "r.conc_uM (frozen solution), r.populations, r.t0_ns, and r.main_nm when the trace is too short "
+     "for the long part. It phases a complex trace, finds the zero time, and fits P(r), lambda and the "
+     "background in one step, limited to what the trace length supports. The modulation depth is the "
+     "fitted lambda, never 1 - V(end)/V(0) (that includes the background); never |V|. Labelling "
+     "efficiency: epr.labeling_efficiency(r.lam, inversion=..., scheme='both_equal'). Background: the "
+     "sample decides (frozen solution: default hom3d; membrane, liposome or micelle: "
+     "background='strexp', dim=2.0); if the question does not say, ask the user. "
+     "See labkit.guide('deer')."),
+    ("epr_power", lambda c: bool(_cw_epr(c, True) and _POWER.search(c) and _ANY_FIT.search(c)),
+     _calls_any("power_saturation_fit"),
+     "This fits a power-saturation curve by hand. labkit.epr has it: P = epr.attenuation_to_mW(d.y2, "
+     "p_max_mW=200); A = [epr.peak_to_peak(d.field_mT, row)['Ypp'] for row in d.real]; "
+     "r = epr.power_saturation_fit(P, A) gives r.params['P_half'] (mW) and r.params['epsilon'] "
+     "with CIs, A = I sqrt(P) [1 + (2^(1/eps) - 1) P/P_half]^(-eps)" + _EPR_HINT_TAIL),
+    ("epr_lineshape", lambda c: bool(_cw_epr(c, True) and (_EXTREMA.search(c) or _ANY_FIT.search(c))
+                                     and _LINESHAPE.search(c) and not _POWER.search(c)),
+     _calls_any("peak_to_peak", "fit_line", "nitroxide_hyperfine", "kivelson_tau", "double_integral",
+                "spin_count", "power_saturation_fit"),
+     "This measures EPR lines by hand. labkit.epr does it for text files too: d = epr.load(path) "
+     "(field unit from the header, d.field_mT, d.y); epr.fit_line(d.field_mT, d.y, shape='gaussian' or "
+     "'lorentzian') gives dBpp_mT, fwhm_mT and g; nx = epr.nitroxide_hyperfine(d.field_mT, d.y) gives "
+     "aN, dBpp and the three line heights from the raw derivative, and "
+     "epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])['tau_c_s']; "
+     "a spin ratio is epr.double_integral(...).value of one over the other. Extrema on the grid "
+     "(argmax, argmin) are quantised to the field step; use epr.peak_to_peak or fit_line"
+     + _EPR_HINT_TAIL),
+    ("epr_integral", lambda c: bool(_DOUBLE_INT.search(c) and _EPR_CONTEXT.search(c)),
+     _calls_any("double_integral", "spin_count"),
+     "This integrates an EPR spectrum by hand. labkit.epr.double_integral(field_mT, y) removes a "
+     "baseline before and after the first integration and warns when the window is too narrow; "
+     "labkit.epr.spin_count(sample, standard, standard_amount=...) also normalises each double "
+     "integral by 10^(gain_dB/20), sqrt(power), modulation amplitude and scans from the files"
+     + _EPR_HINT_TAIL),
+    ("epr_g", lambda c: bool(_G_BY_HAND.search(c)), _calls_any("g_value", "fit_line", "nitroxide_hyperfine",
+                                                               "calibrate_field"),
+     "This computes a g-value from constants typed in. labkit.epr.g_value(B_mT, freq_GHz) uses "
+     "CODATA 2022 (71.447735 mT/GHz); labkit.epr.fit_line(field_mT, y, freq_GHz=d.freq_GHz) fits "
+     "the line and gives g, dBpp and the absorption FWHM (Lorentzian sqrt(3) dBpp, Gaussian "
+     "1.1774 dBpp). Use the measured frequency from the file (d.freq_GHz), not a nominal one"
+     + _EPR_HINT_TAIL),
+    ("epr_mask", lambda c: bool(_cw_epr(c, True) and _AMPLITUDE_MASK.search(c)), _calls_any("despike"),
+     "This masks an EPR spectrum by amplitude. In a derivative spectrum the largest points are the "
+     "line; a spike is 1 to 3 points wide. Use epr.despike: y_clean, idx = epr.despike(field_mT, y, "
+     "max_width=3) replaces only outliers at most 3 points wide and returns their indices"
+     + _EPR_HINT_TAIL),
     ("sparky", lambda c: bool(_SPARKY.search(c)), _calls("read_sparky"),
      "This parses Sparky peak lists by hand. labkit.nmr.read_sparky(path) returns {residue: "
      "(1H, 15N)} in the order csp() takes (it tells 1H from 15N by value; 'G2N-H' -> 'G2'), "
@@ -135,6 +325,11 @@ _DOMAIN: list[tuple[str, Callable[[str], bool], re.Pattern, str]] = [
      _calls("kd_fit"), _NMR_HINTS[0][1]),
     ("relaxation", lambda c: bool(_ANY_FIT.search(c) and _is_relaxation(c) and re.search(r"\bexp\s*\(", c)),
      _calls("relaxation_fit"), _NMR_HINTS[1][1]),
+    ("labkit_source", lambda c: bool(_LABKIT_SOURCE.search(c)), _GUIDE_CALL,
+     "This reads labkit's source or help() to learn a call. labkit.guide('<topic>') is "
+     "shorter and has the call signatures and a worked example for each task: topics fit, "
+     "read, nmr, stats, cd, plot, epr, epr-sim, deer (labkit.guide() for the overview). help() on a "
+     "whole module is long and gets cut in the tool result."),
 ]
 
 _CUSTOM_HINT = (
@@ -175,6 +370,7 @@ _GENERAL = {k for k, _, _ in _MODELS} | {"standard_curve", "custom_fit"}
 def _candidates(code: str, labkit_in_use: bool):
     """Every hint that applies to `code`, most specific first."""
     uses = labkit_in_use or bool(_USES_LABKIT.search(code))
+    deer = _deer_context(code)
     if _BRUKER.search(code) and not _calls("read_bruker").search(code):
         yield ("bruker", (
             "This reads Bruker data by hand. labkit.nmr has the "
@@ -182,12 +378,17 @@ def _candidates(code: str, labkit_in_use: bool):
             "process_1d, reference, peaks, integrate); see labkit.guide('nmr'). "
             "Keep your own code for steps labkit.nmr does not cover."))
     for key, applies, covered, hint in _DOMAIN:
+        if deer and key in _NOT_FOR_DEER:
+            continue
         if applies(code) and not covered.search(code):
             yield (key, hint)
-    if uses:
-        return
+    if uses or deer:
+        return    # the general fit hints do not apply to DEER code either
     if _FIT_CALL.search(code):
+        epr_code = bool(_cw_epr(code) or _DEER.search(code) or _DEER_CTX.search(code))
         for key, pat, names in _MODELS:
+            if key == "exponential" and epr_code:
+                continue    # a Gaussian EPR line or a DEER background, not a decay
             if pat.search(code):
                 yield (key, (
                     f"This fits by hand a model labkit.fit has: {names}, with "
@@ -260,6 +461,13 @@ def upload_hint(filename: str, data: bytes, paths: list[str]) -> str:
         target = "/".join(parts[:2]) if len(parts) > 2 else "inputs"
         return (f"It is Bruker NMR data: labkit.nmr.read_bruker({target!r}) reads it "
                 "(see labkit.guide('nmr')).")
+    epr_names = [p for p in [name] + [q.lower() for q in paths]
+                 if p.endswith((".dsc", ".dta", ".par", ".spc"))]
+    if epr_names:
+        return ("It is Bruker EPR data (BES3T .DSC/.DTA or ESP .par/.spc): labkit.epr.load(path) reads "
+                "it with the field in mT (time in us for pulse data) and the acquisition parameters "
+                "(freq_GHz, power_mW, modamp_mT, gain_dB, n_scans); see labkit.guide('epr') and "
+                "labkit.guide('deer').")
     if any(p.lower().endswith(".list") for p in paths) and ext == ".zip":
         return ("It holds Sparky peak lists (.list): labkit.nmr.read_sparky(path) reads each as "
                 "{residue: (1H, 15N)} in the order labkit.nmr.csp takes (see labkit.guide('nmr')).")
@@ -284,4 +492,16 @@ def upload_hint(filename: str, data: bytes, paths: list[str]) -> str:
                 "(1H, 15N)}, the order labkit.nmr.csp takes.")
     if "A260/A280" in head or "Nucleic Acid" in head:
         return "It is a NanoDrop export: labkit.read_nanodrop(path) reads it in any locale or encoding."
+    first = "\n".join(head.splitlines()[:3])
+    if _EPR_ASCII_HEAD.search(first):
+        return ("It looks like a CW-EPR spectrum exported as text (magnetic field in G or mT): "
+                "labkit.epr.load(path) reads it with the field in mT (unit from the header; x_unit='G' "
+                "if it has none), then epr.fit_line, epr.nitroxide_hyperfine, epr.double_integral; "
+                "see labkit.guide('epr').")
     return ""
+
+
+# A header naming a magnetic-field column with its unit: "field_G", "Field [mT]",
+# "B_G", Xepr's "Field [G]"; "Gauss" spelled out.
+_EPR_ASCII_HEAD = re.compile(r"(?i)\bfield[ _]?\[?\(?\s*(G|mT|gauss)\b|\bB_\[?(G|mT)\b|\bB\s*\[(G|mT)\]"
+                             r"|magnetic.?field")

@@ -349,24 +349,50 @@ def fit_max_tokens(
 # caller preserves role/tool_call_id so the assistant<->tool pairing stays valid;
 # only the content shrinks.
 _ELIDED_TOOL_RESULT = (
+    '{"_elided": true, "note": "earlier tool result, shown at the time, trimmed '
+    'from this prompt to fit the context window. If you need it again, print '
+    'only the part you need, or save large output to a file and print a '
+    'summary."}'
+)
+# Older form of the stub; still recognised so a pass stays idempotent over
+# copies made before 2026-11-21.
+_ELIDED_TOOL_RESULT_V1 = (
     '{"_elided": true, "note": "earlier tool result trimmed to fit the context '
     'window; re-run the tool if you need its details again"}'
 )
+_ELIDED_FORMS = (_ELIDED_TOOL_RESULT, _ELIDED_TOOL_RESULT_V1)
+# Characters of a pending (newest) result kept when it has to be cut: the
+# model must always see the start of the output it just asked for. Before
+# 2026-11-21 the pending batch was replaced by the stub, and a turn whose
+# base prompt (a 37 KB text upload) was already over the target saw none of
+# its results (LABKIT-016-PLAN.md, the print('hello') runs).
+PENDING_PREVIEW_CHARS = int(os.getenv("VLLM_PENDING_PREVIEW_CHARS", "1500"))
+
+
+def _pending_preview(content: Any) -> str:
+    text = content if isinstance(content, str) else _content_to_text(content)
+    return json.dumps({
+        "_trimmed": True,
+        "note": ("output cut to its first %d characters to fit the context "
+                 "window. Print less, or save large output to a file and "
+                 "print a summary." % PENDING_PREVIEW_CHARS),
+        "head": text[:PENDING_PREVIEW_CHARS],
+    })
 
 _SID_RE = re.compile(r'"sid": "(S\d{1,4})"')
 
 
 def _elided_stub(content) -> str:
-    """The stub for an elided tool result. With the source ledger on, it keeps
-    the ids of the sources the result held, so the model can still cite them
-    ([S7]) without re-running the tool; otherwise the plain stub."""
+    """The stub for an elided earlier tool result. With the source ledger on,
+    it keeps the ids of the sources the result held, so the model can still
+    cite them ([S7]) without re-running the tool; otherwise the plain stub."""
     sids = list(dict.fromkeys(_SID_RE.findall(content))) if isinstance(content, str) else []
     if not sids:
         return _ELIDED_TOOL_RESULT
     return json.dumps({"_elided": True, "sources": sids[:40],
-                       "note": "earlier tool result trimmed to fit the context window; its sources "
-                               "stay citable by id (see the sources block); re-run the tool only if "
-                               "you need text it held"})
+                       "note": "earlier tool result, shown at the time, trimmed from this prompt "
+                               "to fit the context window; its sources stay citable by id (see "
+                               "the sources block). Re-run the tool only if you need text it held."})
 
 
 def _is_elided(content) -> bool:
@@ -466,6 +492,7 @@ def budget_loop_messages(
     messages: list,
     *,
     target_tokens: Optional[int] = None,
+    hard_tokens: Optional[int] = None,
     extra_tokens: int = 0,
 ):
     """Keep a tool-loop prompt within budget so the output budget
@@ -485,11 +512,24 @@ def budget_loop_messages(
        (CONTEXT-OVERFLOW-PLAN.md, Step 1);
     3. last resort, the pending batch (results after the last assistant
        message), largest first, degrading the turn instead of letting vLLM
-       reject it (chat 5938cd64, 2026-07-08).
+       reject it (chat 5938cd64, 2026-07-08). Only when the prompt is over
+       ``hard_tokens`` (the window minus MIN_USEFUL_OUTPUT_TOKENS), not over
+       the soft target that reserves the full output: a smaller answer budget
+       is better than a model that cannot see what it just ran. Each cut
+       result first keeps its head (``_pending_preview``); only if the
+       previews still do not fit does a result become the stub.
+
+    ``counts["pending"]`` counts cut pending results, ``counts["pending_stub"]``
+    those reduced to the stub and ``counts["pending_total"]`` the pending
+    results there were (the caller refuses a call where every one is a stub).
     """
     if target_tokens is None:
         target_tokens = MAX_MODEL_LEN - GENERATION_RESERVE - CTX_MARGIN
-    counts = {"results": 0, "args": 0, "pending": 0}
+    if hard_tokens is None:
+        hard_tokens = max(target_tokens,
+                          MAX_MODEL_LEN - MIN_USEFUL_OUTPUT_TOKENS - CTX_MARGIN)
+    counts = {"results": 0, "args": 0, "pending": 0, "pending_stub": 0,
+              "pending_total": 0}
 
     def _tok(m: dict) -> int:
         try:
@@ -554,26 +594,50 @@ def budget_loop_messages(
     # last_asst) to preserve the current step's results. But a SINGLE fan-out
     # iteration whose own tool results exceed the window (deep_research + many
     # searches, chat 5938cd64, 2026-07-08) would still overflow. Degrade
-    # instead of dying: elide the largest pending tool results, largest first,
-    # until the prompt fits. The model loses some tool detail (and can re-run
-    # the tool) but the turn completes.
-    if total > target_tokens and last_asst >= 0:
-        pending = [
-            i for i, m in enumerate(messages)
-            if i > last_asst
-            and isinstance(m, dict)
-            and m.get("role") == "tool"
-            and not _is_elided(m.get("content"))
-            and per[i] > stub_tokens
-        ]
+    # instead of dying, but only past the hard limit, and keep the head of
+    # each cut result: largest first, a preview; then, if the previews still
+    # do not fit, largest first, the stub.
+    pending_all = [
+        i for i, m in enumerate(messages)
+        if i > last_asst and isinstance(m, dict) and m.get("role") == "tool"
+    ]
+    counts["pending_total"] = len(pending_all) if last_asst >= 0 else 0
+    if total > hard_tokens and last_asst >= 0:
+        pending = [i for i in pending_all
+                   if messages[i].get("content") not in _ELIDED_FORMS
+                   and per[i] > stub_tokens]
         pending.sort(key=lambda i: per[i], reverse=True)
+        cur = {}
         for i in pending:
-            if total <= target_tokens:
+            if total <= hard_tokens:
                 break
-            stub = _elided_stub(messages[i].get("content"))
-            total -= (per[i] - _tok({"role": "tool", "content": stub}))
-            out[i] = {**messages[i], "content": stub}
+            prev = _pending_preview(messages[i].get("content"))
+            ptok = _tok({"role": "tool", "content": prev})
+            if ptok >= per[i]:
+                continue
+            total -= (per[i] - ptok)
+            out[i] = {**messages[i], "content": prev}
+            cur[i] = ptok
             counts["pending"] += 1
+        for i in sorted(cur, key=lambda i: per[i], reverse=True):
+            if total <= hard_tokens:
+                break
+            total -= (cur[i] - stub_tokens)
+            out[i] = {**messages[i], "content": _ELIDED_TOOL_RESULT}
+            counts["pending_stub"] += 1
+        if total > hard_tokens:
+            for i in pending:
+                if total <= hard_tokens:
+                    break
+                if i in cur:
+                    continue
+                total -= (per[i] - stub_tokens)
+                out[i] = {**messages[i], "content": _ELIDED_TOOL_RESULT}
+                counts["pending"] += 1
+                counts["pending_stub"] += 1
+    counts["pending_stub"] += sum(
+        1 for i in pending_all
+        if messages[i].get("content") in _ELIDED_FORMS)
 
     return out, counts
 
@@ -587,8 +651,9 @@ def budget_tool_results(
     """Back-compat wrapper over ``budget_loop_messages``: returns
     (new_messages, total number of elisions)."""
     out, counts = budget_loop_messages(
-        messages, target_tokens=target_tokens, extra_tokens=extra_tokens)
-    return out, sum(counts.values())
+        messages, target_tokens=target_tokens, hard_tokens=target_tokens,
+        extra_tokens=extra_tokens)
+    return out, counts["results"] + counts["args"] + counts["pending"]
 
 
 def minimal_wrap_up_messages(

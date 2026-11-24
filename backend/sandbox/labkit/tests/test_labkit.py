@@ -623,6 +623,32 @@ def test_noe_buildup():
           {k: (v["sigma"], v["T"]) for k, v in r.items()})
 
 
+def test_noe_buildup_diag0_keys():
+    from labkit import nmr
+    t = np.array([0.1, 0.2, 0.3, 0.5])
+    a0 = {"8.6": 4e9, "CH3": 9e9}
+    cross = {"8.6|CH3": list((4e9 / 2) * (1 - np.exp(-2 * 0.02 * t)) * np.exp(-t / 0.4)),
+             ("8.6", "Hb"): list((4e9 / 2) * (1 - np.exp(-2 * 0.05 * t)) * np.exp(-t / 0.4))}
+    by_group = nmr.noe_buildup(t, cross, {"8.6": 4e9, "7.1": 1e9})          # one part of each pair matches
+    by_pair = nmr.noe_buildup(t, cross, {"8.6|CH3": 4e9, ("8.6", "Hb"): 4e9})
+    msg = ""
+    try:
+        nmr.noe_buildup(t, cross, a0)                                       # '8.6|CH3': both parts match
+        amb = False
+    except KeyError as ex:
+        amb, msg = True, str(ex)
+    try:
+        nmr.noe_buildup(t, {"1.2-3.4": cross["8.6|CH3"]}, a0)
+        miss = False
+    except KeyError as ex:
+        miss = "no entry for pair '1.2-3.4'" in str(ex) and "one number" in str(ex)
+    check("noe_buildup: diag0 keyed by pair or by the diagonal peak's name; an ambiguous or missing key "
+          "raises a clear error",
+          close(by_group["8.6|CH3"]["sigma"], 0.02, 0.01) and close(by_group[("8.6", "Hb")]["sigma"], 0.05, 0.01)
+          and by_pair["8.6|CH3"]["sigma"] == by_group["8.6|CH3"]["sigma"] and amb
+          and "no entry for pair '8.6|CH3'" in msg and "by pair, by the diagonal peak's name" in msg and miss, msg)
+
+
 def test_stats():
     import pandas as pd
     from labkit import stats
@@ -718,6 +744,322 @@ def test_guide_competitive_example_runs():
           labkit.cd.ht_cutoff([196, 195, 194.5, 194, 193], [500, 560, 594, 616, 700]) == 194.5)
 
 
+# ---- EPR (EPR-PLAN.md) --------------------------------------------------------
+
+def _write_bes3t(base, x, data, *, xunit, big=True, fmt="D", spl=None, dsl=None, y=None):
+    data = np.asarray(data)
+    arr = np.atleast_2d(data)
+    cplx = np.iscomplexobj(arr)
+    flat = np.empty(arr.size * (2 if cplx else 1))
+    if cplx:
+        flat[0::2], flat[1::2] = arr.real.ravel(), arr.imag.ravel()
+    else:
+        flat[:] = arr.real.ravel()
+    dt = np.dtype((">" if big else "<") + {"D": "f8", "F": "f4", "I": "i4"}[fmt])
+    open(str(base) + ".DTA", "wb").write(flat.astype(dt).tobytes())
+    ny, nx = arr.shape
+    lines = ["#DESC\t1.2 * DESCRIPTOR INFORMATION", f"BSEQ\t{'BIG' if big else 'LIT'}",
+             f"IKKF\t{'CPLX' if cplx else 'REAL'}", "XTYP\tIDX", f"IRFMT\t{fmt}", f"XPTS\t{nx}",
+             f"XMIN\t{x[0]:.6f}", f"XWID\t{x[-1] - x[0]:.6f}", f"XUNI\t'{xunit}'"]
+    if ny > 1:
+        lines += ["YTYP\tIDX", f"YPTS\t{ny}", f"YMIN\t{y[0]}", f"YWID\t{y[-1] - y[0]}", "YUNI\t'dB'"]
+    lines += ["#SPL\t1.2 * STANDARD PARAMETER LAYER"] + [f"{k}\t{v}" for k, v in (spl or {}).items()]
+    lines += ["#DSL\t1.0 * DEVICE SPECIFIC LAYER"] + [f"{k}\t{v}" for k, v in (dsl or {}).items()]
+    open(str(base) + ".DSC", "w").write("\n".join(lines) + "\n")
+
+
+def test_epr_constants_and_kernel():
+    from labkit import epr
+    check("epr constants: 71.4477 mT/GHz, nu_dd 52.04 MHz nm^3, hom3d 9.974e-4 per uM",
+          abs(epr.MT_PER_GHZ - 71.44774) < 1e-4 and abs(epr.NU_DD - 52.041) < 0.01
+          and abs(epr.K_HOM3D - 9.974e-4) < 2e-7, f"{epr.MT_PER_GHZ} {epr.NU_DD} {epr.K_HOM3D}")
+    t = np.array([0.0, 0.4, 1.3, 3.0])
+    r = np.array([2.0, 3.5, 5.5])
+    z = np.linspace(0, 1, 200001)
+    ref = np.array([[np.trapz(np.cos((1 - 3 * z * z) * 2 * np.pi * epr.NU_DD / rr ** 3 * tt), z) for rr in r] for tt in t])
+    check("dipolar kernel (Fresnel form) equals the orientation integral",
+          np.max(np.abs(epr.dipolar_kernel(t, r, weighted=False) - ref)) < 1e-6)
+    check("g = 71.4477 nu/B; distance limits 3.73 and 2.96 tmax^(1/3)",
+          abs(epr.g_value(336.689, 9.452103) - 2.0058) < 1e-5
+          and abs(epr.distance_limits(1.0)["r_max_mean_nm"] - 3.733) < 0.002
+          and abs(epr.distance_limits(1.0)["r_max_width_nm"] - 2.963) < 0.002)
+
+
+def test_epr_readers():
+    from labkit import epr
+    d = TMP / "epr"
+    d.mkdir(exist_ok=True)
+    x = np.linspace(3300.0, 3400.0, 512)
+    y = np.sin(x / 7.0)
+    _write_bes3t(d / "a", x, y, xunit="G", spl={"MWFQ": "9.452103e+09", "MWPW": "2.000e-03", "AVGS": 4,
+                                                "RCAG": "60.00"}, dsl={"ModAmp": "0.500 G", "SctNorm": "false"})
+    a = epr.load(d / "a.DSC")
+    check("BES3T: field G -> mT with the endpoint included, MWFQ Hz -> GHz, W -> mW, G -> mT",
+          abs(a.field_mT[0] - 330.0) < 1e-9 and abs(a.field_mT[-1] - 340.0) < 1e-9
+          and abs(a.freq_GHz - 9.452103) < 1e-9 and abs(a.power_mW - 2.0) < 1e-12
+          and abs(a.modamp_mT - 0.05) < 1e-12 and a.n_scans == 4 and a.sctnorm is False
+          and np.allclose(a.y, y), repr(a))
+    _write_bes3t(d / "b", x, y + 1j * np.cos(x), xunit="G", big=False, fmt="F")
+    b = epr.load(d / "b.DTA")
+    check("BES3T: little-endian float32 complex, interleaved",
+          np.iscomplexobj(b.y) and np.allclose(b.real, y, atol=1e-6) and np.allclose(b.y.imag, np.cos(x), atol=1e-6))
+    t = np.arange(200) * 8.0
+    _write_bes3t(d / "c", t, np.outer(np.arange(1, 4), np.exp(-t / 900)) + 0j, xunit="ns", y=np.array([1.0, 2, 3]))
+    c = epr.load(d / "c.DSC")
+    check("BES3T 2D: ns -> us, rows are slices of the second axis",
+          c.kind == "pulse" and abs(c.t_us[-1] - 1.592) < 1e-9 and c.y.shape == (3, 200)
+          and np.allclose(c.real[2], 3 * np.exp(-t / 900)))
+    spc = np.round(y * 1e6).astype(">i4")
+    (d / "e.spc").write_bytes(spc.tobytes())
+    (d / "e.par").write_text("JSS 0\r\nANZ 512\r\nHCF 3350.0\r\nHSW 100.0\r\nMF 9.7714\r\nRMA 1.0\r\n")
+    e = epr.load(d / "e.par")
+    check("ESP par/spc: int32 big-endian, HCF/HSW in G", abs(e.field_mT[0] - 330.0) < 1e-9
+          and np.allclose(e.y, spc.astype(float)) and abs(e.freq_GHz - 9.7714) < 1e-12)
+    (d / "w.spc").write_bytes(y.astype("<f4").tobytes())
+    (d / "w.par").write_text("DOS Format\r\nANZ 512\r\nGST 3300.0\r\nGSI 100.0\r\n")
+    w = epr.load(d / "w.par")
+    check("WinEPR par/spc: float32 little-endian, GST/GSI", np.allclose(w.y, y, atol=1e-6) and abs(w.field_mT[-1] - 340.0) < 1e-6)
+    (d / "n.txt").write_text("a b\n" + "\n".join(f"{u} {v}" for u, v in zip(x, y)))
+    try:
+        epr.load(d / "n.txt")
+        ok = False
+    except ValueError as ex:
+        ok = "x_unit" in str(ex)
+    check("ASCII without a unit raises and says x_unit=", ok)
+    try:
+        labkit.read(d / "a.DSC")
+        ok = False
+    except labkit.UnsupportedFormat as ex:
+        ok = "labkit.epr.load" in str(ex)
+    check("labkit.read points EPR files to labkit.epr.load", ok)
+
+
+def test_epr_cw_lines_and_counting():
+    from labkit import epr
+    rng = np.random.default_rng(5)
+    x = np.linspace(320.0, 350.0, 3001)
+    yl = epr.simulate_iso(x, 9.45, 2.0058, lw_mT=0.15, modamp_mT=0.02) + rng.normal(0, 0.5, x.size)
+    lf = epr.fit_line(x, yl, freq_GHz=9.45)
+    yg = epr.simulate_iso(x, 9.45, 2.0058, lw_mT=0.40, shape="gaussian") + rng.normal(0, 0.05, x.size)
+    gf = epr.fit_line(x, yg, shape="gaussian")
+    check("fit_line: Lorentzian g, dBpp and FWHM = sqrt(3) dBpp; Gaussian FWHM = 1.1774 dBpp",
+          abs(lf.g - 2.0058) < 2e-5 and abs(lf.dBpp_mT - 0.15) < 0.003 and abs(lf.fwhm_mT - 0.2598) < 0.005
+          and abs(gf.fwhm_mT - 0.4710) < 0.008, f"{lf} {gf}")
+    absf = lambda b: epr.simulate_iso(b, 9.45, 2.0058, lw_mT=0.15, harmonic=0, area=10.0)
+    a1 = epr.double_integral(x, epr.modulate_abs(absf, x, 0.02) * 0.01).value / 0.02
+    a2 = epr.double_integral(x, epr.modulate_abs(absf, x, 0.6) * 0.3).value / 0.6
+    check("double integral / modulation amplitude is the same when overmodulated", abs(a2 / a1 - 1) < 0.01, f"{a1} {a2}")
+    dd = TMP / "epr"
+    dd.mkdir(exist_ok=True)
+    base = epr.simulate_iso(x * 10, 9.45, 2.0058, nuclei=[(1, 17.0, 1)], lw_mT=1.3) / 10
+    for name, c, gain, p, ma, n in (("smp", 37.5, 60.0, 2.0, 1.0, 4), ("std", 100.0, 50.0, 0.5, 2.0, 1)):
+        yy = base * c * 10 ** (gain / 20) * np.sqrt(p) * ma * n
+        _write_bes3t(dd / name, x * 10, yy, xunit="G", spl={"MWFQ": "9.45e9", "MWPW": f"{p / 1000}", "AVGS": n,
+                                                             "RCAG": gain}, dsl={"ModAmp": f"{ma} G"})
+    sc = epr.spin_count(epr.load(dd / "smp.DSC"), epr.load(dd / "std.DSC"), standard_amount=100)
+    check("spin_count normalises gain (dB/20), sqrt(power), modulation amplitude and scans",
+          abs(sc.value - 37.5) < 0.4, repr(sc))
+    nx = epr.nitroxide_hyperfine(x, epr.simulate_iso(x, 9.45, 2.006, nuclei=[(1, 1.6, 1)],
+                                                    linewidth_mI=(0.12, 0.01, 0.02), second_order=True), freq_GHz=9.45)
+    check("nitroxide: aN from the outer lines, g_iso, widths per mI",
+          abs(nx.aN_mT - 1.6) < 0.002 and abs(nx.g_iso - 2.006) < 3e-5
+          and abs(nx.dBpp_mT[1] - 0.15) < 0.003 and abs(nx.dBpp_mT[-1] - 0.13) < 0.003, repr(nx))
+    P = epr.attenuation_to_mW(np.arange(0, 31, 2.0))
+    A = 3.0 * np.sqrt(P) * (1 + (2 ** (1 / 1.5) - 1) * P / 12.0) ** -1.5
+    fr = epr.power_saturation_fit(P, A * (1 + 0.003 * rng.standard_normal(P.size)))
+    check("power saturation: P_half and epsilon", abs(fr.params["P_half"] - 12) < 0.6 and abs(fr.params["epsilon"] - 1.5) < 0.08,
+          str(fr.params))
+    k = epr.kivelson_tau(0.12, 1.0, 0.8, 0.55)
+    check("kivelson_tau in G with the low/high-field heights", abs(k["tau_c_s"] - 6.51e-10 * 1.2 * (np.sqrt(1 / 0.8) + np.sqrt(1 / 0.55) - 2)) < 1e-15)
+
+
+def test_epr_deer():
+    from labkit import epr
+    rs = np.arange(1.5, 8, 0.005)
+    t = np.arange(-0.1, 3.0, 0.008)
+    V = epr.simulate_deer(t, rs, epr.gauss_P(rs, [3.5], [0.3]), 0.4, conc_uM=200, t0_us=0.05,
+                          phase_deg=30, noise=0.008, V0=500.0, seed=2)
+    r = epr.fit_deer(t, V)
+    check("fit_deer: phase, zero time, mean/std, lambda, concentration in one step",
+          abs(r.mean_nm - 3.5) < 0.08 and abs(r.std_nm - 0.3) < 0.1 and abs(r.lam - 0.4) < 0.03
+          and abs(r.t0_ns - 50) < 12 and abs(r.phase_deg - 30) < 3 and abs(r.conc_uM - 200) < 50, r.summary())
+    tb = np.arange(0, 5.0, 0.008)
+    Vb = epr.simulate_deer(tb, rs, epr.gauss_P(rs, [3.0, 4.5], [0.25, 0.35], [0.6, 0.4]), 0.4, k_per_us=0.06,
+                           noise=0.005, seed=3).real
+    rb = epr.fit_deer(tb, Vb)
+    check("fit_deer: two populations with fractions", len(rb.populations) == 2
+          and abs(rb.populations[0]["r_nm"] - 3.0) < 0.15 and abs(rb.populations[1]["r_nm"] - 4.5) < 0.15
+          and abs(rb.populations[0]["fraction"] - 0.6) < 0.1, str(rb.populations))
+    ts = np.arange(0, 1.5, 0.008)
+    Vs = epr.simulate_deer(ts, rs, epr.gauss_P(rs, [3.0, 5.5], [0.2, 0.4], [0.65, 0.35]), 0.4, k_per_us=0.08,
+                           noise=0.006, seed=4).real
+    rsh = epr.fit_deer(ts, Vs)
+    long_warn = any("beyond" in w for w in rsh.warnings)
+    check("fit_deer on a too-short trace keeps the short distance and warns about the long one",
+          long_warn and abs(rsh.modal_nm - 3.0) < 0.12, " | ".join(rsh.warnings))
+    check("fit_deer on a long enough trace does not raise that warning",
+          not any("beyond" in w for w in r.warnings + rb.warnings), " | ".join(r.warnings + rb.warnings))
+    try:
+        epr.fit_deer(t * 1000, V)
+        ok = False
+    except ValueError as ex:
+        ok = "ns" in str(ex)
+    check("fit_deer refuses a time axis in ns", ok)
+    buf = io.StringIO()
+    import contextlib
+    with contextlib.redirect_stdout(buf):
+        labkit.guide("epr")
+        labkit.guide("deer")
+    g = buf.getvalue()
+    check("guide('epr') and guide('deer') name the functions",
+          all(k in g for k in ("epr.load", "fit_line", "spin_count", "nitroxide_hyperfine", "power_saturation_fit",
+                               "fit_deer", "distance_limits", "average_scans")))
+
+
+def test_epr_deer_background_choice():
+    from labkit import epr
+    rs = np.arange(1.5, 8, 0.005)
+    t = np.arange(0, 3.0, 0.008)
+    # spins in a membrane plane: stretched background, d = 2
+    V = epr.simulate_deer(t, rs, epr.gauss_P(rs, [3.4], [0.25]), 0.45, k_per_us=0.3, dim=2.0, noise=0.004,
+                          seed=5).real
+    r = epr.fit_deer(t, V)
+    m = epr.fit_deer(t, V, background="strexp", dim=2.0)
+    w = [x for x in r.warnings if "background model" in x]
+    check("fit_deer warns when a membrane background (d = 2) fits as well and moves the distances, "
+          "and says to ask the user when the question does not name the sample",
+          bool(w) and "dim=2.0" in w[0] and "ask the user" in w[0] and abs(m.mean_nm - 3.4) < 0.03
+          and m.dim == 2.0 and not any("background model" in x for x in m.warnings), " | ".join(r.warnings))
+    t2 = np.arange(-0.1, 3.0, 0.008)
+    Vs = epr.simulate_deer(t2, rs, epr.gauss_P(rs, [3.5], [0.3]), 0.4, conc_uM=200, noise=0.004, seed=2).real
+    check("no background warning on a frozen-solution trace",
+          not any("background model" in x for x in epr.fit_deer(t2, Vs).warnings))
+    try:
+        epr.fit_deer(t, V, background="strexp", dim=4)
+        ok = False
+    except ValueError as ex:
+        ok = "dim" in str(ex)
+    check("fit_deer refuses a background dimension outside 1-3", ok)
+
+
+def test_epr_deer_checks_with_n_boot():
+    from labkit import epr
+    rs = np.arange(1.5, 8, 0.005)
+    t = np.arange(0, 3.0, 0.008)
+    V = epr.simulate_deer(t, rs, epr.gauss_P(rs, [3.4], [0.25]), 0.45, k_per_us=0.3, dim=2.0, noise=0.004,
+                          seed=5).real
+    r = epr.fit_deer(t, V, n_boot=3)
+    ts = np.arange(0, 1.5, 0.008)
+    Vs = epr.simulate_deer(ts, rs, epr.gauss_P(rs, [3.0, 5.5], [0.2, 0.4], [0.65, 0.35]), 0.4, k_per_us=0.08,
+                           noise=0.006, seed=4).real
+    rs_ = epr.fit_deer(ts, Vs, n_boot=3)
+    check("fit_deer with n_boot still runs the background and trace-length checks on the point fit",
+          any("background model" in w for w in r.warnings) and any("beyond" in w for w in rs_.warnings)
+          and "mean_nm" in r.ci and rs_.long_fraction is not None, " | ".join(r.warnings + rs_.warnings))
+
+
+def test_epr_deer_main_nm():
+    from labkit import epr
+    t = np.arange(0, 1.5001, 0.008)
+    R = np.arange(1.5, 8.0001, 0.005)
+    rng = np.random.default_rng(5)
+    errs = {True: [], False: []}
+    single_same = True
+    for i in range(8):
+        r1 = 3 + rng.uniform(-0.2, 0.2)
+        r2 = 5.5 + rng.uniform(-0.3, 0.3)
+        long = i % 2 == 0
+        comps = ([0.65, 0.35], [r1, r2], [0.2, 0.4]) if long else ([1.0], [r1], [0.2])
+        V = epr.simulate_deer(t, R, epr.gauss_P(R, comps[1], comps[2], comps[0]), 0.4, k_per_us=0.08,
+                              noise=0.006, seed=i).real
+        a = epr.fit_deer(t, V, check_background=False)
+        errs[long].append(abs(a.main_nm - r1))
+        if not long:
+            main = max(a.populations, key=lambda p: p["fraction"])["r_nm"]
+            single_same &= a.long_fraction is None and a.main_nm == main and a.reliable_populations == a.populations
+        else:
+            single_same &= a.long_fraction is not None and "main distance (reliable part)" in a.summary()
+    check("fit_deer main_nm: a short trace with a long component gives the short distance from the wider fit "
+          "(<= 0.05 nm); single-peak traces keep the main population of the normal fit",
+          max(errs[True]) <= 0.05 and max(errs[False]) <= 0.05 and single_same,
+          {k: [round(e, 3) for e in v] for k, v in errs.items()})
+
+
+def test_labeling_efficiency():
+    from labkit import epr
+    import contextlib
+    p, f = 0.5, 0.4
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        a = epr.labeling_efficiency(p * f, 0.5)                          # both sites f
+        b = epr.labeling_efficiency(2 * p * f / (1 + f), 0.5, scheme="one_full")
+        c = epr.labeling_efficiency(0.55, 0.5)
+    try:
+        epr.labeling_efficiency(0.2, 50)
+        pct = False
+    except ValueError:
+        pct = True
+    try:
+        epr.labeling_efficiency(0.2, 0.5, scheme="x")
+        bad = False
+    except ValueError:
+        bad = True
+    out = buf.getvalue()
+    check("labeling_efficiency: f = lambda / p (both sites alike), f = lambda / (2p - lambda) (site 1 full), "
+          "prints the formula, warns when lambda > p, refuses a percentage",
+          close(a, f, 1e-12) and close(b, f, 1e-12) and a.scheme == "both_equal" and "2p - lambda" in b.formula
+          and "lambda / p" in out and c.warnings and "WARNING" in out and pct and bad
+          and json_ok(float(a)), out)
+
+
+def json_ok(x):
+    import json
+    return json.loads(json.dumps({"f": x}))["f"] == x
+
+
+def test_despike():
+    from labkit import epr
+    rng = np.random.default_rng(3)
+    B = np.linspace(330, 340, 2048)
+
+    def dlor(b0, dpp):
+        x = (B - b0) / (dpp / 2 * math.sqrt(3))
+        return -x / (1 + x ** 2) ** 2
+
+    y = dlor(335.0, 0.15) + 0.4 * dlor(336.2, 0.3) + 0.003 * rng.standard_normal(B.size)
+    ys = y.copy()
+    ys[700:702] += 0.5
+    ys[1500] -= 0.3
+    clean, idx = epr.despike(B, ys)
+    c0, i0 = epr.despike(B, y)
+    ext = {int(np.argmax(y)), int(np.argmin(y))}
+    check("despike removes a 2-point and a 1-point spike and never touches the line's extrema",
+          sorted(idx.tolist()) == [700, 701, 1500] and i0.size == 0 and not ext & set(idx.tolist())
+          and np.max(np.abs(clean[700:702] - y[700:702])) < 0.02
+          and all(clean[i] == ys[i] for i in ext),
+          (idx.tolist(), i0.tolist()))
+    # a narrow line (4 points across dBpp) is not a spike either
+    yn = dlor(335.0, 4 * (B[1] - B[0])) + 0.003 * rng.standard_normal(B.size)
+    check("despike keeps a narrow derivative line", epr.despike(B, yn)[1].size == 0)
+
+
+def test_epr_guide_text_file_recipes():
+    from labkit import epr
+    import tempfile, os
+    B = np.linspace(3320, 3420, 4001)                      # G
+    d1 = epr.simulate_iso(B / 10, 9.5, 2.006, nuclei=[(1, 1.6, 1)], lw_mT=0.12, linewidth_mI=(0.12, 0.01, 0.005))
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "label.csv")
+        with open(path, "w") as f:
+            f.write("B_G,dI/dB\n" + "".join(f"{b:.3f},{y:.6e}\n" for b, y in zip(B, d1)))
+        d = epr.load(path)                                  # recipe, as printed in guide('epr')
+        nx = epr.nitroxide_hyperfine(d.field_mT, d.y)
+        k = epr.kivelson_tau(nx.dBpp_mT[0], nx.heights[0], nx.heights[1], nx.heights[-1])
+        lf = epr.fit_line(d.field_mT, d.y, shape="gaussian")
+    check("guide('epr') text-file recipe: a CSV in G loads in mT and the Kivelson line runs",
+          abs(d.field_mT[0] - 332.0) < 1e-6 and k["tau_c_s"] > 0 and lf.fwhm_mT > 0, str(k))
+
+
 TESTS = [v for k, v in list(globals().items()) if k.startswith("test_") and callable(v)]
 
 if __name__ == "__main__":
@@ -730,3 +1072,23 @@ if __name__ == "__main__":
     failed = [r for r in RESULTS if not r[1]]
     print(f"\n{len(RESULTS) - len(failed)}/{len(RESULTS)} passed")
     sys.exit(1 if failed else 0)
+
+
+def test_ascii_header_frequency(tmp_path):
+    """A text export's header frequency becomes d.freq_GHz (EasySpin port slice 1:
+    frozen-solution fits need it); two different values or none leave it None."""
+    from labkit import epr
+    body = "Field [G]\tIntensity\n" + "".join(f"{3300 + i:.1f}\t{(i % 7) - 3}\n" for i in range(50))
+    one = tmp_path / "a.txt"
+    one.write_text("# frozen sample, T = 77 K, nu = 9.4318 GHz\n" + body)
+    hz = tmp_path / "b.txt"
+    hz.write_text("# MWFQ 9.7621e+09\n" + body)
+    two = tmp_path / "c.txt"
+    two.write_text("# 9.40 GHz and 9.50 GHz runs\n" + body)
+    none = tmp_path / "d.txt"
+    none.write_text(body)
+    d = epr.load(one)
+    assert d.freq_GHz == 9.4318 and any("from the header" in n for n in d.notes)
+    assert epr.load(hz).freq_GHz == 9.7621
+    assert epr.load(two).freq_GHz is None
+    assert epr.load(none).freq_GHz is None

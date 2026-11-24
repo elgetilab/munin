@@ -1,0 +1,37 @@
+{
+ "id": "s8_cw_esp",
+ "suite": "S8",
+ "inputs": [
+  "cu.par",
+  "cu.spc"
+ ],
+ "turns": [
+  {
+   "prompt": "cu.par / cu.spc are an older Bruker ESP CW-EPR file of a single broad line. Report the g-value at the zero crossing (g) and the peak-to-peak linewidth in mT (dBpp_mT).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "g",
+     "truth": "truth:g",
+     "atol": 0.0003
+    },
+    {
+     "type": "numeric",
+     "key": "dBpp_mT",
+     "truth": "truth:dBpp_mT",
+     "atol": 0.02
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "g": "",
+  "dBpp_mT": "mT"
+ },
+ "tags": [
+  "format:esp",
+  "trap:int32_big_endian",
+  "trap:hcf_hsw"
+ ],
+ "provenance": "synthetic, s8.cw_esp"
+}

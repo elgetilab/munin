@@ -1,0 +1,91 @@
+{
+  "meta": {
+    "tag": "lk16-control-fresh",
+    "generated_at": "2026-11-21T20:52:47.746340+00:00",
+    "git_sha": "38437cf",
+    "encoder": "n/a",
+    "seed": 42,
+    "packages": {
+      "numpy": "1.26.4",
+      "scipy": "1.13.1",
+      "sentence_transformers": "n/a",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "suite": "lab-analysis",
+    "arm": "labkit",
+    "persona": "munin",
+    "results_suffix": "v2",
+    "reps": 3,
+    "heldout": false,
+    "base": "http://127.0.0.1:8082",
+    "concurrency": 4,
+    "resumed": true,
+    "cases": [
+      "s1_competitive_s6",
+      "s1_competitive_s7",
+      "s1_competitive_s8"
+    ],
+    "vision_judge": null
+  },
+  "tasks": {
+    "lab-S1": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.8888888888888888,
+            "ci_low": 0.6666666666666666,
+            "ci_high": 1.0,
+            "n": 9
+          },
+          "case_pass": {
+            "mean": 0.8888888888888888,
+            "ci_low": 0.6666666666666666,
+            "ci_high": 1.0,
+            "n": 9
+          }
+        },
+        "per_query": {
+          "s1_competitive_s6#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s6#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s6#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s7#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s7#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s8#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s8#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s7#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s1_competitive_s8#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "case": "pepper_crystal_multiori",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "crystal / orientation selection",
+  "what_it_tests": "single crystal, several orientations, Exp.CrystalSymmetry D2h, Sys.gFrame",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_crystal_multiori.m",
+    "data_file": "tests/data/pepper_crystal_multiori.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        1024
+      ]
+    }
+  },
+  "note": "Evaluated: vec2ang of [1 2 3; 1 -2 4; 0 0 1; 5 2 -3] gives (phi, theta) in deg = (63.4349, 36.6992); (-63.4349, 29.2059); (0.0000, 0.0000); (21.8014, 119.1216); Exp.SampleFrame = [-chi -theta -phi] with chi = 0; Sys.gFrame = -[78 40 30] deg.",
+  "easyspin_check": [
+    "ok = areequal(spc,olddata.y,1e-4,'rel');"
+  ],
+  "matlab_source": [
+    "Sys.g = [2 2.1 2.2];",
+    "Sys.gFrame = -[78 40 30]*pi/180;",
+    "Sys.lw = 0.5;",
+    "Exp.mwFreq = 9.5;",
+    "Exp.Range = [290 350];",
+    "Exp.CrystalSymmetry = 'D2h';",
+    "[phi,theta] = vec2ang([1 2 3; 1 -2 4; 0 0 1; 5 2 -3]);",
+    "chi = zeros(size(phi(:)));",
+    "Exp.SampleFrame = [-chi -theta(:) -phi(:)];",
+    "[B,spc] = pepper(Sys,Exp);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

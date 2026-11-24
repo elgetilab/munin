@@ -498,6 +498,14 @@ async def _dispatch_mcp_tool(tool_name: str, arguments: dict) -> dict:
             return {"error": _format_validation_error(tool_name, errs)}
     fn = get_dispatcher(tool_name) if tool_name not in DISABLED_TOOLS else None
     if fn is None:
+        if str(tool_name).split(".")[0].lower() == "labkit":
+            # 56 lab runs called labkit (a Python library) as a tool
+            # (LABKIT-016-PLAN.md): say where it goes.
+            return {"error": (
+                f"Unknown tool: {tool_name}. labkit is a Python library, not a "
+                f"tool: call it inside run_python, for example "
+                f"run_python(code=\"import labkit; print(labkit.guide('fit'))\")."
+            )}
         return {"error": f"Unknown tool: {tool_name}"}
     try:
         return await fn(arguments or {})

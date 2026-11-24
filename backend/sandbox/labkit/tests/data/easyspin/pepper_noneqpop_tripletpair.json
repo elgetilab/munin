@@ -1,0 +1,47 @@
+{
+  "case": "pepper_noneqpop_tripletpair",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting, coupled electron spins, non-equilibrium populations",
+  "what_it_tests": "triplet pair S = [1 1] vs quintet S = 2 from singlet fission",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_noneqpop_tripletpair.m",
+    "data_file": "tests/data/pepper_noneqpop_tripletpair.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "spcTT": [
+        1024
+      ],
+      "spcQ": [
+        1024
+      ]
+    }
+  },
+  "note": "Evaluated: D = 1400 MHz; the quintet uses D/3 = 466.6667 MHz.",
+  "easyspin_check": [
+    "ok = areequal(spcTT,spcQ,1e-3,'rel');",
+    "ok = [ok areequal(spcTT,olddata.spcTT,1e-4,'rel') && areequal(spcQ,olddata.spcQ,1e-4,'rel')];"
+  ],
+  "matlab_source": [
+    "D = 1400; % MHz",
+    "SysTT = struct('S',[1 1],'lw',2,'D',[D; D],'J',1e7);",
+    "SysQ = struct('S',2,'lw',2,'D',D/3);",
+    "Exp = struct('mwFreq',9.5,'Range',[300 380],'Harmonic',0);",
+    "Opt = struct;",
+    "SysTT.initState = {[0 0 0 0 0 0 1 0 0],'eigen'};",
+    "SysQ.initState = {[0 0 1 0 0],'eigen'};",
+    "[x,spcTT] = pepper(SysTT,Exp,Opt);",
+    "[~,spcQ] = pepper(SysQ,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

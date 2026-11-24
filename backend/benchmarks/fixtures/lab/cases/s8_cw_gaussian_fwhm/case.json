@@ -1,0 +1,29 @@
+{
+ "id": "s8_cw_gaussian_fwhm",
+ "suite": "S8",
+ "inputs": [
+  "defect.txt"
+ ],
+ "turns": [
+  {
+   "prompt": "defect.txt is an ASCII export of a CW-EPR spectrum (first derivative) of an inhomogeneously broadened (Gaussian) line. Report the full width at half maximum of the absorption line in mT (fwhm_mT).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "fwhm_mT",
+     "truth": "truth:fwhm_mT",
+     "rtol": 0.03
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "fwhm_mT": "mT"
+ },
+ "tags": [
+  "format:xepr_ascii",
+  "trap:index_column",
+  "trap:gaussian_factor"
+ ],
+ "provenance": "synthetic, s8.cw_gaussian_fwhm"
+}

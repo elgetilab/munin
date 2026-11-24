@@ -1,0 +1,36 @@
+{
+ "id": "s8_cw_dpph_calibration_f3",
+ "suite": "S8",
+ "inputs": [
+  "dpph.csv",
+  "sample.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "sample.csv and dpph.csv are CW-EPR spectra (first derivative) recorded back to back at 9.76948 GHz on the same spectrometer. The DPPH standard has g = 2.0036. Use it to calibrate the field axis and report the sample's g-value (g) and the field offset of the spectrometer in mT (field_offset_mT, measured minus true).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "g",
+     "truth": "truth:g",
+     "atol": 0.0001
+    },
+    {
+     "type": "numeric",
+     "key": "field_offset_mT",
+     "truth": "truth:field_offset_mT",
+     "atol": 0.02
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "g": "",
+  "field_offset_mT": "mT"
+ },
+ "tags": [
+  "format:csv",
+  "trap:field_calibration"
+ ],
+ "provenance": "synthetic, s8.cw_dpph_calibration"
+}

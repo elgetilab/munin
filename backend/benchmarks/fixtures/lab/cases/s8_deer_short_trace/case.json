@@ -1,0 +1,44 @@
+{
+ "id": "s8_deer_short_trace",
+ "suite": "S8",
+ "inputs": [
+  "short.csv"
+ ],
+ "turns": [
+  {
+   "prompt": "short.csv is a phased 4-pulse DEER trace (time zero at the first point). Report the distance distribution: the main distance in nm (r_main_nm) and anything a reader should know about the reliability of the result.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "r_main_nm",
+     "truth": "truth:r_main_nm",
+     "atol": 0.12
+    },
+    {
+     "type": "flagged",
+     "any_of": [
+      "too short",
+      "trace length",
+      "not reliable",
+      "unreliable",
+      "cannot be resolved",
+      "beyond",
+      "longer trace",
+      "maximum reliable",
+      "upper limit",
+      "cannot be determined",
+      "outside the reliable"
+     ]
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "r_main_nm": "nm"
+ },
+ "tags": [
+  "format:csv",
+  "trap:trace_length_limit"
+ ],
+ "provenance": "synthetic, s8.deer_short_trace; a 5.5 nm component is beyond what 1.5 us supports"
+}

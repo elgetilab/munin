@@ -1,0 +1,53 @@
+{
+  "case": "pepper_dstraincorrelated",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting, D strain",
+  "what_it_tests": "S = 1 with correlated D/E strain",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_dstraincorrelated.m",
+    "data_file": "tests/data/pepper_dstraincorrelated.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y0": [
+        1024
+      ],
+      "yp": [
+        1024
+      ],
+      "ym": [
+        1024
+      ]
+    }
+  },
+  "note": "The tolerance m in the check is max([y0 yp ym]) of the new spectra.",
+  "easyspin_check": [
+    "ok = areequal(y0,olddata.y0,m*0.01,'abs');",
+    "ok = ok && areequal(yp,olddata.yp,m*0.01,'abs');",
+    "ok = ok && areequal(ym,olddata.ym,m*0.01,'abs');"
+  ],
+  "matlab_source": [
+    "Sys.S = 1;",
+    "Sys.D = [800 80];",
+    "Sys.StrainPars = {'D(1)','D(2)'};",
+    "Sys.StrainFWHM = [100 33];",
+    "Sys.lwpp = 1;",
+    "Exp.mwFreq = 9.5;",
+    "Exp.CenterSweep = [340 100];",
+    "Opt.GridSize = 15;",
+    "Sys.StrainCorr =  0; [x,y0] = pepper(Sys,Exp,Opt);",
+    "Sys.StrainCorr = +1; [x,yp] = pepper(Sys,Exp,Opt);",
+    "Sys.StrainCorr = -1; [x,ym] = pepper(Sys,Exp,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

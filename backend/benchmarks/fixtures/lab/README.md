@@ -17,7 +17,7 @@ Regenerate with `python fixtures/lab/generate/build.py` and verify with
 compares (data byte-identical, reference values within 1e-4), runs an oracle
 answer through every case, and checks that the naive answer to each trap fails.
 
-## Cases (95)
+## Cases (121)
 
 | Suite | Cases | What |
 |---|---|---|
@@ -28,6 +28,9 @@ answer through every case, and checks that the naive answer to each trap fails.
 | S3 | 2 sessions, 8 and 5 turns | grouped bars (SD to SEM, log axis, labels and colours, size in mm and dpi, significance bracket, drop a group, vector PDF), dose-response points (log x, second compound, labels and limits, SVG) |
 | S5 | 2 | a 4PL fit and an ANOVA with Tukey, each re-run from the downloaded bundle |
 | S6 | 5 | HSQC titration CSP and global Kd with ligand depletion (2 seeds, with prolines, broadened and overlapped residues), 15N R1/R2/hetNOE, 1H-1H NOESY buildup (user data), 2H order profile difference (user data) |
+| S8 | 11 CW | EPR: g from BES3T, DPPH calibration, quadrature little-endian, Gaussian FWHM, spin count, integration window, nitroxide aN, Kivelson tau_c, power saturation, overmodulation, Bruker ESP |
+| S8 | 10 DEER | ns axis, Angstrom, phase, zero time, bimodal, short trace, concentration, labelling efficiency, BES3T scans, membrane background |
+| S8 | 5 powder / fit | Cu(II) frozen with natural 63/65Cu (g_par, g_perp, A_par in MHz and 1e-4 cm-1), rigid nitroxide Azz, rhombic low-spin g with g-strain, 2 x 14N + 4 x 1H radical aN/aH, mT to MHz at g = 2.10 (tags `sim:powder`, `sim:iso`) |
 
 ## Provenance
 
@@ -44,6 +47,16 @@ Every `case.json` carries a `provenance` line.
   with GRPDLY 76, procs) and was checked with nmrglue in the sandbox image:
   its standard chain recovers every shift within 0.001 ppm. Real exports go
   in the held-out set.
+- **S8 EPR** (`generate/s8.py`, `generate/s8_powder.py`): synthetic, truths are
+  the generating parameters, never a fit, and nothing imports labkit. The
+  powder cases come from an exact-diagonalisation simulator of its own
+  (`s8_powder.py`: full spin Hamiltonian with `numpy.linalg.eigh`, Newton
+  resonance fields per orientation, spline-interpolated octant grid,
+  intensities from the transition moment over the field-swept Jacobian,
+  g-strain, natural Cu isotopes), so it shares no method with labkit's
+  perturbation-theory `simulate_powder`. Its self-checks run on every build:
+  isotropic limit against closed-form Breit-Rabi, first-order positions,
+  axial turning points and shape against the 1D closed form, spline error.
 - **NIST StRD** (`nist/raw/`): public domain, U.S. National Institute of
   Standards and Technology, Statistical Reference Datasets. The case CSVs copy
   the x and y strings verbatim; the certified values stay out of the upload.

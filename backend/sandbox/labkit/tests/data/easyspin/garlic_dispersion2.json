@@ -1,0 +1,88 @@
+{
+  "case": "garlic_dispersion2",
+  "program": "garlic",
+  "in_slice1": false,
+  "skip_reason": "dispersion signal (Exp.mwPhase = pi/2); the slice-1 API has no detection phase",
+  "what_it_tests": "dispersion lineshape via Hilbert transform, harmonic 2",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/garlic_dispersion2.m",
+    "data_file": "tests/data/garlic_dispersion2.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "x": [
+        1024
+      ],
+      "y": [
+        1024
+      ]
+    }
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0,
+      2.0,
+      2.0
+    ],
+    "nuclei": [
+      {
+        "name": "1H",
+        "I": 0.5,
+        "A_MHz": [
+          10.0,
+          10.0,
+          10.0
+        ],
+        "n": 1
+      }
+    ],
+    "lw": {
+      "easyspin_field": "Sys.lw",
+      "easyspin_value": [
+        0.0,
+        0.03
+      ],
+      "gaussian_fwhm_mT": 0.0,
+      "lorentzian_fwhm_mT": 0.03,
+      "gaussian_dBpp_mT": 0.0,
+      "lorentzian_dBpp_mT": 0.017320508075688773
+    }
+  },
+  "exp": {
+    "mwFreq_GHz": 9.7,
+    "range_mT": [
+      346.0,
+      347.0
+    ],
+    "nPoints": 1024,
+    "axis": "data.x from the .mat",
+    "harmonic": 2,
+    "mwPhase_rad": 1.5707963267948966
+  },
+  "opt": {
+    "Method": "exact (default)"
+  },
+  "note": null,
+  "easyspin_check": [
+    "ok = areequal(x,olddata.x,1e-10,'abs') && areequal(y,olddata.y,1e-4,'rel');"
+  ],
+  "matlab_source": [
+    "Sys = struct('g',2,'Nucs','1H','lw',[0,0.03],'A',10);",
+    "Exp = struct('mwFreq',9.7);",
+    "Exp.Range = [346 347];",
+    "Exp.Harmonic = 2;",
+    "Exp.mwPhase = pi/2;",
+    "[x,y] = garlic(Sys,Exp);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

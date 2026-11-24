@@ -1,0 +1,117 @@
+{
+  "meta": {
+    "tag": "es1-baseline",
+    "generated_at": "2026-11-23T09:59:39.566482+00:00",
+    "git_sha": "ba63afb",
+    "encoder": "n/a",
+    "seed": 42,
+    "packages": {
+      "numpy": "1.26.4",
+      "scipy": "1.13.1",
+      "sentence_transformers": "n/a",
+      "qdrant_client": "n/a"
+    },
+    "model": "sage-a1.5",
+    "model_max_len": 65536,
+    "model_path": "/opt/munin/data/models/sage-a1.5-awq-int4",
+    "suite": "lab-analysis",
+    "arm": "labkit",
+    "persona": "munin",
+    "results_suffix": "v2",
+    "reps": 3,
+    "heldout": false,
+    "base": "http://127.0.0.1:8082",
+    "concurrency": 4,
+    "resumed": true,
+    "cases": [
+      "s8_cw_cu_powder",
+      "s8_cw_nitroxide_rigid",
+      "s8_cw_radical_fit",
+      "s8_cw_rhombic",
+      "s8_cw_units"
+    ],
+    "vision_judge": null
+  },
+  "tasks": {
+    "lab-S8": {
+      "sage-a1.5/labkit": {
+        "metrics": {
+          "case_score": {
+            "mean": 0.27777777777777773,
+            "ci_low": 0.09430555555555567,
+            "ci_high": 0.4834722222222221,
+            "n": 15
+          },
+          "case_pass": {
+            "mean": 0.2,
+            "ci_low": 0.0,
+            "ci_high": 0.4,
+            "n": 15
+          }
+        },
+        "per_query": {
+          "s8_cw_nitroxide_rigid#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_cu_powder#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_cu_powder#2": {
+            "case_score": 0.25,
+            "case_pass": 0.0
+          },
+          "s8_cw_cu_powder#3": {
+            "case_score": 0.25,
+            "case_pass": 0.0
+          },
+          "s8_cw_nitroxide_rigid#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_radical_fit#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_radical_fit#2": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_rhombic#2": {
+            "case_score": 0.6666666666666666,
+            "case_pass": 0.0
+          },
+          "s8_cw_radical_fit#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_rhombic#1": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_nitroxide_rigid#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          },
+          "s8_cw_units#1": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_units#2": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_units#3": {
+            "case_score": 1.0,
+            "case_pass": 1.0
+          },
+          "s8_cw_rhombic#3": {
+            "case_score": 0.0,
+            "case_pass": 0.0
+          }
+        }
+      }
+    }
+  }
+}

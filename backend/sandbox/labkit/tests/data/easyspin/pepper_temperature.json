@@ -1,0 +1,44 @@
+{
+  "case": "pepper_temperature",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting (temperature dependence)",
+  "what_it_tests": "S = 1 with D, Boltzmann populations at 20..0.2 K (7 rows)",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_temperature.m",
+    "data_file": "tests/data/pepper_temperature.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        7,
+        1024
+      ]
+    }
+  },
+  "note": null,
+  "easyspin_check": [
+    "ok = areequal(y,olddata.y,1e-3,'rel');"
+  ],
+  "matlab_source": [
+    "Sys = struct('S',1,'g',[1 1 1]*2,'D',200*[1 1 -2],'lw',1);",
+    "Exp = struct('Range',[300 380],'mwFreq',9.5,'Harmonic',0);",
+    "Opt = struct('GridSize',20);",
+    "Temps = [20 10 5 2 1 0.5 0.2];",
+    "for t = 1:numel(Temps)",
+    "  Exp.Temperature = Temps(t);",
+    "  [x,y(t,:)] = pepper(Sys,Exp,Opt);",
+    "  leg{t} = sprintf('%g K',Temps(t));",
+    "end"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

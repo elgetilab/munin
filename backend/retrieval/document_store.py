@@ -40,6 +40,33 @@ SUPPORTED_TEXT_EXT = {".pdf", ".txt", ".md", ".docx"}
 SUPPORTED_IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 
 
+_NUM_FIELD = re.compile(r"^[-+]?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$|^(nan|NaN|inf|-inf)$")
+_FIELD_SPLIT = re.compile(r"[\s,;]+")
+
+
+def looks_like_numeric_table(text: str, *, min_rows: int = 20, share: float = 0.8) -> bool:
+    """True when a text document is mostly rows of numbers (an instrument
+    export saved as .txt). Such a file is a data file: pasting it costs about
+    a token per character, and a 37 KB one filled the prompt so the model saw
+    none of its tool results (LABKIT-016-PLAN.md). Looks at the first 200
+    non-empty lines; comment lines (#, %, ;) and a header are allowed."""
+    lines = []
+    for ln in (text or "").splitlines():
+        t = ln.strip()
+        if t and t[0] not in "#%;":
+            lines.append(t)
+        if len(lines) >= 200:
+            break
+    if len(lines) < min_rows:
+        return False
+    numeric = 0
+    for t in lines:
+        fields = [f for f in _FIELD_SPLIT.split(t) if f]
+        if fields and all(_NUM_FIELD.match(f) for f in fields):
+            numeric += 1
+    return numeric >= share * len(lines)
+
+
 def is_data_file(filename: str) -> bool:
     """Any other file type is a data file (instrument export, spreadsheet,
     zip of an NMR experiment, ...): stored as uploaded, never embedded or

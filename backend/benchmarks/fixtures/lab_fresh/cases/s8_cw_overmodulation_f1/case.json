@@ -1,0 +1,39 @@
+{
+ "id": "s8_cw_overmodulation_f1",
+ "suite": "S8",
+ "inputs": [
+  "scan_a.DSC",
+  "scan_a.DTA",
+  "scan_b.DSC",
+  "scan_b.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "scan_a and scan_b (Bruker BES3T) are CW-EPR spectra of the same sample, same settings except the modulation amplitude. Is one of them overmodulated? Report the modulation amplitude in G of the overmodulated scan (overmodulated_modamp_G, null if neither), and the ratio of the double integrals after normalising each by its modulation amplitude, b over a (di_ratio_normalised).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "overmodulated_modamp_G",
+     "truth": 3.67,
+     "atol": 0.01
+    },
+    {
+     "type": "numeric",
+     "key": "di_ratio_normalised",
+     "truth": "truth:di_ratio",
+     "rtol": 0.05
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "overmodulated_modamp_G": "G",
+  "di_ratio_normalised": ""
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:overmodulation",
+  "trap:modamp_linear"
+ ],
+ "provenance": "synthetic, exact first-harmonic modulation kernel, s8.cw_overmodulation"
+}

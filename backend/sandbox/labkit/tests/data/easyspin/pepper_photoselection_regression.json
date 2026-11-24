@@ -1,0 +1,44 @@
+{
+  "case": "pepper_photoselection_regression",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting, non-equilibrium populations, photoselection (orientation selection)",
+  "what_it_tests": "photoselected triplet (Sys.tdm, Exp.lightBeam), parallel and perpendicular light",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_photoselection_regression.m",
+    "data_file": "tests/data/pepper_photoselection_regression.mat"
+  },
+  "mat": {
+    "format": "MATLAB v7.3 / HDF5 (scipy.io.loadmat cannot read it; h5py can; shapes are HDF5 order, i.e. transposed)",
+    "struct": "data",
+    "fields": {
+      "spc": [
+        1024,
+        2
+      ]
+    }
+  },
+  "note": null,
+  "easyspin_check": [
+    "ok = areequal( spc,olddata.spc,1e-4,'rel' ) ;"
+  ],
+  "matlab_source": [
+    "Sys = struct( 'S',1,'g',2,'lw',1.5,'D',[800,-120] ) ;",
+    "Sys.tdm = [ pi/2 0 ] ;",
+    "Sys.initState = {[1 0 0],'zerofield'};",
+    "Exp = struct( 'mwFreq',9.75,'Range',[ 300 400 ],'Harmonic',0 ) ;",
+    "Exp.lightBeam = 'parallel' ;",
+    "Exp.lightScatter = 0.2 ;",
+    "[ x,spc_1 ] = pepper( Sys,Exp ) ;",
+    "Exp.lightBeam = 'perpendicular' ;",
+    "[ ~,spc_2 ] = pepper( Sys,Exp ) ;"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

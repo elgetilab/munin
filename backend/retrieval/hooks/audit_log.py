@@ -34,7 +34,8 @@ async def audit_sensitive_tools(
 ) -> None:
     """One structured line per invocation. Returns None — we never
     rewrite the result, only observe it."""
-    ok = isinstance(result, dict) and "error" not in result
+    # The sandbox always sends "error": None on success; only a set error fails.
+    ok = isinstance(result, dict) and not result.get("error")
     logger.info(
         "audit_tool user=%s conv=%s persona=%s tool=%s duration_ms=%d ok=%s",
         ctx.user_email or "?",

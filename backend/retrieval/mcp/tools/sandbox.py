@@ -23,6 +23,7 @@ import httpx
 
 import labkit_hints
 import results_outline
+import retype_check
 from text_edits import apply_edits as _apply_edits, near_misses
 
 from ..context import current_user_email, current_conversation_id
@@ -98,6 +99,24 @@ _LAST_SOURCE_MAX = 512
 
 # Which labkit pointers each conversation has had (labkit_hints.py).
 _labkit_hints = labkit_hints.HintState()
+
+# Numeric columns of each conversation's uploads, for the retyping hint
+# (retype_check.py, LABKIT-018-PLAN.md change 1). In-process like the two
+# caches above: after a restart it is empty and the hint does not fire.
+_retype = retype_check.RetypeState()
+
+
+def remember_input(conv_id: str, filename: str, data: bytes, paths: list[str]) -> None:
+    """Keep an uploaded file's numeric columns for the retyping hint. Never raises."""
+    try:
+        _retype.remember(conv_id, filename, data, paths)
+    except Exception as e:  # a parse problem only silences the hint
+        logger.info("retype: columns of %s not kept: %s", filename, e)
+
+
+def new_turn(conv_id: str) -> None:
+    """A new user message: per-turn hint limits start over."""
+    _retype.new_turn(conv_id)
 
 
 def _remember_source(conv_id: str, code: str) -> None:
@@ -278,6 +297,16 @@ async def run_python(code: str, timeout_s: int = 30) -> dict:
         payload["labkit_hint"] = hint[1]
         # One line per hint so an eval can count them (LABKIT-011-PLAN.md).
         logger.info("labkit_hint kind=%s conv=%s", hint[0], conv_id)
+    # An array typed into the code that starts like an uploaded column and
+    # then departs from it (advisory; once per file and column per turn).
+    try:
+        retype = _retype.hint_for(conv_id, code)
+    except Exception as e:
+        logger.info("retype check skipped: %s", e)
+        retype = None
+    if retype:
+        payload["data_hint"] = retype
+        logger.info("data_hint kind=retype conv=%s", conv_id)
     return payload
 
 

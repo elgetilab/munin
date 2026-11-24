@@ -1,0 +1,70 @@
+{
+  "case": "garlic_fastmotion_multinuc",
+  "program": "garlic",
+  "in_slice1": false,
+  "skip_reason": "fast-motion linewidths from Sys.tcorr (slice 2, not slice 1)",
+  "what_it_tests": "fast-motion regime with 14N + 1H, tcorr 1 ns",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/garlic_fastmotion_multinuc.m",
+    "data_file": "tests/data/garlic_fastmotion_multinuc.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "y": [
+        1024
+      ]
+    }
+  },
+  "sys": {
+    "S": 0.5,
+    "g": [
+      2.0088,
+      2.0061,
+      2.0027
+    ],
+    "nuclei": [
+      {
+        "name": "14N",
+        "A_MHz": "unitconvert([5.8 5.8 30.8]/10,'mT->MHz')"
+      },
+      {
+        "name": "1H",
+        "A_MHz": "unitconvert([-3 -3 10]/10,'mT->MHz')"
+      }
+    ],
+    "tcorr_s": 1e-09
+  },
+  "exp": {
+    "mwFreq_GHz": 9.7,
+    "range_mT": [
+      343.0,
+      348.0
+    ],
+    "nPoints": 1024,
+    "axis": "numpy.linspace(range_mT[0], range_mT[1], nPoints)"
+  },
+  "opt": {},
+  "note": "The .mat holds only data.y (no axis); the axis would be linspace(343, 348, 1024). Evaluated: unitconvert('mT->MHz') uses g = gfree, 28.0249514 MHz/mT, so 14N A = [16.2545 16.2545 86.3169] MHz and 1H A = [-8.4075 -8.4075 28.0250] MHz.",
+  "easyspin_check": [
+    "ok = areequal(y,olddata.y,1e-7,'rel');"
+  ],
+  "matlab_source": [
+    "Spins.g = [2.0088 2.0061 2.0027];",
+    "Spins.Nucs = '14N,1H';",
+    "Spins.A = unitconvert([5.8 5.8 30.8; -3 -3 10]/10,'mT->MHz'); % G -> MHz",
+    "Spins.tcorr = 1e-9;",
+    "Exp = struct('mwFreq',9.7);",
+    "Exp.Range = [343 348];",
+    "[x,y] = garlic(Spins,Exp);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

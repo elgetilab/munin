@@ -419,7 +419,308 @@ def test_competitive_hint_says_how_to_pass_x():
                   str(h))
 
 
+EPR_READ_BY_HAND = """import numpy as np
+dsc = open('inputs/sample.DSC').read()
+params = dict(l.split(None, 1) for l in dsc.splitlines() if l and l[0].isalpha())
+y = np.fromfile('inputs/sample.DTA', dtype='>f8')
+nu = float(params['MWFQ']) / 1e9
+"""
+DEER_BY_HAND = """import numpy as np
+from scipy.special import fresnel
+t, V = np.loadtxt('deer.csv', delimiter=',', skiprows=1, unpack=True)
+# DEER dipolar kernel
+K = kernel(t, r)
+P = np.linalg.lstsq(K, V, rcond=None)[0]
+"""
+DEERLAB = """import deerlab as dl
+t, V = dl.deerload('deer.DTA')
+"""
+SPIN_BY_HAND = """import numpy as np
+a = np.cumsum(y) * dx
+di = np.trapz(a, x)   # double integral for the spin count vs TEMPOL
+"""
+G_BY_HAND = """h = 6.62607015e-34; mu_B = 9.2740100783e-24
+g = h * 9.5e9 / (mu_B * B0 * 1e-3)
+"""
+EPR_WITH_LABKIT = """from labkit import epr
+d = epr.load('inputs/sample.DSC')
+y = np.fromfile('inputs/sample.DTA', dtype='>f8')
+lf = epr.fit_line(d.field_mT, d.y, freq_GHz=d.freq_GHz)
+"""
+
+
+def test_epr_hints():
+    st = HintState()
+    got = {name: (fit_hint(code) or ("none",))[0] for name, code in (
+        ("read", EPR_READ_BY_HAND), ("deer", DEER_BY_HAND), ("deerlab", DEERLAB), ("spin", SPIN_BY_HAND),
+        ("g", G_BY_HAND))}
+    covered = st.hint_for("e1", EPR_WITH_LABKIT)
+    json_load = fit_hint("import json\nd = json.load(open('x.json'))\ny = np.fromfile('a.DTA', dtype='>f8')")
+    up = upload_hint("sample.DSC", b"#DESC", ["sample.DSC"])
+    up_zip = upload_hint("deer.zip", b"PK", ["deer/deer.DSC", "deer/deer.DTA"])
+    return _check("EPR: hand-read BES3T, DEER by hand or via DeerLab, double integration, typed-in g "
+                  "constants get labkit.epr hints; epr.load/fit_line calls are covered (json.load is not); "
+                  "EPR uploads name epr.load",
+                  got == {"read": "epr_read", "deer": "deer", "deerlab": "deer", "spin": "epr_integral", "g": "epr_g"}
+                  and covered is None and json_load and json_load[0] == "epr_read"
+                  and "labkit.epr.load" in up and "labkit.epr.load" in up_zip,
+                  f"{got} {covered} {json_load and json_load[0]} {up[:40]!r}")
+
+
+# Round 2 (LABKIT-015-PLAN.md): shapes of the S8 runs that measured lines by hand.
+KIVELSON_BY_HAND = """import pandas as pd, numpy as np
+from scipy.signal import find_peaks, savgol_filter
+df = pd.read_csv('inputs/label.csv'); B = df['B_G'].values; dI = df['dI/dB'].values
+pos, _ = find_peaks(savgol_filter(dI, 31, 3), height=0)
+h0 = dI[pos[1]] - dI.min(); h_p1 = 1.0; h_m1 = 0.8
+tau_c = 6.51e-10 * dB0 * (np.sqrt(h0/h_p1) + np.sqrt(h0/h_m1) - 2)
+"""
+GAUSS_LINE_BY_HAND = """import numpy as np
+from scipy.optimize import curve_fit
+x, y = np.loadtxt('inputs/defect.txt', skiprows=1, usecols=(1, 2), unpack=True)   # Field [G]
+def gderiv(B, A, B0, w):
+    return -A * (B - B0) * np.exp(-(B - B0)**2 / (2 * w**2))
+p, _ = curve_fit(gderiv, x, y, p0=[1, 3350, 3])
+fwhm = 2.3548 * p[2]   # EPR linewidth
+"""
+POWER_BY_HAND = """import numpy as np
+from scipy.optimize import curve_fit
+from labkit import epr
+d = epr.load('inputs/psat.DSC')
+P = 200 * 10 ** (-d.y2 / 10)   # attenuation dB -> mW
+A = d.real.max(axis=1) - d.real.min(axis=1)
+def sat(P, I, P_half, eps):
+    return I * np.sqrt(P) * (1 + (2**(1/eps) - 1) * P / P_half) ** (-eps)
+p, _ = curve_fit(sat, P, A, p0=[1, 10, 1.5])
+"""
+LABKIT_PLOT = """from labkit import epr
+d = epr.load('inputs/sample.DSC')
+i = np.argmax(d.real); print(d.field_mT[i])
+lf = epr.fit_line(d.field_mT, d.real, freq_GHz=d.freq_GHz); print(lf.fwhm_mT)
+"""
+NIST_GAUSS = """import numpy as np
+from scipy.optimize import curve_fit
+def f(x, b1, b2, b3, b4, b5, b6, b7, b8):
+    return b1*np.exp(-b2*x) + b3*np.exp(-(x-b4)**2/b5**2) + b6*np.exp(-(x-b7)**2/b8**2)
+p, _ = curve_fit(f, x, y, p0=p0)
+"""
+
+
+def test_epr_round2_hints():
+    got = {name: (fit_hint(code) or ("none",))[0] for name, code in (
+        ("kivelson", KIVELSON_BY_HAND), ("gauss", GAUSS_LINE_BY_HAND), ("power", POWER_BY_HAND),
+        ("labkit_plot", LABKIT_PLOT), ("nist", NIST_GAUSS))}
+    deer = fit_hint(DEER_BY_HAND)[1]
+    kiv = fit_hint(KIVELSON_BY_HAND)[1]
+    ups = {h: upload_hint("spec.csv", h.encode(), ["spec.csv"]) for h in (
+        "field_G,signal\n3100,1", "Field [mT],Intensity\n342,0", "B_G,dI/dB\n3323,0",
+        "Index\tField [G]\tIntensity []\n1\t3300\t0")}
+    quiet = [upload_hint("x.csv", h.encode(), ["x.csv"]) for h in (
+        "t_us,V\n0,1", "Well,OD600\nA1,0.1", "Time [min],Field strength\n0,1", "B,G,C\n1,2,3")]
+    return _check("EPR round 2: Kivelson and Gaussian linewidths by hand get epr_lineshape (not the "
+                  "exponential hint), a hand power-saturation fit gets epr_power, labkit code and a NIST "
+                  "Gaussian get no EPR hint; the DEER hint names dim=2.0 and asking the user; text "
+                  "spectra with a field column name labkit.epr.load, other text files get nothing",
+                  got == {"kivelson": "epr_lineshape", "gauss": "epr_lineshape", "power": "epr_power",
+                          "labkit_plot": "none", "nist": "exponential"}
+                  and "kivelson_tau" in kiv and "dim=2.0" in deer and "ask the user" in deer
+                  and all("labkit.epr.load" in v for v in ups.values()) and quiet == ["", "", "", ""],
+                  f"{got} {[v[:20] for v in ups.values()]} {quiet}")
+
+
+def test_labkit_source_reading_gets_the_guide() -> bool:
+    """LABKIT-016: reading labkit's source or help() points to guide()."""
+    pos = ["import labkit\nhelp(labkit.epr)",
+           "import inspect, labkit\nprint(inspect.getsource(labkit.fit))",
+           "import labkit\nprint(open(labkit.nmr.__file__).read()[:3000])",
+           "import inspect\nfrom labkit import epr\nprint(inspect.signature(labkit.epr.fit_deer))"]
+    neg = ["import labkit\nlabkit.guide('epr')\nhelp(labkit.epr.fit_line)",   # guide already
+           "import numpy as np\nhelp(np.polyfit)",
+           "import labkit\nr = labkit.fit('one_phase_decay', t, y)\nprint(r)"]
+    got_pos = [(fit_hint(c, labkit_in_use=True) or ("", ""))[0] for c in pos]
+    got_neg = [(fit_hint(c, labkit_in_use=True) or ("", ""))[0] for c in neg]
+    text = (fit_hint(pos[0], True) or ("", ""))[1]
+    ok = (got_pos[:3] == ["labkit_source"] * 3 and "labkit_source" not in got_neg
+          and "labkit.guide('<topic>')" in text and "epr, epr-sim, deer" in text)
+    return _check("reading labkit source or help() gets the guide hint", ok,
+                  f"pos={got_pos} neg={got_neg}")
+
+
+def test_audit_flag_and_labkit_tool_message() -> bool:
+    """LABKIT-016: audit ok=True on "error": None; calling labkit as a tool
+    says it goes inside run_python."""
+    import logging
+    from hooks import audit_log
+    from mcp import executor
+    records = []
+
+    class H(logging.Handler):
+        def emit(self, r):
+            records.append(r.getMessage())
+
+    h = H()
+    audit_log.logger.addHandler(h)
+    audit_log.logger.setLevel(logging.INFO)
+    try:
+        ctx = type("C", (), {"user_email": "u", "conversation_id": "c", "persona_id": "code"})()
+        for res in ({"stdout": "1", "error": None}, {"error": "NameError: x"}):
+            asyncio.run(audit_log.audit_sensitive_tools(ctx, "run_python", {}, res, 3))
+    finally:
+        audit_log.logger.removeHandler(h)
+    oks = ["ok=True" in m for m in records]
+    res = asyncio.run(executor._dispatch_mcp_tool("labkit.guide", {"topic": "fit"}))
+    ok = (oks == [True, False] and res["error"].startswith("Unknown tool")
+          and "inside run_python" in res["error"])
+    return _check("audit flags only real errors; labkit-as-a-tool explains", ok,
+                  f"{records} {res}")
+
+
+# Round 3 (LABKIT-018-PLAN.md): shapes of the S8 runs the DEER hint missed
+# (file named deer_raw.csv, a trace with no DEER word but a dipolar constant
+# or mod_depth) and the CW runs that masked the lines away as "spikes".
+DEER_RAW_LOAD = """import pandas as pd
+df = pd.read_csv('inputs/deer_raw.csv')
+print(df.head())
+"""
+DEER_CONSTANT = """import numpy as np
+t, re_, im_ = np.loadtxt('inputs/quad.csv', delimiter=',', skiprows=1, unpack=True)
+V = re_ + 1j * im_
+nu = 0.41   # MHz, from the FFT
+r = (52.1 / nu) ** (1 / 3)
+"""
+DEER_MOD_DEPTH = """import numpy as np
+from scipy.optimize import curve_fit
+t, V = np.loadtxt('inputs/label.csv', delimiter=',', skiprows=1, unpack=True)
+mod_depth = 1 - V[-1] / V[0]
+def relax(t, A, T2, V_max):
+    return A * np.exp(-t / T2) + V_max
+p, _ = curve_fit(relax, t, V, p0=[1, 2, 0.5])
+"""
+DEER_WITH_FIT_DEER = """from labkit import epr
+import numpy as np
+from scipy.optimize import curve_fit
+d = epr.load('inputs/deer_raw.csv')
+r = epr.fit_deer(d.t_us, d.y)
+def relax(t, A, T2):
+    return A * np.exp(-t / T2)
+p, _ = curve_fit(relax, d.t_us, d.real, p0=[1, 2])
+"""
+DATA_WITH_52 = """import numpy as np
+from scipy.optimize import curve_fit
+x = np.array([10.0, 20.0, 30.0, 40.0, 50.0, 60.0])
+y = np.array([49.714, 49.287, 51.983, 53.930, 58.045, 52.004])
+popt, pcov = curve_fit(lambda x, a, b: a * x + b, x, y)
+print('b = 52.0', 327.60)
+"""
+CW_SPIKE_MASK = """from labkit import epr
+import numpy as np
+sample = epr.load('inputs/sample.txt', x_unit='G')
+spike_mask = np.abs(sample.y) > 1000
+y = np.where(spike_mask, 0, sample.y)
+di = epr.double_integral(sample.field_mT, y)
+"""
+NOT_EPR_MASK = """import numpy as np
+resid = y - model(x)
+keep = np.abs(resid) < 3
+print(keep.sum())
+"""
+
+
+def test_deer_round3_hints():
+    got = {name: (fit_hint(code) or ("none",))[0] for name, code in (
+        ("load", DEER_RAW_LOAD), ("constant", DEER_CONSTANT), ("mod_depth", DEER_MOD_DEPTH),
+        ("with_fit_deer", DEER_WITH_FIT_DEER), ("data_52", DATA_WITH_52),
+        ("guide", "import labkit\nprint(labkit.guide('deer'))\n"),
+        ("help", "from labkit import epr\nhelp(epr.fit_deer)\n"))}
+    text = fit_hint(DEER_MOD_DEPTH)[1]
+    st = HintState()
+    seq = [st.hint_for("d3", c) for c in (DEER_MOD_DEPTH, DEER_MOD_DEPTH, DEER_WITH_FIT_DEER)]
+    return _check("DEER round 3: deer_raw.csv, a dipolar constant in a formula and mod_depth get the "
+                  "DEER hint with or without a fit call; once fit_deer is named (call, help) it is "
+                  "silent and neither the relaxation nor the general fit hints fire in DEER code; "
+                  "52.0 in a data list is not DEER; the hint says lambda is never 1 - V(end)/V(0) "
+                  "or |V| and names labeling_efficiency and main_nm",
+                  got == {"load": "deer", "constant": "deer", "mod_depth": "deer", "with_fit_deer": "none",
+                          "data_52": "custom_fit", "guide": "none", "help": "none"}
+                  and "never 1 - V(end)/V(0)" in text and "never |V|" in text
+                  and "labeling_efficiency" in text and "main_nm" in text
+                  and seq[0][0] == "deer" and seq[1] is None and seq[2] is None,
+                  f"{got} {seq}")
+
+
+def test_cw_round3_hints():
+    mask = fit_hint(CW_SPIKE_MASK)
+    covered = fit_hint(CW_SPIKE_MASK.replace("spike_mask = np.abs(sample.y) > 1000",
+                                             "y, idx = epr.despike(sample.field_mT, sample.y)\n"
+                                             "spike_mask = np.abs(sample.y) > 1000"))
+    not_epr = fit_hint(NOT_EPR_MASK)
+    deer_mask = fit_hint("import numpy as np\nV = np.loadtxt('inputs/deer_raw.csv')\n"
+                         "m = np.abs(V) > 0.1\n")
+    line = fit_hint(KIVELSON_BY_HAND)[1]
+    return _check("CW round 3: an amplitude mask in EPR code gets epr_mask (despike, 1 to 3 points), "
+                  "not with despike called, not outside EPR code, not in DEER code; the lineshape "
+                  "hint says grid extrema are quantised",
+                  mask and mask[0] == "epr_mask" and "epr.despike" in mask[1]
+                  and "1 to 3 points wide" in mask[1] and "largest points are the line" in mask[1]
+                  and covered is None and not_epr is None and deer_mask and deer_mask[0] == "deer"
+                  and "quantised to the field step" in line and "epr.peak_to_peak or fit_line" in line,
+                  f"{mask and mask[0]} {covered} {not_epr} {deer_mask and deer_mask[0]}")
+
+
+# EasySpin port slice 1: what a model writes when it knows EasySpin, and a
+# hand-written Cu(II) powder loop and multiplet fit (EASYSPIN-PORT-PLAN.md).
+EASYSPIN_STYLE = """import numpy as np
+from labkit import epr
+d = epr.load('inputs/cu.DSC')
+Sys = {}  # Sys.g = [2.05 2.05 2.25]; Sys.Nucs = 'Cu'; Sys.A = [50 50 550]; Sys.lw = 1
+# would be pepper(Sys, Exp) in MATLAB
+"""
+CU_POWDER_LOOP = """import numpy as np
+from labkit import epr
+d = epr.load('inputs/cu_frozen.DSC')
+g_par, g_perp, A_par = 2.25, 2.05, 18.0
+theta = np.linspace(0, np.pi/2, 500)
+geff = np.sqrt(g_par**2*np.cos(theta)**2 + g_perp**2*np.sin(theta)**2)
+B = 71.4477*d.freq_GHz/geff
+"""
+RADICAL_FIT = """import numpy as np
+from scipy.optimize import curve_fit
+from labkit import epr
+d = epr.load('inputs/radical.DSC')
+def model(B, aN, aH, w):
+    # 2 x 14N binomial multiplet times 4 x 1H, derivative Lorentzians
+    return sum(0 for mI in range(-2, 3))
+p, _ = curve_fit(model, d.field_mT, d.y, p0=[0.7, 0.3, 0.05])
+"""
+NITROXIDE_FIT = RADICAL_FIT.replace("radical", "tempol nitroxide")
+
+
+def test_easyspin_slice1_hints():
+    es = fit_hint(EASYSPIN_STYLE)
+    powder = fit_hint(CU_POWDER_LOOP)
+    covered = fit_hint(CU_POWDER_LOOP + "y = epr.simulate_powder(sys, d.field_mT, d.freq_GHz)\n")
+    iso = fit_hint(RADICAL_FIT)
+    nitro = fit_hint(NITROXIDE_FIT)
+    deer = fit_hint("import numpy as np\nV = np.loadtxt('inputs/deer.csv')\ntheta = np.linspace(0, np.pi, 90)\n"
+                    "g_perp = 2.006\nr = 3.0 # dipolar\n")
+    return _check("EasySpin slice 1: EasySpin-style code gets epr_easyspin, a hand powder loop gets "
+                  "epr_powder (silent once simulate_powder is called), a hand multiplet fit gets "
+                  "epr_iso_fit, a nitroxide fit does not, DEER code does not get the powder hint",
+                  es and es[0] == "epr_easyspin" and "MATLAB and EasySpin are not installed" in es[1]
+                  and "Sys.lw is a FWHM" in es[1]
+                  and powder and powder[0] == "epr_powder" and "simulate_powder" in powder[1]
+                  and "g_par is not a zero crossing" in powder[1]
+                  and (covered is None or covered[0] != "epr_powder")
+                  and iso and iso[0] == "epr_iso_fit" and "fit_spectrum" in iso[1]
+                  and (nitro is None or nitro[0] != "epr_iso_fit")
+                  and (deer is None or deer[0] != "epr_powder"),
+                  f"{es and es[0]} {powder and powder[0]} {covered} {iso and iso[0]} "
+                  f"{nitro and nitro[0]} {deer and deer[0]}")
+
+
 TESTS = [
+    test_labkit_source_reading_gets_the_guide,
+    test_audit_flag_and_labkit_tool_message,
     test_real_decay_script_gets_the_decay_hint,
     test_dose_response_and_mm_and_bruker,
     test_general_code_gets_nothing,
@@ -435,6 +736,11 @@ TESTS = [
     test_ht_cutoff_hint_after_the_cd_hint,
     test_a_given_model_hint_does_not_fall_through_to_custom_fit,
     test_competitive_hint_says_how_to_pass_x,
+    test_epr_hints,
+    test_epr_round2_hints,
+    test_deer_round3_hints,
+    test_cw_round3_hints,
+    test_easyspin_slice1_hints,
 ]
 
 

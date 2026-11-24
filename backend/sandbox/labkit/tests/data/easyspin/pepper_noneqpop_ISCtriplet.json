@@ -1,0 +1,45 @@
+{
+  "case": "pepper_noneqpop_ISCtriplet",
+  "program": "pepper",
+  "in_slice1": false,
+  "skip_reason": "S > 1/2, zero-field splitting, non-equilibrium populations, frequency sweep",
+  "what_it_tests": "ISC triplet, zero-field populations; field and frequency sweep",
+  "source": {
+    "repo": "StollLab/EasySpin",
+    "commit": "4d3446455c53db7e404778dd0ee260a239175bca",
+    "test_script": "tests/pepper_noneqpop_ISCtriplet.m",
+    "data_file": "tests/data/pepper_noneqpop_ISCtriplet.mat"
+  },
+  "mat": {
+    "format": "MATLAB v5 (scipy.io.loadmat)",
+    "struct": "data",
+    "fields": {
+      "spc": [
+        1024
+      ],
+      "spcf": [
+        1024
+      ]
+    }
+  },
+  "note": "Evaluated: the frequency-sweep Sys.lw = unitconvert(0.3,'mT->MHz') = 8.4075 MHz.",
+  "easyspin_check": [
+    "ok = areequal(spc,olddata.spc,1e-4,'rel') && areequal(spcf,olddata.spcf,1e-4,'rel');"
+  ],
+  "matlab_source": [
+    "Sys = struct('S',1,'g',2,'lw',0.3,'D',[1000 -250]);",
+    "Exp = struct('mwFreq',9.5,'Range',[290 390],'Harmonic',0);",
+    "Sys.initState = {[0.1 0.5 0.4],'zerofield'};",
+    "Opt = struct;",
+    "[x,spc] = pepper(Sys,Exp,Opt);",
+    "Sys.lw = unitconvert(Sys.lw,'mT->MHz');",
+    "Expf = struct('Field',340,'mwRange',[8 11]);",
+    "[f,spcf] = pepper(Sys,Expf,Opt);"
+  ],
+  "units": {
+    "A": "MHz (EasySpin)",
+    "field": "mT",
+    "mwFreq": "GHz",
+    "lw": "mT (FWHM unless named dBpp)"
+  }
+}

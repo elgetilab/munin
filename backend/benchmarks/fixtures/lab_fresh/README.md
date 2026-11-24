@@ -1,4 +1,4 @@
-# Fresh lab cases (Phase 4 check against tuning)
+# Fresh lab cases (checks against tuning)
 
 27 S1 cases: the nine seeded families (3PL, 4PL, 5PL, Michaelis-Menten,
 competitive inhibition, Morrison, one- and two-phase decay, standard curve)
@@ -9,7 +9,30 @@ the default runs do not pick them up. Run with
 `--fixtures fixtures/lab_fresh`. The S2, S3, S5 and S6 generators are not
 seeded, so they have no fresh variants.
 
+21 S8 (EPR) cases, `s8_*_f1`: the S8 generator with `s8.VARIANT = 1`,
+which redraws every case's parameters (field, linewidth, g, distances,
+widths, background, noise) from a separate seed; variant 0 is the committed
+S8 suite, byte for byte. Generated after `labkit` 0.2.0 (`labkit.epr`,
+commit 15815f8) was frozen, for an S8 check against tuning
+(docs/agent-track/EPR-PLAN.md). Run with `--fixtures fixtures/lab_fresh
+--suite S8`.
+
+21 more S8 cases, `s8_*_f2` (`s8.VARIANT = 2`), generated after `labkit`
+0.2.1 was frozen (commit 6e64286): round 2 (docs/agent-track/LABKIT-015-PLAN.md)
+was tuned on the `_f1` failures, so `_f2` is the untuned check for it.
+Checked with DeerLab 1.2.0 and the independent CW analysis, not with labkit.
+
+21 more, `s8_*_f3` (`s8.VARIANT = 3`), generated after `labkit` 0.2.2 was
+frozen (commit ff02761): LABKIT-018 (docs/agent-track/LABKIT-018-PLAN.md) was
+tuned on the `full-lk17` failures, so `_f3` is the untuned check for it. The
+independent CW analysis recovers all 11 CW truths; DeerLab 1.2.0 recovers the
+DEER truths (mean, modulation depth, t0, concentration, bimodal components;
+for `short_trace_f3` the Gaussian fit gives 3.09 vs 3.10 nm main distance).
+
 Regenerate (byte-identical, checked by SHA256SUMS):
 
     cd backend/benchmarks
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s1; from pathlib import Path; [f(Path('fixtures/lab_fresh/cases'), s) for s in (6, 7, 8) for f in (s1.case_4pl, s1.case_3pl, s1.case_5pl, s1.case_mm, s1.case_competitive, s1.case_morrison, s1.case_decay1, s1.case_decay2, s1.case_standard)]"
+    python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 1; s8.build(Path('fixtures/lab_fresh/cases'))"
+    python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 2; s8.build(Path('fixtures/lab_fresh/cases'))"
+    python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 3; s8.build(Path('fixtures/lab_fresh/cases'))"
