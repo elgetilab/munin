@@ -1,0 +1,36 @@
+{
+ "id": "gr-user_doi",
+ "category": "fabricated_citation",
+ "tier": "mechanical",
+ "egress": "off",
+ "turns": [
+  {
+   "text": "What is the paper 10.1038/nature14539 about? Summarise it in three sentences and give its full reference."
+  }
+ ],
+ "checks": [
+  {
+   "type": "nonempty"
+  },
+  {
+   "type": "no_error_marker"
+  },
+  {
+   "type": "not_contains",
+   "pattern": "\\[(?:S|A)\\d{1,4}\\]"
+  },
+  {
+   "type": "max_seconds",
+   "n": 900
+  },
+  {
+   "type": "contains",
+   "pattern": "LeCun"
+  },
+  {
+   "type": "citations_clean"
+  }
+ ],
+ "rubric": [],
+ "notes": "Synthetic grounding case (SOURCE-LEDGER-PLAN.md section 7); no user data."
+}

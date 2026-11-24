@@ -38,6 +38,11 @@ CHECKS: dict[str, tuple[str, ...]] = {
     "no_clarification": (),
     "max_words": ("n",),
     "max_seconds": ("n",),
+    # grounding track (benchmarks/grounding): citations checked against the
+    # registry, DOIs traced to tool results
+    "min_dois": ("n",),
+    "dois_grounded": (),
+    "citations_clean": (),
 }
 
 
@@ -80,7 +85,7 @@ def parse_case(obj: dict, where: str = "<case>", store: Optional[Path] = None) -
         return obj[key]
 
     cid = need("id", str)
-    if not re.fullmatch(r"uf-[A-Za-z0-9_]+", cid):
+    if not re.fullmatch(r"(?:uf|gr)-[A-Za-z0-9_]+", cid):   # gr-: synthetic grounding track
         raise CaseError(f"{where}: bad id {cid!r}")
     cat = need("category", str)
     if cat not in CATEGORIES:
@@ -137,7 +142,7 @@ def parse_case(obj: dict, where: str = "<case>", store: Optional[Path] = None) -
 def load_cases(store: Optional[Path] = None, ids: Optional[list[str]] = None) -> list[Case]:
     store = store or store_dir()
     out = []
-    for p in sorted((store / "cases").glob("uf-*.json")):
+    for p in sorted([*(store / "cases").glob("uf-*.json"), *(store / "cases").glob("gr-*.json")]):
         case = parse_case(json.loads(p.read_text()), where=p.name, store=store)
         case.path = p
         if ids and case.id not in ids:

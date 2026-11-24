@@ -151,3 +151,26 @@ def test_compare_replicates_and_criteria():
     assert res["replicates"] == [2, 2]
     assert res["all"]["fixed"] == ["uf-1"] and res["all"]["regressed"] == ["uf-2"]
     assert res["criteria"]["up"] == 2 and res["criteria"]["down"] == 1
+
+
+def test_grounding_checks():
+    rec = {"prompts": ["What is 10.1000/user.1 about?"],
+           "turns": [{"answer": "Found [x](https://doi.org/10.1000/tool.1) and 10.1000/user.1 and 10.1000/mem.9.",
+                      "tool_results": [{"name": "search", "result": '{"doi": "10.1000/TOOL.1"}'}]}]}
+    ok, detail = ck._REGISTRY["dois_grounded"]({}, rec)
+    assert not ok and "10.1000/mem.9" in detail and "tool.1" not in detail
+    assert ck._REGISTRY["min_dois"]({"n": 3}, rec)[0] and not ck._REGISTRY["min_dois"]({"n": 4}, rec)[0]
+
+
+def test_citations_clean_uses_citecheck(monkeypatch):
+    cc = ck._citecheck()
+
+    async def fake_lookup(doi, client):
+        return ("missing", None) if doi == "10.1000/bad" else ("unknown", None)
+    monkeypatch.setattr(cc, "lookup", fake_lookup)
+    good = {"turns": [{"answer": "See 10.1000/ok."}]}
+    bad = {"turns": [{"answer": "See 10.1000/bad."}]}
+    marked = {"turns": [{"answer": "x **[unverified: y]**"}]}
+    assert ck._REGISTRY["citations_clean"]({}, good)[0]
+    assert not ck._REGISTRY["citations_clean"]({}, bad)[0]
+    assert not ck._REGISTRY["citations_clean"]({}, marked)[0]

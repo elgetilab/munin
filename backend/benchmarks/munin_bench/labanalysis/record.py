@@ -38,6 +38,11 @@ class TurnRecord:
     seconds: float = 0.0
     results: Optional[dict] = None      # parsed results.json as of this turn
     results_source: Optional[str] = None  # "artifact", "answer" or None
+    # What the tools returned (name + result, each capped), so a wrong answer
+    # can be traced to its source after the chat is deleted; and the notes of
+    # the post-turn pass (citecheck, source ledger) from `answer_revised`.
+    tool_results: list = field(default_factory=list)
+    revision_notes: Optional[dict] = None
 
 
 @dataclass

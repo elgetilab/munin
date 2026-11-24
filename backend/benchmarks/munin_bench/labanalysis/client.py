@@ -30,6 +30,7 @@ from .record import Artifact, RunRecord, TurnRecord, results_from_answer
 EVAL_USER = "eval-lab@munin.local"
 META_EXTS = (".png", ".pdf", ".svg", ".tif", ".tiff")
 MAX_FETCH = 64 * 1024 ** 2   # artifacts larger than this are not re-hashed
+TOOL_RESULT_KEEP = 20_000     # chars of each tool result kept in a record
 
 
 class LabClient:
@@ -96,6 +97,11 @@ class LabClient:
                     text.append(d.get("content") or d.get("text") or "")
                 elif event == "tool_call" and d.get("name"):
                     tr.tools.append(d["name"])
+                elif event == "tool_result" and d.get("name"):
+                    tr.tool_results.append({"name": d["name"],
+                                            "result": json.dumps(d.get("result"), default=str)[:TOOL_RESULT_KEEP]})
+                elif event == "answer_revised":
+                    tr.revision_notes = d.get("notes")
                 elif event == "error":
                     tr.error = str(d.get("message") or d)[:500]
         tr.seconds = round(time.monotonic() - t0, 1)

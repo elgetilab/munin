@@ -83,7 +83,8 @@ def replay(case: Case, store: Path, base: str, keep: bool = False) -> dict:
 
     rec: dict = {"id": case.id, "turns": [], "artifacts": [], "error": None,
                  "conversation_id": None, "started": datetime.now(timezone.utc).isoformat(),
-                 "retrieval_image": retrieval_image()}
+                 "retrieval_image": retrieval_image(),
+                 "prompts": [t.text for t in case.turns]}
     # persona "munin" = the router path the web UI uses; None would be raw model mode.
     client = LabClient(base=base, user=EVAL_USER, persona="munin", egress=case.egress)
     cid: Optional[str] = None
@@ -100,7 +101,8 @@ def replay(case: Case, store: Path, base: str, keep: bool = False) -> dict:
             cid, tr = client.turn(turn.text, cid, tdocs)
             rec["conversation_id"] = cid
             rec["turns"].append({"answer": tr.answer, "tools": tr.tools, "error": tr.error,
-                                 "seconds": tr.seconds})
+                                 "seconds": tr.seconds, "tool_results": tr.tool_results,
+                                 "revision_notes": tr.revision_notes})
             if not cid:
                 raise RuntimeError("no conversation id")
             for a in client.artifacts(cid):

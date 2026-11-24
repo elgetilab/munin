@@ -1,0 +1,43 @@
+{
+ "id": "gr-web_origin",
+ "category": "fabricated_citation",
+ "tier": "mechanical",
+ "egress": "on",
+ "turns": [
+  {
+   "text": "Which paper introduced the four-pulse DEER sequence? Give its full citation with DOI."
+  }
+ ],
+ "checks": [
+  {
+   "type": "nonempty"
+  },
+  {
+   "type": "no_error_marker"
+  },
+  {
+   "type": "not_contains",
+   "pattern": "\\[(?:S|A)\\d{1,4}\\]"
+  },
+  {
+   "type": "max_seconds",
+   "n": 900
+  },
+  {
+   "type": "min_dois",
+   "n": 1
+  },
+  {
+   "type": "contains",
+   "pattern": "Pannier"
+  },
+  {
+   "type": "dois_grounded"
+  },
+  {
+   "type": "citations_clean"
+  }
+ ],
+ "rubric": [],
+ "notes": "Synthetic grounding case (SOURCE-LEDGER-PLAN.md section 7); no user data."
+}
