@@ -204,6 +204,7 @@ def test_review_false_positives() -> bool:
         "prose range": "In a 1,200-1,500 patient cohort, Sali et al. found it (10.1000/jmb.1).",
         "wavenumber": "The band at 1950 cm-1 was assigned by Sali et al. (10.1000/jmb.1).",
         "neighbour after": "Sali et al. showed X (10.1000/jmb.1). Later, Jones (2001) disagreed in *Nature*, 344-350.",
+        "given name first": "1. Andrej S. Sali, Mark Bycroft (1991). Folding. *J Mol Biol* 220. 10.1000/jmb.1",
         "neighbour before": "Jones (2001, *Nature* 12) proposed this mechanism. Sali et al. confirmed it [10.1000/jmb.1].",
     }
     bad = {k: _verify(t)[0].problems for k, t in cases.items()}

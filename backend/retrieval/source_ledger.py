@@ -170,7 +170,9 @@ class Ledger:
                 "too (`cite_as`: [A1], ...). Cite a source as [S7], several as [S3, S7], an artifact "
                 "as [A2]. Never type a DOI, a paper or artifact URL, an author-year citation or a "
                 "reference list yourself: the server turns the ids into numbered links and a "
-                "References list from the stored records. If no source you retrieved supports a "
+                "References list from the stored records. When the user asks for a reference, a "
+                "citation or a DOI, answer with the id too (\"The paper is [S4].\"): the server "
+                "inserts the full, checked reference. If no source you retrieved supports a "
                 "claim, say so instead of citing.\n"
                 + ("Sources found earlier in this conversation (citable without a new search):"
                    if papers else "(no sources yet)"))

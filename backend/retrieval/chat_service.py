@@ -4009,6 +4009,11 @@ async def stream_chat_completion(
         _streamed_content = final_content
         _cite_notes = None
         _ledger_notes = None
+        # The ledger's records are grounding too: the References the server
+        # renders from them carry full author lists no tool result showed.
+        _ledger_grounding = ("\n" + json.dumps([e.record for e in ledger.entries.values()],
+                                                ensure_ascii=False, default=str)
+                             if ledger is not None else "")
         if ledger is not None and not had_stream_error and not _cancelled():
             try:
                 await ledger.enrich([s for s in ledger.cited_ids(final_content) if s[0] == "S"])
@@ -4018,7 +4023,7 @@ async def stream_chat_completion(
         if not had_stream_error and not _cancelled() and citecheck.mode() != "off":
             _, _ungrounded_pre, _ = audit_citation_claims_in_content(
                 final_content, final_tool_calls,
-                conversation_grounding_text(conversation),
+                conversation_grounding_text(conversation) + _ledger_grounding,
             )
             final_content, _cite_notes = await citecheck.run(final_content, _ungrounded_pre)
             observe_citecheck(_cite_notes)
@@ -4068,7 +4073,7 @@ async def stream_chat_completion(
         final_content, _ungrounded_cites, _grounded_cites = (
             audit_citation_claims_in_content(
                 final_content, final_tool_calls,
-                conversation_grounding_text(conversation),
+                conversation_grounding_text(conversation) + _ledger_grounding,
             )
         )
         if _ungrounded_cites:
