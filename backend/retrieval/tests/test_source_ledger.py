@@ -108,6 +108,18 @@ def test_artifacts_in_tool_results_and_block() -> bool:
                   and out == "Plot: [fit.png](/api/artifacts/c/s7)", f"{view} {out}")
 
 
+def test_elided_result_keeps_source_ids() -> bool:
+    import json as _json
+    import chat_context as cc
+    led = Ledger()
+    content = _json.dumps(led.annotate(SEARCH))
+    stub = _json.loads(cc._elided_stub(content))
+    plain = cc._elided_stub('{"x": 1}')
+    return _check("an elided tool result keeps its source ids; without ids the stub is unchanged",
+                  stub["sources"] == ["S1", "S2", "S3"] and cc._is_elided(cc._elided_stub(content))
+                  and plain == cc._ELIDED_TOOL_RESULT, str(stub))
+
+
 def test_block_budget() -> bool:
     led = Ledger()
     for i in range(200):
@@ -167,7 +179,8 @@ def test_persistence_roundtrip() -> bool:
 
 def main() -> int:
     tests = [test_annotate_assigns_stable_ids, test_render_numbers_links_and_references,
-             test_render_leaves_code_and_plain_text, test_artifacts, test_artifacts_in_tool_results_and_block, test_block_budget,
+             test_render_leaves_code_and_plain_text, test_artifacts, test_artifacts_in_tool_results_and_block, test_elided_result_keeps_source_ids,
+             test_block_budget,
              test_user_dois, test_enrich_and_miskeyed_doi, test_persistence_roundtrip]
     results = []
     for t in tests:
@@ -176,6 +189,8 @@ def main() -> int:
         except Exception:
             traceback.print_exc()
             results.append(False)
+    # An open aiosqlite connection keeps its worker thread, and the process, alive.
+    asyncio.run(chat_store.close_db())
     failed = results.count(False)
     print(f"\n{len(results) - failed}/{len(results)} passed; {failed} failed.")
     return 0 if failed == 0 else 1

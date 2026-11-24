@@ -14,6 +14,7 @@ json.loads to prove it.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from pathlib import Path
@@ -21,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+os.environ["MUNIN_TOOL_RESULT_CUT"] = "shorten"   # the policy under test; `drop` is checked below
 from tool_result import truncate_tool_result  # noqa: E402
 
 
@@ -141,10 +143,10 @@ def test_oversized_single_item_dropped_to_empty_list() -> bool:
         )
     parsed = json.loads(out)
     return _check(
-        "a single over-budget list item is dropped, leaving [] + note",
-        parsed.get("matches") == []
+        "a single over-budget list item is shortened and kept, with a note",
+        len(parsed.get("matches") or []) == 1
         and "_truncated" in parsed
-        and "1 of 1" in parsed["_truncated"],
+        and "shortened" in parsed["_truncated"],
         f"parsed={parsed}",
     )
 
@@ -160,10 +162,40 @@ def test_emptied_list_still_oversized_wraps() -> bool:
         return _check("emptied list still oversized wraps", False, "bad")
     parsed = json.loads(out)
     return _check(
-        "huge non-list sibling forces the generic wrap even with a list present",
-        parsed.get("_truncated") is True and "preview" in parsed,
+        "a huge non-list sibling is shortened, the list kept",
+        parsed.get("items") == [{"a": 1}, {"b": 2}] and len(parsed.get("giant", "")) < 2000,
         f"keys={list(parsed.keys())}",
     )
+
+
+def test_evidence_survives_a_search_envelope() -> bool:
+    """Regression (2026-11 review): a search envelope with 12 hits and 8
+    evidence passages of ~2,000 chars lost all 8 passages to the old cutter.
+    Now every passage stays (shortened) and the top hits keep rank order."""
+    result = {"query": "q",
+              "results": [{"title": f"hit {i}", "doi": f"10.1/{i}", "snippet": "s" * 300} for i in range(12)],
+              "evidence": [{"title": f"paper {i}", "text": f"FINDING-{i} " + "e" * 2000} for i in range(8)]}
+    out = truncate_tool_result(result, limit=8000)
+    parsed = json.loads(out)
+    ev = parsed.get("evidence") or []
+    hits = parsed.get("results") or []
+    return _check(
+        "a search envelope keeps all evidence passages (shortened) and its top hits in order",
+        _valid_json_within(out, 8000) and len(ev) == 8 and all(f"FINDING-{i}" in e["text"] for i, e in enumerate(ev))
+        and hits and hits[0]["title"] == "hit 0",
+        f"evidence={len(ev)} hits={len(hits)} note={parsed.get('_truncated')}",
+    )
+
+
+def test_drop_mode_is_the_old_cutter() -> bool:
+    result = {"evidence": [{"text": "e" * 2000} for _ in range(8)], "results": [{"t": "x"}]}
+    os.environ["MUNIN_TOOL_RESULT_CUT"] = "drop"
+    try:
+        parsed = json.loads(truncate_tool_result(result, limit=8000))
+    finally:
+        os.environ["MUNIN_TOOL_RESULT_CUT"] = "shorten"
+    return _check("MUNIN_TOOL_RESULT_CUT=drop keeps the old behaviour (largest list cut from the end)",
+                  len(parsed["evidence"]) < 8 and all(len(e["text"]) == 2000 for e in parsed["evidence"]))
 
 
 def test_huge_bare_string_wraps() -> bool:
@@ -216,6 +248,8 @@ TESTS = [
     test_huge_string_field_wraps,
     test_oversized_single_item_dropped_to_empty_list,
     test_emptied_list_still_oversized_wraps,
+    test_evidence_survives_a_search_envelope,
+    test_drop_mode_is_the_old_cutter,
     test_huge_bare_string_wraps,
     test_all_outputs_are_valid_json_within_limit,
 ]
