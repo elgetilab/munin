@@ -120,6 +120,17 @@ def test_elided_result_keeps_source_ids() -> bool:
                   and plain == cc._ELIDED_TOOL_RESULT, str(stub))
 
 
+def test_same_paper_twice_is_one_reference() -> bool:
+    led = Ledger()
+    t = "Site-directed spin labeling measurements of nanometer distances in nucleic acids"
+    led.add("paper", "doi:10.1093/nar/gkl546", {"doi": "10.1093/nar/gkl546", "title": t})
+    led.add("paper", "doi:10.1093/nar_gkl546", {"doi": "10.1093/nar_gkl546", "title": t, "_doi_bad": "not registered"})
+    out, notes = led.render("a [S2] b [S1, S2]")
+    return _check("the same work cited under two ids is one reference, with the good DOI",
+                  notes["cited"] == 1 and out.count("[[1]](https://doi.org/10.1093/nar/gkl546)") == 2
+                  and "nar_gkl546" not in out and out.count("\n1. ") == 1, out)
+
+
 def test_block_budget() -> bool:
     led = Ledger()
     for i in range(200):
@@ -155,7 +166,7 @@ def test_enrich_and_miskeyed_doi() -> bool:
     asyncio.run(led.enrich(["S1", "S2", "S3"]))
     out, _ = led.render("a [S1] b [S2] c [S3]")
     ok = ("*J Mol Biol* 220, 779-788." in out and "[[2]]" not in out and "b [2]" in out
-          and "registered to a different paper; omitted" in out and "not registered; omitted" in out)
+          and out.count("(no verified DOI)") == 2 and "10.1000/b" not in out and "10.1000/c" not in out)
     return _check("enrich fills from the registry; a mis-keyed or missing DOI is not linked", ok, out)
 
 
@@ -180,6 +191,7 @@ def test_persistence_roundtrip() -> bool:
 def main() -> int:
     tests = [test_annotate_assigns_stable_ids, test_render_numbers_links_and_references,
              test_render_leaves_code_and_plain_text, test_artifacts, test_artifacts_in_tool_results_and_block, test_elided_result_keeps_source_ids,
+             test_same_paper_twice_is_one_reference,
              test_block_budget,
              test_user_dois, test_enrich_and_miskeyed_doi, test_persistence_roundtrip]
     results = []

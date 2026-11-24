@@ -235,6 +235,21 @@ class Ledger:
             return content, notes
         fences = [(m.start(), m.end()) for m in re.finditer(r"(```|~~~)[\s\S]*?(\1|$)", content)]
         numbers: dict[str, int] = {}
+        by_title: dict[str, int] = {}
+
+        def number_of(sid: str) -> int:
+            """One number per work: the corpus can hold the same paper twice
+            (once under a mangled DOI), and both may be cited."""
+            if sid in numbers:
+                return numbers[sid]
+            t = _title_key(self.entries[sid].record)
+            n = by_title.get(t) if t else None
+            if n is None:
+                n = len(set(numbers.values())) + 1
+                if t:
+                    by_title[t] = n
+            numbers[sid] = n
+            return n
 
         def repl(m: re.Match) -> str:
             if any(a <= m.start() < b for a, b in fences):
@@ -251,20 +266,35 @@ class Ledger:
                     url = e.record.get("url")
                     parts.append(f"[{t}]({url})" if url else f"**{t}**")
                     continue
-                n = numbers.setdefault(sid, len(numbers) + 1)
-                link = _link(e.record)
+                n = number_of(sid)
+                if any(p.startswith(f"[[{n}]]") or p == f"[{n}]" for p in parts):
+                    continue
+                link = _link(self._best(n, numbers))
                 parts.append(f"[[{n}]]({link})" if link else f"[{n}]")
             return ", ".join(parts) if parts else "\x00"
 
+        # Number every cited work first, so a citation rendered before its
+        # twin (same work, better DOI) still gets the good link.
+        for m in _CITE_RE.finditer(content):
+            if not any(a <= m.start() < b for a, b in fences):
+                for sid in _ID_RE.findall(m.group(1)):
+                    if sid in self.entries and self.entries[sid].kind != "artifact":
+                        number_of(sid)
         out = _CITE_RE.sub(repl, content)
         # An id the ledger does not know is removed with the space before it.
         out = re.sub(r"[ \t]*\x00", "", out)
-        notes["cited"] = len(numbers)
+        notes["cited"] = len(set(numbers.values()))
         if numbers:
-            refs = [f"{n}. {_reference(self.entries[sid].record)}"
-                    for sid, n in sorted(numbers.items(), key=lambda kv: kv[1])]
+            refs = [f"{n}. {_reference(self._best(n, numbers))}"
+                    for n in sorted(set(numbers.values()))]
             out = out.rstrip() + "\n\n**References**\n\n" + "\n".join(refs) + "\n"
         return out, notes
+
+    def _best(self, n: int, numbers: dict) -> dict:
+        """Of the entries sharing number n, the record with a good DOI."""
+        recs = [self.entries[s].record for s, k in numbers.items() if k == n]
+        good = [r for r in recs if r.get("doi") and not r.get("_doi_bad")]
+        return (good or recs)[0]
 
     def cited_ids(self, content: str) -> list[str]:
         return [s for m in _CITE_RE.finditer(content or "") for s in _ID_RE.findall(m.group(1))
@@ -318,6 +348,11 @@ def _is_artifact(d: dict) -> bool:
 # ----------------------------------------------------------------------
 # Formatting helpers (pure)
 # ----------------------------------------------------------------------
+def _title_key(rec: dict) -> str:
+    t = re.sub(r"[^a-z0-9]+", " ", (rec.get("title") or "").lower()).strip()
+    return t if len(t) >= 20 else ""
+
+
 def _authors(rec: dict, n: int = MAX_AUTHORS_SHOWN) -> str:
     a = [x if isinstance(x, str) else (x.get("name") or "") for x in rec.get("authors") or []]
     a = [x for x in a if x]
@@ -347,7 +382,7 @@ def _short(rec: dict) -> str:
 def _reference(rec: dict) -> str:
     parts = []
     if _authors(rec):
-        parts.append(_authors(rec) + ".")
+        parts.append(_authors(rec).rstrip(".") + ".")
     if rec.get("year"):
         parts.append(f"({rec['year']}).")
     if rec.get("title"):
@@ -361,5 +396,6 @@ def _reference(rec: dict) -> str:
     if link:
         parts.append(link)
     elif rec.get("doi") and rec.get("_doi_bad"):
-        parts.append(f"(DOI {rec['doi']} {rec['_doi_bad']}; omitted)")
+        # The bad DOI itself is not printed: a reader would copy it.
+        parts.append("(no verified DOI)")
     return " ".join(parts) or (rec.get("url") or "source")

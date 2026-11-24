@@ -2500,16 +2500,6 @@ async def _build_full_system_prompt(
     # actively doing now" — sequence-of-action context rather than
     # long-lived workspace state. plan_store.get_plan returned the
     # raw dict; build_plan_block is sync, so _render_block applies.
-    if ledger is not None:
-        try:
-            sources_block = ledger.block()
-        except Exception as e:
-            logger.warning("sources block render failed: %s", e)
-            sources_block = None
-        if sources_block:
-            system_prompt = (f"{sources_block}\n\n{system_prompt}"
-                             if system_prompt else sources_block)
-
     plan_block = _render_block("plan", plan_store.build_plan_block)
     if plan_block:
         system_prompt = (
@@ -2553,6 +2543,18 @@ async def _build_full_system_prompt(
             capabilities_block = None
         if capabilities_block:
             system_prompt = f"{system_prompt}\n\n{capabilities_block}"
+
+    # Source ledger: last, so its citing rule wins over a persona's "always
+    # include DOIs" (placed before the persona, the model followed the persona
+    # in a later turn and typed the reference itself, 2026-11-24 smoke run).
+    if ledger is not None:
+        try:
+            sources_block = ledger.block()
+        except Exception as e:
+            logger.warning("sources block render failed: %s", e)
+            sources_block = None
+        if sources_block:
+            system_prompt = f"{system_prompt}\n\n{sources_block}" if system_prompt else sources_block
 
     return system_prompt
 
