@@ -54,10 +54,11 @@ from usage_tracker import (
     record_usage,
     aggregate_totals,
 )
-from metrics import observe_citation_claims, observe_phantom_urls, observe_turn
+from metrics import observe_citation_claims, observe_citecheck, observe_phantom_urls, observe_turn
 from tool_result import truncate_tool_result
 from answer_tags import AnswerTagStreamFilter, clean_reply, cut_loop, has_repeats, strip_answer_tags, tail_is_looping
 import turn_results
+import citecheck
 from mcp.schemas import MCP_TOOLS, CORE_TOOLS
 from mcp.executor import execute_mcp_tool, partition_by_concurrency_safety
 import hooks as hooks_module
@@ -3969,6 +3970,19 @@ async def stream_chat_completion(
             for _e in final_tool_calls:
                 _e.pop("step_text", None)
 
+        # What the client has on screen. If the citation check or an audit
+        # below changes the answer, the client gets the saved version live
+        # (answer_revised) instead of only after a reload.
+        _streamed_content = final_content
+        _cite_notes = None
+        if not had_stream_error and not _cancelled() and citecheck.mode() != "off":
+            _, _ungrounded_pre, _ = audit_citation_claims_in_content(
+                final_content, final_tool_calls,
+                conversation_grounding_text(conversation),
+            )
+            final_content, _cite_notes = await citecheck.run(final_content, _ungrounded_pre)
+            observe_citecheck(_cite_notes)
+
         # --- 6. Persist assistant message ---
         # Stream-error marker. When the loop bailed because vLLM yielded an
         # `error` event mid-stream, append a small italic note so the saved
@@ -4021,6 +4035,8 @@ async def stream_chat_completion(
                 _ungrounded_cites,
             )
         observe_citation_claims(_grounded_cites, len(_ungrounded_cites))
+        if final_content != _streamed_content:
+            yield _sse("answer_revised", {"content": final_content, "notes": _cite_notes})
 
         if not ephemeral:
             _saved_reply = await chat_store.add_message(
