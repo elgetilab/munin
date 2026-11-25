@@ -216,11 +216,13 @@ def test_url_tails_trimmed() -> bool:
     text = ("https://www.biorxiv.org/content/10.1101/2020.01.01.123456v2.full and "
             "https://link.springer.com/article/10.1007/s00249-019-01234-5#Sec2 and "
             "https://doi.org/10.1016/j.bpj.2019.01.001?via=ihub and 10.1073/pnas.123/-/DCSupplemental "
-            "and 10.1002/(SICI)1097-4636(199603)30:3<283::AID-JBM2>3.0.CO;2-M")
+            "and 10.1002/(SICI)1097-4636(199603)30:3<283::AID-JBM2>3.0.CO;2-M "
+            "and [[1]](https://doi.org/10.1006/jmbi.1997.1250)([[1]](https://doi.org/10.1006/jmbi.1997.1250))")
     got = [u.doi for u in citecheck.extract_units(text)]
     want = ["10.1101/2020.01.01.123456", "10.1007/s00249-019-01234-5", "10.1016/j.bpj.2019.01.001",
-            "10.1073/pnas.123", "10.1002/(SICI)1097-4636(199603)30:3<283::AID-JBM2>3.0.CO;2-M"]
-    return _check("publisher URL tails and SICI DOIs", got == want, str(got))
+            "10.1073/pnas.123", "10.1002/(SICI)1097-4636(199603)30:3<283::AID-JBM2>3.0.CO;2-M",
+            "10.1006/jmbi.1997.1250"]
+    return _check("publisher URL tails, SICI DOIs, a link written straight before '('", got == want, str(got))
 
 
 def test_doi_of_another_paper() -> bool:
