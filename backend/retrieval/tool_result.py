@@ -165,9 +165,8 @@ def _truncate_shorten(result: Any, limit: int) -> str:
 
 
 def _truncate_drop(result: Any, limit: int) -> str:
-    """The cutter before 2026-11 (MUNIN_TOOL_RESULT_CUT=drop, the default
-    until `shorten` is measured): drops items from the end of the single
-    largest list."""
+    """The cutter before 2026-11 (MUNIN_TOOL_RESULT_CUT=drop): drops items
+    from the end of the single largest list."""
     serialised = _dumps(result)
     if len(serialised) <= limit:
         return serialised
@@ -214,10 +213,11 @@ def _truncate_drop(result: Any, limit: int) -> str:
 
 def cut_mode() -> str:
     """MUNIN_TOOL_RESULT_CUT: `shorten` (strings first, then items across
-    lists) or `drop` (the old cutter). `drop` stays the default until
-    `shorten` is measured (SOURCE-LEDGER-PLAN.md section 6)."""
-    m = (os.environ.get("MUNIN_TOOL_RESULT_CUT") or "drop").strip().lower()
-    return m if m in ("shorten", "drop") else "drop"
+    lists) or `drop` (the old cutter). `shorten` is the default since the
+    2026-11-25 user-failure regression (scorecards/userfail/2026-11-25_full-*,
+    2026-11-26_mech-*); `drop` turns it off."""
+    m = (os.environ.get("MUNIN_TOOL_RESULT_CUT") or "shorten").strip().lower()
+    return m if m in ("shorten", "drop") else "shorten"
 
 
 def truncate_tool_result(result: Any, limit: int = TOOL_RESULT_CHAR_LIMIT) -> str:

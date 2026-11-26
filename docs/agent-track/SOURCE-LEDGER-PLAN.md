@@ -1,7 +1,12 @@
 # Source ledger: cite by id, render on the server
 
-Status: PLAN (2026-11-24). Phase B of CITATION-GROUNDING-PLAN.md, approved to
-start; plus the context-budget findings the owner asked for.
+Status: LIVE (2026-11-26). Phase B of CITATION-GROUNDING-PLAN.md, plus the
+context-budget findings the owner asked for. The ledger (MUNIN_SOURCE_LEDGER)
+and the shortening cutter (MUNIN_TOOL_RESULT_CUT=shorten) are on by default
+after the user-failure regression: rubric points 168.7 to 182.7 of 349 (sign
+p 0.016, scorecards/userfail/2026-11-25_full-*) and mechanical 8.3 to 11.0 of
+24 once the sources block appears only with sources (2026-11-26_mech-*). Off
+switches: MUNIN_SOURCE_LEDGER=off, MUNIN_TOOL_RESULT_CUT=drop.
 
 ## Problem (recap)
 

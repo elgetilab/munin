@@ -83,6 +83,9 @@ import traceback
 from typing import Any, AsyncIterator, Optional
 from unittest.mock import AsyncMock, patch
 
+import os as _os
+_os.environ.setdefault("MUNIN_SOURCE_LEDGER", "off")   # not a ledger test; the ledger would write sources for a conversation that is not in the db
+
 sys.path.insert(0, "/app")
 
 import chat_service  # noqa: E402

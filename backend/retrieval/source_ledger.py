@@ -67,10 +67,11 @@ _INITIALS_FIRST_RE = re.compile(r"^\**(?:[A-Z]\.[\s-]?){1,3}\s?[A-Z][\w'\-]+")
 
 
 def enabled() -> bool:
-    """MUNIN_SOURCE_LEDGER=on turns the ledger on. Off by default until it is
-    measured (SOURCE-LEDGER-PLAN.md section 8); the eval instance sets it."""
+    """The ledger is on unless MUNIN_SOURCE_LEDGER is off (0/off/false/no).
+    On by default since the 2026-11-25 user-failure regression
+    (scorecards/userfail/2026-11-25_full-*, 2026-11-26_mech-*)."""
     import os
-    return (os.environ.get("MUNIN_SOURCE_LEDGER") or "").strip().lower() in ("1", "on", "true", "yes")
+    return (os.environ.get("MUNIN_SOURCE_LEDGER") or "on").strip().lower() not in ("0", "off", "false", "no")
 
 
 def norm_doi(doi: str) -> str:
