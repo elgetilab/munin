@@ -66,18 +66,47 @@ async def _brave_throttle() -> None:
         _brave_next_ok = time.monotonic() + 1.0 / max(BRAVE_SEARCH_QPS, 0.1)
 
 
-# Result languages web_search accepts. The model sets `language` (it knows when
-# it wrote a German query for German pages); unset or unknown means English,
-# the behaviour before 2026-11-26. Detecting it from the query instead was
-# measured and rejected: SearXNG's `auto` misread short English queries
-# ("EasySpin garlic function parameters" lost the EasySpin docs) and a
-# word-list detector missed 4 of 20 German queries.
+# Result languages web_search accepts: "de" when the model asks for it OR
+# the queries read as German, else "en" (the behaviour before 2026-11-26).
+# The model alone set "de" in 1 of 3 German live cases (2026-11-26), and a
+# German query sent as "en" gets unrelated pages from Yandex, so the queries
+# are checked too. SearXNG's `auto` was measured and rejected: it misread
+# short English queries ("EasySpin garlic function parameters" lost the
+# EasySpin docs). The word-list check below caught 117 of 141 German queries
+# the model wrote in that run and misread none of 30 English ones.
 WEB_LANGUAGES = ("en", "de")
+_DE_STOP = frozenset("""der die das den dem des und oder für fur mit wie was wer wo warum ist sind
+war eine einen einem einer ein nicht bei zur zum von vom im auf aus nach über uber unter zwischen
+durch gegen ohne auch noch nur sehr kann können muss müssen soll wird werden hat haben ich wir sie
+es man mein meine unsere welche welcher welches dass wenn als bis seit beim ins am vor""".split())
+_EN_STOP = frozenset("the of and or for with how what why is are a an in on to from by vs not does do can should".split())
+_DE_MORPH = re.compile(r"(?:ung|ungen|heit|keit|schaft|lich|liche|lichen|ismus|tät|ierung|ieren|antrag"
+                       r"|vertrag|ordnung|schutz|beurteilung|grundlagen|vorlesung|messung|auswertung"
+                       r"|anleitung|vorlage|hinweise|fehler)$")
 
 
-def _lang(language: Optional[str]) -> str:
-    l = (language or "").strip().lower()
-    return l if l in WEB_LANGUAGES else "en"
+def _looks_german(q: str) -> bool:
+    toks = re.findall(r"[^\W\d_]+", (q or "").lower())
+    if not toks:
+        return False
+    score = (1 if re.search(r"[äöüß]", q.lower()) else 0)
+    score += 2 * sum(t in _DE_STOP for t in toks)
+    score += sum(1 for t in toks if len(t) >= 6 and _DE_MORPH.search(t))
+    if score < 3 and any(t in _EN_STOP for t in toks):
+        return False
+    return score >= 2
+
+
+def _lang(language: Optional[str], queries: list[str] = ()) -> str:
+    if (language or "").strip().lower() == "de":
+        return "de"
+    # Any German variant: variants of one German question are German, but the
+    # short ones ("site:dfg.de Merkblatt Sachbeihilfe") carry no signal. Per
+    # call on the 2026-11-26 run: 27 of 29 German calls (majority: 25), 6 of
+    # 6 English.
+    if any(_looks_german(q) for q in queries):
+        return "de"
+    return "en"
 
 
 async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10,
@@ -265,7 +294,8 @@ async def web_search(
         query: Single search query. Expanded automatically.
         queries: Explicit list of queries. Takes precedence; no expansion.
         top_k: Max number of deduped results to return globally.
-        language: result language, "en" (default) or "de" (WEB_LANGUAGES).
+        language: "de" asks for German pages; German-looking queries get
+            them too (_lang). Anything else is English.
 
     Returns:
         Dict with:
@@ -285,7 +315,6 @@ async def web_search(
                 "warning": "Web search is disabled for this request "
                            "(egress=off). Treat as TOOL FAILURE, not 'no "
                            "information found'."}
-    lang = _lang(language)
     # Decide which queries to execute.
     if queries:
         query_list = [q.strip() for q in queries if q and q.strip()]
@@ -296,6 +325,7 @@ async def web_search(
 
     if not query_list:
         return {"error": "web_search got empty query list after normalization"}
+    lang = _lang(language, query_list)
 
     # Brave (keyed API, primary when configured) gets the first
     # BRAVE_MAX_QUERIES variants — each is a billed request, serialized

@@ -336,6 +336,21 @@ def test_language_reaches_both_engines() -> bool:
                   outs == [({"de"}, 2, "de"), ({"en"}, 2, None), ({"en"}, 2, None)], f"{outs}")
 
 
+def test_german_queries_get_german_pages() -> bool:
+    """A German query gets language=de even when the model did not ask for
+    it; English and code queries stay English."""
+    L = web_module._lang
+    cases = [(L(None, ["Mutterschutz befristeter Arbeitsvertrag Verlängerung"]), "de"),
+             (L("en", ["Wie lange dauert eine Promotion in Chemie"]), "de"),
+             (L(None, ["DFG Sachbeihilfe Antrag Hinweise", "DFG Merkblatt"]), "de"),
+             (L(None, ["EasySpin garlic function parameters"]), "en"),
+             (L(None, ["Schrödinger equation hydrogen atom"]), "en"),
+             (L(None, ["scipy curve_fit bounds covariance", "Fehler Kovarianz"]), "en"),
+             (L("de", ["numpy polyfit"]), "de")]
+    return _check("German-looking queries get German pages; English stays English",
+                  all(got == want for got, want in cases), f"{cases}")
+
+
 TESTS = [
     test_key_unset_brave_not_called,
     test_brave_results_merged_and_deduped,
@@ -347,6 +362,7 @@ TESTS = [
     test_brave_one_retries_once_on_429,
     test_brave_one_error_reported_as_unresponsive,
     test_language_reaches_both_engines,
+    test_german_queries_get_german_pages,
 ]
 
 
