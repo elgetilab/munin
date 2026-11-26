@@ -46,7 +46,7 @@ def _run(coro):
 def _searxng_mock(per_query_responses: list[dict]):
     iterator = iter(per_query_responses)
 
-    async def _fake(client, q):
+    async def _fake(client, q, language="en"):
         return next(iterator)
 
     return _fake
@@ -55,7 +55,7 @@ def _searxng_mock(per_query_responses: list[dict]):
 def _brave_mock(per_query_responses: list[dict], calls: list | None = None):
     iterator = iter(per_query_responses)
 
-    async def _fake(client, q, count=10):
+    async def _fake(client, q, count=10, language="en"):
         if calls is not None:
             calls.append(q)
         return next(iterator)
@@ -79,7 +79,7 @@ def _hit(url: str, engine: str) -> dict:
 # ---------------------------------------------------------------------------
 
 def test_key_unset_brave_not_called() -> bool:
-    async def _explode(client, q, count=10):
+    async def _explode(client, q, count=10, language="en"):
         raise AssertionError("_brave_one called without BRAVE_API_KEY")
 
     searxng = [
@@ -311,6 +311,31 @@ def test_brave_one_error_reported_as_unresponsive() -> bool:
 # Runner
 # ---------------------------------------------------------------------------
 
+def test_language_reaches_both_engines() -> bool:
+    """web_search(language=...) goes to SearXNG `language` and Brave
+    `search_lang`; unset or unknown is English (the pre-2026-11-26 default)."""
+    seen = []
+
+    async def sx(client, q, language="en"):
+        seen.append(("searxng", language))
+        return {"results": [], "unresponsive": [], "transport_error": None}
+
+    async def br(client, q, count=10, language="en"):
+        seen.append(("brave", language))
+        return {"results": [], "unresponsive": [], "transport_error": None}
+
+    outs = []
+    with patch.object(web_module, "BRAVE_API_KEY", "k"), \
+         patch.object(web_module, "_searxng_one", sx), \
+         patch.object(web_module, "_brave_one", br):
+        for lang in ("de", None, "German"):
+            seen.clear()
+            out = _run(web_module.web_search(queries=["q"], language=lang))
+            outs.append(({l for _, l in seen}, len(seen), out.get("language")))
+    return _check("language reaches SearXNG and Brave; unset or unknown is English",
+                  outs == [({"de"}, 2, "de"), ({"en"}, 2, None), ({"en"}, 2, None)], f"{outs}")
+
+
 TESTS = [
     test_key_unset_brave_not_called,
     test_brave_results_merged_and_deduped,
@@ -321,6 +346,7 @@ TESTS = [
     test_brave_one_normalizes_response,
     test_brave_one_retries_once_on_429,
     test_brave_one_error_reported_as_unresponsive,
+    test_language_reaches_both_engines,
 ]
 
 

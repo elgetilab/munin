@@ -58,7 +58,7 @@ def _make_mock(per_query_responses: list[dict]):
     list of responses in order, one per call."""
     iterator = iter(per_query_responses)
 
-    async def _fake(client, q):  # signature matches _searxng_one
+    async def _fake(client, q, language="en"):  # signature matches _searxng_one
         return next(iterator)
 
     return _fake

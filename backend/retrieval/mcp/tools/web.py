@@ -66,7 +66,22 @@ async def _brave_throttle() -> None:
         _brave_next_ok = time.monotonic() + 1.0 / max(BRAVE_SEARCH_QPS, 0.1)
 
 
-async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10) -> dict:
+# Result languages web_search accepts. The model sets `language` (it knows when
+# it wrote a German query for German pages); unset or unknown means English,
+# the behaviour before 2026-11-26. Detecting it from the query instead was
+# measured and rejected: SearXNG's `auto` misread short English queries
+# ("EasySpin garlic function parameters" lost the EasySpin docs) and a
+# word-list detector missed 4 of 20 German queries.
+WEB_LANGUAGES = ("en", "de")
+
+
+def _lang(language: Optional[str]) -> str:
+    l = (language or "").strip().lower()
+    return l if l in WEB_LANGUAGES else "en"
+
+
+async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10,
+                     language: str = "en") -> dict:
     """Single Brave Search API query.
 
     Returns the same batch shape as `_searxng_one` so the merge loop in
@@ -83,7 +98,7 @@ async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10) -> dict
                 params={
                     "q": q,
                     "count": max(1, min(count, 20)),
-                    "search_lang": "en",
+                    "search_lang": language,
                 },
                 headers={
                     "X-Subscription-Token": BRAVE_API_KEY,
@@ -130,7 +145,7 @@ def _record_url(url: str) -> None:
         bucket.add(url)
 
 
-async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
+async def _searxng_one(client: httpx.AsyncClient, q: str, language: str = "en") -> dict:
     """Single SearXNG query.
 
     Returns a dict with:
@@ -153,7 +168,7 @@ async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
                 "q": q,
                 "format": "json",
                 "engines": _SEARXNG_ENGINES,
-                "language": "en",
+                "language": language,
             },
         )
         response.raise_for_status()
@@ -232,6 +247,7 @@ async def web_search(
     query: Optional[str] = None,
     queries: Optional[list[str]] = None,
     top_k: int = 10,
+    language: Optional[str] = None,
 ) -> dict:
     """
     Search the web: Brave Search API (primary, when BRAVE_API_KEY is set)
@@ -249,6 +265,7 @@ async def web_search(
         query: Single search query. Expanded automatically.
         queries: Explicit list of queries. Takes precedence; no expansion.
         top_k: Max number of deduped results to return globally.
+        language: result language, "en" (default) or "de" (WEB_LANGUAGES).
 
     Returns:
         Dict with:
@@ -268,6 +285,7 @@ async def web_search(
                 "warning": "Web search is disabled for this request "
                            "(egress=off). Treat as TOOL FAILURE, not 'no "
                            "information found'."}
+    lang = _lang(language)
     # Decide which queries to execute.
     if queries:
         query_list = [q.strip() for q in queries if q and q.strip()]
@@ -287,8 +305,8 @@ async def web_search(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             all_batches = await asyncio.gather(
-                *(_searxng_one(client, q) for q in query_list),
-                *(_brave_one(client, q, count=top_k) for q in brave_queries),
+                *(_searxng_one(client, q, language=lang) for q in query_list),
+                *(_brave_one(client, q, count=top_k, language=lang) for q in brave_queries),
             )
     except Exception as e:
         return {"error": f"Web search failed: {str(e)}"}
@@ -365,6 +383,8 @@ async def web_search(
         "total_hits": total_hits,
         "results": top,
     }
+    if lang != "en":
+        out["language"] = lang
 
     # Surface engine degradation to the caller.
     requested_engines = [e for e in _SEARXNG_ENGINES.split(",") if e]

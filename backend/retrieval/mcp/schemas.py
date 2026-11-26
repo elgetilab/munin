@@ -83,6 +83,11 @@ MCP_TOOLS = {
                     "type": "integer",
                     "description": "Maximum deduped results to return (default: 10)",
                     "default": 10
+                },
+                "language": {
+                    "type": "string",
+                    "description": "'en' or 'de'. Language of the pages to find. Default 'en'. Use 'de' when your query is in German and German-language pages are what helps (German regulations, university or funding rules, forms, German-language course material); keep 'en' for science, code and anything where English sources are best, even if the user writes German.",
+                    "default": "en"
                 }
             }
         }
@@ -259,6 +264,11 @@ MCP_TOOLS = {
                     "type": "integer",
                     "description": "Max ranked results to return. Default 10.",
                     "default": 10
+                },
+                "language": {
+                    "type": "string",
+                    "description": "'en' or 'de'. Language of the web pages to find (the web tier only). Default 'en'. Use 'de' when your query is in German and German-language pages are what helps (German regulations, university or funding rules, forms, German-language course material); keep 'en' for science, code and anything where English sources are best, even if the user writes German.",
+                    "default": "en"
                 }
             },
             "required": ["query"]
