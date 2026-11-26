@@ -110,10 +110,24 @@ def _trim_doi(d: str) -> str:
         d = _URL_TAIL_RE.sub("", d)
         d = _BIORXIV_VERSION_RE.sub(r"\1", d)
         d = d.rstrip(".,;:*_~^")
-        if d.endswith(")") and d.count(")") > d.count("("):
-            d = d[:-1]
+        d = _cut_unopened_paren(d)
         if d == d0:
             return d
+
+
+def _cut_unopened_paren(d: str) -> str:
+    """A DOI's parentheses are balanced (SICI DOIs have some); the first ")"
+    that closes nothing ends it: "10.1006/jmbi.1997.1250)(" from a link
+    written straight before "("."""
+    depth = 0
+    for i, ch in enumerate(d):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                return d[:i]
+            depth -= 1
+    return d
 
 
 def _fenced_ranges(content: str) -> list[tuple[int, int]]:

@@ -401,11 +401,13 @@ def _wants_answer(query: str) -> bool:
 
 async def search(query: str, filters: Optional[dict] = None,
                  depth: str = "normal", top_k: int = 10,
-                 read: int = 0, extra_queries: Any = None) -> dict:
+                 read: int = 0, extra_queries: Any = None,
+                 language: Optional[str] = None) -> dict:
     """Find and rank evidence for a topic across corpus / OA / web tiers.
 
     depth: 'normal' (corpus + scholarly) | 'deep' (+ web). Web also requires
-    egress to permit it. See module docstring for the full contract.
+    egress to permit it. language: the web tier's result language ('en'
+    default, 'de'; web.WEB_LANGUAGES); the scholarly tiers ignore it. See module docstring for the full contract.
     """
     from mcp.tools.papers import paper_search, semantic_scholar_search
     from mcp.tools.query_expansion import expand_queries
@@ -500,7 +502,7 @@ async def search(query: str, filters: Optional[dict] = None,
             tasks.append(semantic_scholar_search(queries=oa_variants,
                                                  top_k=top_k, year=year))
         if do_web:
-            tasks.append(web_search(queries=variants, top_k=top_k))
+            tasks.append(web_search(queries=variants, top_k=top_k, language=language))
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             idx = 0
@@ -519,7 +521,7 @@ async def search(query: str, filters: Optional[dict] = None,
     if (not corpus_strong and not oa_hits and not web_hits
             and not explicit_tags and P.may_fetch(P.NET_WEB)):
         tr.decide("stage 2b escalate to web", reason="corpus and OA both empty")
-        w = await web_search(queries=variants, top_k=top_k)
+        w = await web_search(queries=variants, top_k=top_k, language=language)
         if not isinstance(w, Exception):
             web_res = w
             web_hits = _norm_web((web_res or {}).get("results", []))

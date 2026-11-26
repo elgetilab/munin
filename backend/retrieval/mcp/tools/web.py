@@ -27,12 +27,15 @@ logger = logging.getLogger(__name__)
 
 
 # Engines passed to SearXNG on every web_search. Google is intentionally
-# excluded (see docker/searxng/settings.yml for the rationale). All four
-# of these are keyless HTML scrapers and are routinely CAPTCHA'd or
-# access-denied from the cluster's datacenter IP (probe 2026-07-22:
-# every one suspended). They are kept only as a zero-cost supplement;
-# the primary web source is the keyed Brave Search API below.
-_SEARXNG_ENGINES = "startpage,duckduckgo,qwant,mojeek"
+# excluded (see docker/searxng/settings.yml for the rationale). These are
+# keyless HTML scrapers. startpage, duckduckgo, qwant and mojeek are
+# routinely CAPTCHA'd or access-denied from the cluster's datacenter IP
+# (probes 2026-07-22 and 2026-11-26: every one suspended). yandex answered
+# all of a 37-query probe on 2026-11-26 (0.55 s median, relevant top
+# results on 33, weak on German queries, no blocking under an 8-query
+# burst) and stays on beside Brave to cut Brave spend. Brave Search API
+# (below) remains the primary web source when its key has budget.
+_SEARXNG_ENGINES = "yandex,startpage,duckduckgo,qwant,mojeek"
 
 # Brave Search API (api.search.brave.com) — the keyed JSON API, NOT the
 # SearXNG `brave` engine (an HTML scraper, dropped 2026-06-01 after
@@ -63,7 +66,51 @@ async def _brave_throttle() -> None:
         _brave_next_ok = time.monotonic() + 1.0 / max(BRAVE_SEARCH_QPS, 0.1)
 
 
-async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10) -> dict:
+# Result languages web_search accepts: "de" when the model asks for it OR
+# the queries read as German, else "en" (the behaviour before 2026-11-26).
+# The model alone set "de" in 1 of 3 German live cases (2026-11-26), and a
+# German query sent as "en" gets unrelated pages from Yandex, so the queries
+# are checked too. SearXNG's `auto` was measured and rejected: it misread
+# short English queries ("EasySpin garlic function parameters" lost the
+# EasySpin docs). The word-list check below caught 117 of 141 German queries
+# the model wrote in that run and misread none of 30 English ones.
+WEB_LANGUAGES = ("en", "de")
+_DE_STOP = frozenset("""der die das den dem des und oder für fur mit wie was wer wo warum ist sind
+war eine einen einem einer ein nicht bei zur zum von vom im auf aus nach über uber unter zwischen
+durch gegen ohne auch noch nur sehr kann können muss müssen soll wird werden hat haben ich wir sie
+es man mein meine unsere welche welcher welches dass wenn als bis seit beim ins am vor""".split())
+_EN_STOP = frozenset("the of and or for with how what why is are a an in on to from by vs not does do can should".split())
+_DE_MORPH = re.compile(r"(?:ung|ungen|heit|keit|schaft|lich|liche|lichen|ismus|tät|ierung|ieren|antrag"
+                       r"|vertrag|ordnung|schutz|beurteilung|grundlagen|vorlesung|messung|auswertung"
+                       r"|anleitung|vorlage|hinweise|fehler)$")
+
+
+def _looks_german(q: str) -> bool:
+    toks = re.findall(r"[^\W\d_]+", (q or "").lower())
+    if not toks:
+        return False
+    score = (1 if re.search(r"[äöüß]", q.lower()) else 0)
+    score += 2 * sum(t in _DE_STOP for t in toks)
+    score += sum(1 for t in toks if len(t) >= 6 and _DE_MORPH.search(t))
+    if score < 3 and any(t in _EN_STOP for t in toks):
+        return False
+    return score >= 2
+
+
+def _lang(language: Optional[str], queries: list[str] = ()) -> str:
+    if (language or "").strip().lower() == "de":
+        return "de"
+    # Any German variant: variants of one German question are German, but the
+    # short ones ("site:dfg.de Merkblatt Sachbeihilfe") carry no signal. Per
+    # call on the 2026-11-26 run: 27 of 29 German calls (majority: 25), 6 of
+    # 6 English.
+    if any(_looks_german(q) for q in queries):
+        return "de"
+    return "en"
+
+
+async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10,
+                     language: str = "en") -> dict:
     """Single Brave Search API query.
 
     Returns the same batch shape as `_searxng_one` so the merge loop in
@@ -80,7 +127,7 @@ async def _brave_one(client: httpx.AsyncClient, q: str, count: int = 10) -> dict
                 params={
                     "q": q,
                     "count": max(1, min(count, 20)),
-                    "search_lang": "en",
+                    "search_lang": language,
                 },
                 headers={
                     "X-Subscription-Token": BRAVE_API_KEY,
@@ -127,7 +174,7 @@ def _record_url(url: str) -> None:
         bucket.add(url)
 
 
-async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
+async def _searxng_one(client: httpx.AsyncClient, q: str, language: str = "en") -> dict:
     """Single SearXNG query.
 
     Returns a dict with:
@@ -150,7 +197,7 @@ async def _searxng_one(client: httpx.AsyncClient, q: str) -> dict:
                 "q": q,
                 "format": "json",
                 "engines": _SEARXNG_ENGINES,
-                "language": "en",
+                "language": language,
             },
         )
         response.raise_for_status()
@@ -229,6 +276,7 @@ async def web_search(
     query: Optional[str] = None,
     queries: Optional[list[str]] = None,
     top_k: int = 10,
+    language: Optional[str] = None,
 ) -> dict:
     """
     Search the web: Brave Search API (primary, when BRAVE_API_KEY is set)
@@ -246,6 +294,8 @@ async def web_search(
         query: Single search query. Expanded automatically.
         queries: Explicit list of queries. Takes precedence; no expansion.
         top_k: Max number of deduped results to return globally.
+        language: "de" asks for German pages; German-looking queries get
+            them too (_lang). Anything else is English.
 
     Returns:
         Dict with:
@@ -275,6 +325,7 @@ async def web_search(
 
     if not query_list:
         return {"error": "web_search got empty query list after normalization"}
+    lang = _lang(language, query_list)
 
     # Brave (keyed API, primary when configured) gets the first
     # BRAVE_MAX_QUERIES variants — each is a billed request, serialized
@@ -284,8 +335,8 @@ async def web_search(
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             all_batches = await asyncio.gather(
-                *(_searxng_one(client, q) for q in query_list),
-                *(_brave_one(client, q, count=top_k) for q in brave_queries),
+                *(_searxng_one(client, q, language=lang) for q in query_list),
+                *(_brave_one(client, q, count=top_k, language=lang) for q in brave_queries),
             )
     except Exception as e:
         return {"error": f"Web search failed: {str(e)}"}
@@ -362,6 +413,8 @@ async def web_search(
         "total_hits": total_hits,
         "results": top,
     }
+    if lang != "en":
+        out["language"] = lang
 
     # Surface engine degradation to the caller.
     requested_engines = [e for e in _SEARXNG_ENGINES.split(",") if e]

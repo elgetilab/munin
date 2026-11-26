@@ -142,6 +142,23 @@ def test_block_budget() -> bool:
                   and "older sources not shown" in blk, blk[:300])
 
 
+def test_no_block_until_sources_then_rule_in_tool_result() -> bool:
+    led = Ledger()
+    empty = led.block()
+    n = len(led.entries)
+    led.annotate({"papers": [{"title": "A paper", "doi": "10.1/a"}]})
+    note = led.rule_note(n)
+    again = led.rule_note(n)
+    led2 = Ledger()
+    led2.annotate({"papers": [{"title": "A paper", "doi": "10.1/a"}]})
+    blk = led2.block()
+    late = led2.rule_note(0)
+    return _check("no sources block while the ledger is empty; the first ids bring the rule once; "
+                  "a block already shown suppresses the note",
+                  empty is None and note and "Cite a source as [S7]" in note and again is None
+                  and blk and "S1:" in blk and late is None, f"{empty!r} {note!r} {again!r} {late!r}")
+
+
 def test_user_dois() -> bool:
     led = Ledger()
     led.add_user_dois("Please summarise 10.1000/jmb.1 for me.")
@@ -188,12 +205,64 @@ def test_persistence_roundtrip() -> bool:
     return _check("ledger persists, continues numbering, and goes with its conversation", asyncio.run(go()))
 
 
+def _typed_ledger() -> Ledger:
+    led = Ledger()
+    led.add("paper", "doi:10.1021/jp980965t", {
+        "doi": "10.1021/jp980965t", "year": 1998, "journal": "J Phys Chem B", "volume": "102", "page": "6601-6613",
+        "title": "Quantitative Identification of Different Single Molecules by Selective Time-Resolved Confocal Fluorescence Spectroscopy",
+        "authors": ["Jürgen R. Fries", "Leif Brand", "Christian Eggeling"]})
+    led.add("paper", "doi:10.1074/jbc.272.2.731", {
+        "doi": "10.1074/jbc.272.2.731", "year": 1997,
+        "title": "Ligand Binding Specificities of the Two Mannose 6-Phosphate Receptors"})
+    return led
+
+
+def test_typed_reference_is_replaced() -> bool:
+    led = _typed_ledger()
+    text = ("Sources:\n\n"
+            "1. Fries, J., Brand, L. (1998). \"Quantitative Identification of Different Single Molecules by "
+            "Selective Time-Resolved Confocal Fluorescence Spectroscopy.\" *J. Phys. Chem. B*, 102, 8277-8287. "
+            "DOI: [10.1021/jp980965t](https://doi.org/10.1021/jp980965t)\n"
+            "2. **Sleat, D. & Lobel, P.** \"Ligand Binding Specificities of the Two Mannose 6-Phosphate "
+            "Receptors.\" *JBC*, 1997. [S1] Quantified the affinities of both receptors.\n"
+            "3. Fries J, Brand L. Quantitative identification of different single molecules by selective "
+            "time-resolved confocal fluorescence spectroscopy. J Phys Chem B 1998. doi:10.1021/jp98096")
+    mid, notes = led.reconcile(text)
+    out, _ = led.render(mid)
+    ok = (notes["refs_rewritten"] == 3 and "8277" not in out and "jp98096)" not in out
+          and "3. Jürgen R. Fries" in out
+          and "1. Jürgen R. Fries, Leif Brand, Christian Eggeling. (1998)." in out
+          and "*J Phys Chem B* 102, 6601-6613. https://doi.org/10.1021/jp980965t" in out
+          and "2. (1997). Ligand Binding Specificities" in out   # the paired [S1] was the wrong paper
+          and "— Quantified the affinities of both receptors." in out and "\x02" not in out)
+    return _check("a typed reference to a ledger source becomes the checked reference, commentary kept", ok, out)
+
+
+def test_typed_doi_in_table_and_prose_becomes_id() -> bool:
+    led = _typed_ledger()
+    text = ("| 1998 | Single molecules | [10.1021/jp980965t](https://doi.org/10.1021/jp980965t) |\n"
+            "Binding was quantified (Sleat 1997) [DOI: 10.1074/jbc.272.2.731] and elsewhere [doi](https://doi.org/10.1/unknown).\n"
+            "- The receptors were compared in Ligand Binding Specificities of the Two Mannose 6-Phosphate Receptors, "
+            "which showed pH dependence (1997, https://doi.org/10.1074/jbc.272.2.731).\n"
+            "[4]: https://doi.org/10.1021/jp980965t")
+    mid, notes = led.reconcile(text)
+    out, _ = led.render(mid)
+    lines = out.split("\n")
+    ok = (notes == {"refs_rewritten": 0, "dois_to_ids": 3}
+          and lines[0] == "| 1998 | Single molecules | [[1]](https://doi.org/10.1021/jp980965t) |"
+          and "(Sleat 1997) [[2]](https://doi.org/10.1074/jbc.272.2.731) and elsewhere [doi](https://doi.org/10.1/unknown)." in out
+          and "which showed pH dependence (1997, [[2]]" in out           # a prose bullet is not replaced
+          and "[4]: https://doi.org/10.1021/jp980965t" in out)
+    return _check("a typed ledger DOI in a table or prose becomes its id; unknown DOIs and link definitions stay", ok, out)
+
+
 def main() -> int:
     tests = [test_annotate_assigns_stable_ids, test_render_numbers_links_and_references,
              test_render_leaves_code_and_plain_text, test_artifacts, test_artifacts_in_tool_results_and_block, test_elided_result_keeps_source_ids,
              test_same_paper_twice_is_one_reference,
-             test_block_budget,
-             test_user_dois, test_enrich_and_miskeyed_doi, test_persistence_roundtrip]
+             test_block_budget, test_no_block_until_sources_then_rule_in_tool_result,
+             test_user_dois, test_enrich_and_miskeyed_doi, test_typed_reference_is_replaced,
+             test_typed_doi_in_table_and_prose_becomes_id, test_persistence_roundtrip]
     results = []
     for t in tests:
         try:

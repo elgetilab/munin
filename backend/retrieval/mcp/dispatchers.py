@@ -72,6 +72,7 @@ async def _web_search(arguments: dict) -> dict:
         query=arguments.get("query"),
         queries=arguments.get("queries"),
         top_k=arguments.get("top_k", 10),
+        language=arguments.get("language"),
     )
 
 
@@ -118,6 +119,7 @@ async def _search(arguments: dict) -> dict:
         depth=arguments.get("depth", "normal"),
         top_k=arguments.get("top_k", 10),
         read=arguments.get("read", 0),
+        language=arguments.get("language"),
         # Not in the schema, but models send it; forwarded so search can run
         # the first and tell the model which ones did not run.
         extra_queries=arguments.get("queries"),

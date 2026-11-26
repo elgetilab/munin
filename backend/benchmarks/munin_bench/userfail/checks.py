@@ -36,8 +36,12 @@ def extract_dois(text: str) -> list[str]:
             d0 = d
             d = _BIORXIV_VERSION.sub(r"\1", _URL_TAIL.sub("", d))
             d = d.rstrip(".,;:*_~^")
-            if d.endswith(")") and d.count(")") > d.count("("):
-                d = d[:-1]
+            depth = 0   # the first ")" that closes nothing ends the DOI (citecheck._cut_unopened_paren)
+            for i, ch in enumerate(d):
+                depth += (ch == "(") - (ch == ")")
+                if depth < 0:
+                    d = d[:i]
+                    break
             if d == d0:
                 break
         out.add(d)

@@ -19,6 +19,9 @@ import traceback
 from pathlib import Path
 from typing import Any
 
+import os as _os
+_os.environ.setdefault("MUNIN_SOURCE_LEDGER", "off")   # not a ledger test; the ledger would write sources for a conversation that is not in the db
+
 sys.path.insert(0, "/app")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))

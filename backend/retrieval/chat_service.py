@@ -3789,12 +3789,17 @@ async def stream_chat_completion(
                 ],
             })
             for res in results:
+                _n_before = len(ledger.entries) if ledger is not None else 0
+                _content = truncate_tool_result(
+                    ledger.annotate(res["result"], int(time.time())) if ledger is not None
+                    else res["result"])
+                # The first ids of a turn that started without a sources
+                # block bring the citing rule with them (Ledger.block).
+                _note = ledger.rule_note(_n_before) if ledger is not None else None
                 messages.append({
                     "role": "tool",
                     "tool_call_id": res["id"],
-                    "content": truncate_tool_result(
-                        ledger.annotate(res["result"], int(time.time())) if ledger is not None
-                        else res["result"]),
+                    "content": f"{_content}\n\n{_note}" if _note else _content,
                 })
 
             # §3 plot-critique feedback loop: if any of the results were
@@ -4011,15 +4016,18 @@ async def stream_chat_completion(
         _ledger_notes = None
         # The ledger's records are grounding too: the References the server
         # renders from them carry full author lists no tool result showed.
+        # Built after enrich, which adds the Crossref author lists.
+        if ledger is not None and not had_stream_error and not _cancelled():
+            try:
+                final_content, _typed = ledger.reconcile(final_content)
+                await ledger.enrich([s for s in ledger.cited_ids(final_content) if s[0] == "S"])
+                final_content, _ledger_notes = ledger.render(final_content)
+                _ledger_notes.update(_typed)
+            except Exception:
+                logger.exception("source ledger render failed; answer left as written")
         _ledger_grounding = ("\n" + json.dumps([e.record for e in ledger.entries.values()],
                                                 ensure_ascii=False, default=str)
                              if ledger is not None else "")
-        if ledger is not None and not had_stream_error and not _cancelled():
-            try:
-                await ledger.enrich([s for s in ledger.cited_ids(final_content) if s[0] == "S"])
-                final_content, _ledger_notes = ledger.render(final_content)
-            except Exception:
-                logger.exception("source ledger render failed; answer left as written")
         if not had_stream_error and not _cancelled() and citecheck.mode() != "off":
             _, _ungrounded_pre, _ = audit_citation_claims_in_content(
                 final_content, final_tool_calls,

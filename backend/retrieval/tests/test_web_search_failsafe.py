@@ -58,7 +58,7 @@ def _make_mock(per_query_responses: list[dict]):
     list of responses in order, one per call."""
     iterator = iter(per_query_responses)
 
-    async def _fake(client, q):  # signature matches _searxng_one
+    async def _fake(client, q, language="en"):  # signature matches _searxng_one
         return next(iterator)
 
     return _fake
@@ -144,7 +144,7 @@ def test_partial_degradation_logs_engine_no_warning() -> bool:
 def test_689f8df3_all_engines_suspended_warning_emitted() -> bool:
     """Reported-chat failure shape (689f8df3, 2026-05-06), updated to
     the current engine roster (brave was dropped from _SEARXNG_ENGINES
-    on 2026-06-01; qwant/mojeek replaced it). Every engine is suspended,
+    on 2026-06-01; qwant/mojeek replaced it; yandex added 2026-11-26). Every engine is suspended,
     web_search returns 0 hits, and the result must carry a `warning`
     field telling the model this is tool failure, not 'no info found'."""
     responses = [
@@ -155,6 +155,7 @@ def test_689f8df3_all_engines_suspended_warning_emitted() -> bool:
                 ["duckduckgo", "Suspended: access denied"],
                 ["qwant", "Suspended: access denied"],
                 ["mojeek", "Suspended: too many requests"],
+                ["yandex", "Suspended: CAPTCHA"],
             ],
             "transport_error": None,
         }
@@ -175,7 +176,7 @@ def test_689f8df3_all_engines_suspended_warning_emitted() -> bool:
             "expected engines_unresponsive list to be present",
         )
     engines = {pair[0] for pair in out["engines_unresponsive"]}
-    if engines != {"startpage", "duckduckgo", "qwant", "mojeek"}:
+    if engines != {"startpage", "duckduckgo", "qwant", "mojeek", "yandex"}:
         return _check(
             "689f8df3 all-engines-suspended -> warning",
             False,
@@ -293,6 +294,7 @@ def test_unresponsive_dict_shape_accepted() -> bool:
                 {"engine": "duckduckgo", "error": "blocked"},
                 {"name": "qwant", "reason": "rate-limited"},
                 {"engine": "mojeek", "error": "denied"},
+                {"name": "yandex", "reason": "CAPTCHA"},
             ],
             "transport_error": None,
         }
@@ -302,7 +304,7 @@ def test_unresponsive_dict_shape_accepted() -> bool:
     engines = {pair[0] for pair in out.get("engines_unresponsive") or []}
     return _check(
         "dict-shaped unresponsive entries -> accepted",
-        engines == {"startpage", "duckduckgo", "qwant", "mojeek"}
+        engines == {"startpage", "duckduckgo", "qwant", "mojeek", "yandex"}
         and "warning" in out,
         f"engines={engines!r}, warning={'warning' in out}",
     )
@@ -328,7 +330,7 @@ def test_multi_query_aggregates_unresponsive() -> bool:
         },
         {
             "results": [],
-            "unresponsive": [["qwant", "rate-limited"]],
+            "unresponsive": [["qwant", "rate-limited"], ["yandex", "CAPTCHA"]],
             "transport_error": None,
         },
     ]
@@ -337,7 +339,7 @@ def test_multi_query_aggregates_unresponsive() -> bool:
     engines = {pair[0] for pair in out.get("engines_unresponsive") or []}
     return _check(
         "multi-query aggregates unresponsive engines",
-        engines == {"startpage", "duckduckgo", "qwant", "mojeek"}
+        engines == {"startpage", "duckduckgo", "qwant", "mojeek", "yandex"}
         and "warning" in out,
         f"engines={engines!r}",
     )

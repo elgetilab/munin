@@ -357,7 +357,7 @@ def test_web_search_records_result_urls() -> bool:
     bucket: set[str] = set()
     token = current_search_urls.set(bucket)
 
-    async def _fake_searxng_one(client, q):
+    async def _fake_searxng_one(client, q, language="en"):
         return {
             "results": [
                 {
