@@ -153,7 +153,7 @@ def test_brave_and_searxng_down_warning() -> bool:
     searxng = [
         {"results": [],
          "unresponsive": [["startpage", "CAPTCHA"], ["duckduckgo", "CAPTCHA"],
-                          ["qwant", "denied"], ["mojeek", "denied"]],
+                          ["qwant", "denied"], ["mojeek", "denied"], ["yandex", "CAPTCHA"]],
          "transport_error": None}
     ]
     brave = [
@@ -181,7 +181,7 @@ def test_brave_ok_suppresses_warning_when_searxng_suspended() -> bool:
     searxng = [
         {"results": [],
          "unresponsive": [["startpage", "CAPTCHA"], ["duckduckgo", "CAPTCHA"],
-                          ["qwant", "denied"], ["mojeek", "denied"]],
+                          ["qwant", "denied"], ["mojeek", "denied"], ["yandex", "CAPTCHA"]],
          "transport_error": None}
     ]
     brave = [{"results": [], "unresponsive": [], "transport_error": None}]

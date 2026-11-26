@@ -27,12 +27,15 @@ logger = logging.getLogger(__name__)
 
 
 # Engines passed to SearXNG on every web_search. Google is intentionally
-# excluded (see docker/searxng/settings.yml for the rationale). All four
-# of these are keyless HTML scrapers and are routinely CAPTCHA'd or
-# access-denied from the cluster's datacenter IP (probe 2026-07-22:
-# every one suspended). They are kept only as a zero-cost supplement;
-# the primary web source is the keyed Brave Search API below.
-_SEARXNG_ENGINES = "startpage,duckduckgo,qwant,mojeek"
+# excluded (see docker/searxng/settings.yml for the rationale). These are
+# keyless HTML scrapers. startpage, duckduckgo, qwant and mojeek are
+# routinely CAPTCHA'd or access-denied from the cluster's datacenter IP
+# (probes 2026-07-22 and 2026-11-26: every one suspended). yandex answered
+# all of a 37-query probe on 2026-11-26 (0.55 s median, relevant top
+# results on 33, weak on German queries, no blocking under an 8-query
+# burst) and stays on beside Brave to cut Brave spend. Brave Search API
+# (below) remains the primary web source when its key has budget.
+_SEARXNG_ENGINES = "yandex,startpage,duckduckgo,qwant,mojeek"
 
 # Brave Search API (api.search.brave.com) — the keyed JSON API, NOT the
 # SearXNG `brave` engine (an HTML scraper, dropped 2026-06-01 after
