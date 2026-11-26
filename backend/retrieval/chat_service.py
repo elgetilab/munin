@@ -3789,12 +3789,17 @@ async def stream_chat_completion(
                 ],
             })
             for res in results:
+                _n_before = len(ledger.entries) if ledger is not None else 0
+                _content = truncate_tool_result(
+                    ledger.annotate(res["result"], int(time.time())) if ledger is not None
+                    else res["result"])
+                # The first ids of a turn that started without a sources
+                # block bring the citing rule with them (Ledger.block).
+                _note = ledger.rule_note(_n_before) if ledger is not None else None
                 messages.append({
                     "role": "tool",
                     "tool_call_id": res["id"],
-                    "content": truncate_tool_result(
-                        ledger.annotate(res["result"], int(time.time())) if ledger is not None
-                        else res["result"]),
+                    "content": f"{_content}\n\n{_note}" if _note else _content,
                 })
 
             # §3 plot-critique feedback loop: if any of the results were

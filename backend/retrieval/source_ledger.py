@@ -32,6 +32,21 @@ logger = logging.getLogger(__name__)
 BLOCK_MAX_CHARS = 6000
 MAX_AUTHORS_SHOWN = 6
 
+CITE_RULE = (
+    "How to cite (this overrides any other instruction to include DOIs or links): every "
+    "source a tool shows you carries an id (`sid`: S1, S2, ...) and every artifact one "
+    "too (`cite_as`: [A1], ...). Cite a source as [S7], several as [S3, S7], an artifact "
+    "as [A2]. Never type a DOI, a paper or artifact URL, an author-year citation or a "
+    "reference list yourself: the server turns the ids into numbered links and a "
+    "References list from the stored records. A list or table of papers carries the "
+    "id where the reference or DOI would go (\"- [S3]: why it matters\", a table cell "
+    "[S3]); the server fills in each checked reference. When the user asks for a reference, a "
+    "citation or a DOI, answer with the id too (\"The paper is [S4].\"): the server "
+    "inserts the full, checked reference. If no source you retrieved supports a "
+    "claim, say so instead of citing.")
+ARTIFACT_RULE = ("Cite an artifact by its `cite_as` id ([A2]); never type an artifact URL: "
+                 "the server turns the id into a working link.")
+
 _DOI_RE = re.compile(r"\b10\.\d{4,9}/[^\s\"'<>\[\]`{}|\\]+", re.IGNORECASE)
 _DOI_URL_RE = re.compile(r"^https?://(?:dx\.)?doi\.org/(10\.\d{4,9}/\S+)$", re.IGNORECASE)
 # "[S7]", "[S3, S7]", "[S3; A2]"; also the full-width brackets some models use.
@@ -86,6 +101,7 @@ class Ledger:
     conversation_id: Optional[str] = None
     entries: dict = field(default_factory=dict)   # sid -> Entry
     by_key: dict = field(default_factory=dict)    # key -> sid
+    rule_shown: bool = False                       # this turn's model has seen the citing rule
 
     # ------------------------------------------------------------------
     # Building
@@ -156,6 +172,17 @@ class Ledger:
             logger.exception("source ledger: annotate failed")
             return result
 
+    def rule_note(self, before: int) -> Optional[str]:
+        """The citing rule for a tool result that brought this turn's first
+        ids (`before`: the entry count before annotating it); None once the
+        rule is in front of the model."""
+        if self.rule_shown or len(self.entries) <= before:
+            return None
+        self.rule_shown = True
+        new = list(self.entries.values())[before:]
+        rule = CITE_RULE if any(e.kind != "artifact" for e in new) else ARTIFACT_RULE
+        return "[citing] " + rule
+
     def add_user_dois(self, text: str, turn: int = 0) -> None:
         """DOIs the user typed are sources the model may cite."""
         for m in _DOI_RE.finditer(text or ""):
@@ -175,22 +202,22 @@ class Ledger:
     # The block later turns see
     # ------------------------------------------------------------------
     def block(self, max_chars: int = BLOCK_MAX_CHARS) -> Optional[str]:
+        """The system-prompt block, or None while the conversation has no
+        sources: a turn that never cites (small talk, code, files) carries no
+        citing rule, and a tool result that brings the first sources carries
+        it instead (rule_note). Measured 2026-11-25: the rule on every turn
+        went with more clarifying questions on the mechanical cases."""
         papers = [e for e in self.entries.values() if e.kind != "artifact"]
+        if not papers:
+            if any(e.kind == "artifact" for e in self.entries.values()):
+                self.rule_shown = True
+                return ("=== SOURCES IN THIS CONVERSATION ===\n" + ARTIFACT_RULE
+                        + "\n=== END SOURCES ===")
+            return None
         papers.sort(key=lambda e: (e.first_turn, int(e.sid[1:])), reverse=True)
-        head = ("=== SOURCES IN THIS CONVERSATION ===\n"
-                "How to cite (this overrides any other instruction to include DOIs or links): every "
-                "source a tool shows you carries an id (`sid`: S1, S2, ...) and every artifact one "
-                "too (`cite_as`: [A1], ...). Cite a source as [S7], several as [S3, S7], an artifact "
-                "as [A2]. Never type a DOI, a paper or artifact URL, an author-year citation or a "
-                "reference list yourself: the server turns the ids into numbered links and a "
-                "References list from the stored records. A list or table of papers carries the "
-                "id where the reference or DOI would go (\"- [S3]: why it matters\", a table cell "
-                "[S3]); the server fills in each checked reference. When the user asks for a reference, a "
-                "citation or a DOI, answer with the id too (\"The paper is [S4].\"): the server "
-                "inserts the full, checked reference. If no source you retrieved supports a "
-                "claim, say so instead of citing.\n"
-                + ("Sources found earlier in this conversation (citable without a new search):"
-                   if papers else "(no sources yet)"))
+        self.rule_shown = True
+        head = ("=== SOURCES IN THIS CONVERSATION ===\n" + CITE_RULE + "\n"
+                "Sources found earlier in this conversation (citable without a new search):")
         lines, used, left = [], len(head), 0
         for i, e in enumerate(papers):
             line = f"{e.sid}: {_short(e.record)}"

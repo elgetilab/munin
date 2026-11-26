@@ -142,6 +142,23 @@ def test_block_budget() -> bool:
                   and "older sources not shown" in blk, blk[:300])
 
 
+def test_no_block_until_sources_then_rule_in_tool_result() -> bool:
+    led = Ledger()
+    empty = led.block()
+    n = len(led.entries)
+    led.annotate({"papers": [{"title": "A paper", "doi": "10.1/a"}]})
+    note = led.rule_note(n)
+    again = led.rule_note(n)
+    led2 = Ledger()
+    led2.annotate({"papers": [{"title": "A paper", "doi": "10.1/a"}]})
+    blk = led2.block()
+    late = led2.rule_note(0)
+    return _check("no sources block while the ledger is empty; the first ids bring the rule once; "
+                  "a block already shown suppresses the note",
+                  empty is None and note and "Cite a source as [S7]" in note and again is None
+                  and blk and "S1:" in blk and late is None, f"{empty!r} {note!r} {again!r} {late!r}")
+
+
 def test_user_dois() -> bool:
     led = Ledger()
     led.add_user_dois("Please summarise 10.1000/jmb.1 for me.")
@@ -243,7 +260,7 @@ def main() -> int:
     tests = [test_annotate_assigns_stable_ids, test_render_numbers_links_and_references,
              test_render_leaves_code_and_plain_text, test_artifacts, test_artifacts_in_tool_results_and_block, test_elided_result_keeps_source_ids,
              test_same_paper_twice_is_one_reference,
-             test_block_budget,
+             test_block_budget, test_no_block_until_sources_then_rule_in_tool_result,
              test_user_dois, test_enrich_and_miskeyed_doi, test_typed_reference_is_replaced,
              test_typed_doi_in_table_and_prose_becomes_id, test_persistence_roundtrip]
     results = []
