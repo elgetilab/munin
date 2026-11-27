@@ -1,0 +1,45 @@
+{
+ "id": "s8_cw_rhombic_f1",
+ "suite": "S8",
+ "inputs": [
+  "heme.DSC",
+  "heme.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "heme.DSC / heme.DTA (Bruker BES3T) is an X-band CW-EPR spectrum at 10 K of a low-spin ferric heme protein (S = 1/2) in frozen solution. Report the three principal g-values, from largest to smallest (g_max, g_mid, g_min).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "g_max",
+     "truth": "truth:g_max",
+     "atol": 0.002
+    },
+    {
+     "type": "numeric",
+     "key": "g_mid",
+     "truth": "truth:g_mid",
+     "atol": 0.002
+    },
+    {
+     "type": "numeric",
+     "key": "g_min",
+     "truth": "truth:g_min",
+     "atol": 0.002
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "g_max": "",
+  "g_mid": "",
+  "g_min": ""
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:centre_crossing_not_giso",
+  "trap:g_strain_edges",
+  "sim:powder"
+ ],
+ "provenance": "synthetic powder spectrum, exact diagonalisation (s8_powder.cw_rhombic): rhombic g, g-strain FWHM (0.030, 0.012, 0.020) along (min, mid, max), 1.2 mT Gaussian, 0.6 mT modulation"
+}

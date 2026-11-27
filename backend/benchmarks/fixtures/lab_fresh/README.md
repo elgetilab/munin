@@ -29,6 +29,13 @@ independent CW analysis recovers all 11 CW truths; DeerLab 1.2.0 recovers the
 DEER truths (mean, modulation depth, t0, concentration, bimodal components;
 for `short_trace_f3` the Gaussian fit gives 3.09 vs 3.10 nm main distance).
 
+5 S8 powder / fit cases, `s8_cw_{cu_powder,nitroxide_rigid,rhombic,radical_fit,units}_f1`
+(`s8.VARIANT = 1` with `s8_powder.build` only), generated 2026-11-26 after
+LABKIT-019 (labkit 0.3.1) was frozen (docs/agent-track/LABKIT-019-PLAN.md):
+the untuned check for that round. These five had no earlier fresh variant,
+so `_f1` is unseen. VARIANT 0 of the same call reproduces the committed
+cases byte for byte.
+
 Regenerate (byte-identical, checked by SHA256SUMS):
 
     cd backend/benchmarks
@@ -36,3 +43,4 @@ Regenerate (byte-identical, checked by SHA256SUMS):
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 1; s8.build(Path('fixtures/lab_fresh/cases'))"
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 2; s8.build(Path('fixtures/lab_fresh/cases'))"
     python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8; from pathlib import Path; s8.VARIANT = 3; s8.build(Path('fixtures/lab_fresh/cases'))"
+    python3 -c "import sys; sys.path.insert(0, 'fixtures/lab/generate'); import s8, s8_powder; from pathlib import Path; s8.VARIANT = 1; s8_powder.build(Path('fixtures/lab_fresh/cases'))"

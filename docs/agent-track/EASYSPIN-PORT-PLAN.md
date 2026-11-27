@@ -392,6 +392,13 @@ vs the baselines 2/1, p = 1.0. The recipes are right; the model does not
 reach them (wrong hints fire, fits end at their bounds and the model
 reports a typical value, API slips). Round 2 is `LABKIT-019-PLAN.md`.
 
+Round 2 (labkit 0.3.1, measured 2026-11-26/27 on a test arm with ledger and
+cutter off, not deployed): `es2-labkit` 13/15 (paired vs `es1-labkit` 9/1,
+p = 0.021), the 21 older S8 cases 61/63 (no regression, p = 1), fresh `_f1`
+11/15. Cu, rigid nitroxide and rhombic are 18/18 over both files. The
+radical fit and units are 6/12. See "Result (test arm, 2026-11-26)" in
+`LABKIT-019-PLAN.md`.
+
 Originally next: the user deploys the sandbox image and retrieval. Then the labkit-arm
 run on the 5 cases x 3, an S8 regression rerun of the 21 older cases, and
 fresh variants generated after this freeze.

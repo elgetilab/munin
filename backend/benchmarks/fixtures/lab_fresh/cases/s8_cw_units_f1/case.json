@@ -1,0 +1,30 @@
+{
+ "id": "s8_cw_units_f1",
+ "suite": "S8",
+ "inputs": [
+  "nickel.DSC",
+  "nickel.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "nickel.DSC / nickel.DTA (Bruker BES3T) is the room-temperature CW-EPR spectrum of a Ni(I) phosphine complex in solution; the doublet comes from one 31P. We read the 31P splitting as 3.33 mT on this spectrum. The DFT paper we compare with lists couplings in MHz: what is our 31P coupling in MHz (A_MHz)?",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "A_MHz",
+     "truth": "truth:A_MHz",
+     "rtol": 0.005
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "A_MHz": "MHz"
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:mT_to_MHz_at_g",
+  "sim:iso"
+ ],
+ "provenance": "synthetic isotropic doublet (s8_powder.cw_units): exact Breit-Rabi, one 31P; truth = stated splitting * g * muB / h with the spectrum's g"
+}

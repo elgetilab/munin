@@ -1,11 +1,11 @@
 # Scorecards behind the headline claims
 
-94 committed scorecard JSONs, copied verbatim from
+97 committed scorecard JSONs, copied verbatim from
 `backend/benchmarks/scorecards/`. These are the raw data behind every number in
 `05-RESULTS.md`, so figures and paired tests can be regenerated without the
 repository.
 
-The full set is 138 JSON plus 90 Markdown twins; the remainder are mostly the
+The full set is 141 JSON plus 93 Markdown twins; the remainder are mostly the
 routing-tuning runs from the A0 through A5 migration, which no paper section
 cites.
 
@@ -160,6 +160,9 @@ facts live in top-level fields backfilled on 2026-09-15 (see
 | `2026-11-23_es1-baseline.json` | EasySpin port slice 1 baseline (`EASYSPIN-PORT-PLAN.md`), deployed labkit 0.2.2, before `simulate_powder`/`fit_spectrum`: five new S8 powder and fit cases (Cu(II) frozen, rigid nitroxide, rhombic heme, pyrazine anion fit, mT to MHz at g) x 3, `eval` instance: 3/15 (units 3/3, the four simulation cases 0/3) | none yet |
 | `2026-11-23_es1-baseline-regen.json` | Same baseline on the Cu, nitroxide and rhombic files regenerated with a converged generator grid (241 x 61; the 61 x 31 grid left 4e-3 of max on Cu), truth unchanged, x 3: 1/9 (nitroxide 1/3, Cu 0/3, rhombic 0/3; 0/9 on the old files). The scorecard's git field (`ba63afb`) predates the regeneration, which is in the commit that adds this file | none yet |
 | `2026-11-23_es1-labkit.json` | EasySpin port slice 1 deployed (labkit 0.3.0: `simulate_powder`, `fit_spectrum`, `convert`), the five new S8 cases x 3, `eval` instance: 5/15 (Cu 2/3, units 3/3, nitroxide, rhombic, radical 0/3). Paired vs the baselines (`es1-baseline-regen` for the regenerated cases, `es1-baseline` otherwise): 2 fail->pass, 1 pass->fail, p = 1.0. Failures: the isotropic line hints fired instead of the powder ones, fits ended at their bounds and the model reported a typical value, API slips; see `LABKIT-019-PLAN.md` | none yet |
+| `2026-11-26_es2-labkit.json` | EasySpin slice 1 round 2 (`LABKIT-019-PLAN.md`, labkit 0.3.1: ranges that move, `powder_starts`, optional `vary`, `EPRData` aliases, powder checks in the line tools; `epr_sim_context` and `epr_bound` hints; one persona sentence). Measured on a test arm (images `munin-sandbox:r11-test`, `munin-retrieval:lk019-test`, source ledger and tool-result cutter off), not the deployed instance. The five new S8 cases x 3: 13/15 (Cu 3/3, rigid nitroxide 3/3, rhombic 3/3, radical 2/3, units 2/3). Paired vs `es1-labkit`: 9 fail->pass, 1 pass->fail, exact McNemar p = 0.021 (vs the baselines 10/1, p = 0.012). `epr_sim_context` fired only on the nitroxide runs (6 of 30 across this file and `es2-fresh`); a replay with the question says it should also have fired on 14 of the 18 Cu, rhombic and radical runs. Failures: radical #3 picked peaks and saved literature-style values without a fit; units #3 used g_e (28.025 MHz/mT) | none yet |
+| `2026-11-27_es2-regress.json` | Same arm, the 21 older S8 cases x 3: 61/63. Paired vs the latest deployed run per case (`lk18-targeted` for its 11 cases, `full-lk17` for the other 10): 1/2, p = 1; vs `full-lk17` alone 5/2, p = 0.45. No case dropped by 2 of 3. Failures: `broad_window#2` masked the narrow reference line as a spike although `epr_mask` fired and `despike` removed nothing (ratio 103 vs 2.4); `complex#1` saved a diverged hand Lorentzian fit (fwhm 13.9 mT) while its answer said 0.149 mT | none yet |
+| `2026-11-27_es2-fresh.json` | Same arm, `_f1` variants of the five new cases (generated after labkit 0.3.1 froze, `fixtures/lab_fresh`) x 3: 11/15 (Cu, rigid nitroxide, rhombic 3/3 each; radical 1/3, units 1/3). Paired by rep vs `es2-labkit`: 2/4, p = 0.69; vs `es1-labkit`: 8/2, p = 0.11. Failures: radical #1 `fit_spectrum` from aN 1.25 mT stopped at max_time_s (2 of 8 starts) at aN 1.34 (truth 0.687); radical #2 a hand scipy fit around `simulate_iso`, then literature values; units #1 g from the sweep midpoint (100.2 MHz); units #2 g_e (93.3 MHz, truth 98.04) | none yet |
 
 ## Cautions when regenerating figures
 

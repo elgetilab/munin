@@ -1,0 +1,30 @@
+{
+ "id": "s8_cw_nitroxide_rigid_f1",
+ "suite": "S8",
+ "inputs": [
+  "frozen_77K.txt"
+ ],
+ "turns": [
+  {
+   "prompt": "frozen_77K.txt is an X-band CW-EPR spectrum (first derivative, exported as text) of a nitroxide spin label on a protein in frozen glycerol/buffer at 77 K, where the label is immobilised. Report the principal hyperfine value Azz of the 14N in mT (Azz_mT); we use it as a polarity marker for the label site.",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "Azz_mT",
+     "truth": "truth:Azz_mT",
+     "atol": 0.08
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "Azz_mT": "mT"
+ },
+ "tags": [
+  "format:ascii",
+  "trap:half_outer_splitting",
+  "trap:units_G_mT",
+  "sim:powder"
+ ],
+ "provenance": "synthetic rigid-limit powder spectrum, exact diagonalisation (s8_powder.cw_nitroxide_rigid): rhombic g (2.0084, 2.0061, 2.0022), coaxial 14N A, A_mT -> MHz at each principal g, Gaussian FWHM line, 0.2 mT modulation"
+}

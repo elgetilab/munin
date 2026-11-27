@@ -1,0 +1,53 @@
+{
+ "id": "s8_cw_cu_powder_f1",
+ "suite": "S8",
+ "inputs": [
+  "cu_frozen.DSC",
+  "cu_frozen.DTA"
+ ],
+ "turns": [
+  {
+   "prompt": "cu_frozen.DSC / cu_frozen.DTA (Bruker BES3T) is an X-band CW-EPR spectrum of a Cu(II) complex in frozen solution at 77 K, natural-abundance copper. We need the spin Hamiltonian parameters for a table: g_par (g_par), g_perp (g_perp) and the parallel copper hyperfine coupling for 63Cu as a magnitude, in MHz (A_par_MHz) and in units of 1e-4 cm-1 (A_par_1e-4cm-1).",
+   "checks": [
+    {
+     "type": "numeric",
+     "key": "g_par",
+     "truth": "truth:g_par",
+     "atol": 0.003
+    },
+    {
+     "type": "numeric",
+     "key": "g_perp",
+     "truth": "truth:g_perp",
+     "atol": 0.003
+    },
+    {
+     "type": "numeric",
+     "key": "A_par_MHz",
+     "truth": "truth:A_par_MHz",
+     "rtol": 0.05
+    },
+    {
+     "type": "numeric",
+     "key": "A_par_1e-4cm-1",
+     "truth": "truth:A_par_1e-4cm-1",
+     "rtol": 0.05
+    }
+   ]
+  }
+ ],
+ "results_keys": {
+  "g_par": "",
+  "g_perp": "",
+  "A_par_MHz": "MHz",
+  "A_par_1e-4cm-1": "1e-4 cm-1"
+ },
+ "tags": [
+  "format:bes3t",
+  "trap:A_units",
+  "trap:g_par_not_zero_crossing",
+  "trap:isotope_mixture",
+  "sim:powder"
+ ],
+ "provenance": "synthetic powder spectrum, exact diagonalisation (s8_powder.cw_cu_powder): 63Cu/65Cu 69.15/30.85 with A scaled by gn, coaxial axial g and A, g-strain FWHM (0.004, 0.004, 0.010), Gaussian FWHM line, 0.4 mT modulation"
+}
